@@ -141,11 +141,24 @@ def parse_json_object(text: str) -> dict[str, Any]:
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
         stripped = re.sub(r"\s*```$", "", stripped)
+    candidates = [stripped]
     start = stripped.find("{")
     end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise ValueError("model output did not contain a JSON object")
-    payload = json.loads(stripped[start : end + 1])
-    if not isinstance(payload, dict):
-        raise ValueError("model output JSON must be an object")
-    return payload
+    if start != -1 and end > start:
+        candidates.append(stripped[start : end + 1])
+    # Models sometimes drop the opening brace and leave a trailing one.
+    missing = stripped.count("}") - stripped.count("{")
+    if missing > 0:
+        candidates.append("{" * missing + stripped)
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError as error:
+            last_error = error
+            continue
+        if isinstance(payload, dict):
+            return payload
+    if last_error is not None:
+        raise ValueError(f"model output was not a JSON object: {last_error}") from None
+    raise ValueError("model output did not contain a JSON object")

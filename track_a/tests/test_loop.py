@@ -188,6 +188,8 @@ class VapiAdapterTests(unittest.TestCase):
     def test_chat_text_and_json_extraction(self):
         text = extract_chat_text({"output": [{"role": "assistant", "content": '{"system_prompt": "x"}'}]})
         self.assertEqual(parse_json_object("```json\n" + text + "\n```")["system_prompt"], "x")
+        dropped = '"system_prompt": "Stay brief.", "first_message": "Hello there."}'
+        self.assertEqual(parse_json_object(dropped)["first_message"], "Hello there.")
 
     def test_simulate_posts_a_webchat_suite(self):
         task = validate_task(load_json(ROOT / "track_b" / "tasks" / "development" / "track_order.json"))
