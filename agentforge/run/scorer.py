@@ -25,6 +25,8 @@ JUDGE_SYSTEM = (
     "You evaluate a phone conversation between a voice agent (assistant) and a caller (user). "
     "Judge only what is observable in the transcript and the logs you are given. "
     "Be strict: if the requirement is not clearly met, it fails. "
+    "But a conditional rule (\"if the caller ...\", \"when an injury ...\") whose condition never occurs in this "
+    "conversation is not applicable and PASSES; say so in the reason. "
     "evidence_turn is the turn index that best supports your verdict, or null."
 )
 

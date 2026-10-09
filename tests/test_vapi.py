@@ -146,4 +146,4 @@ def test_unit_test_error_ended_reason(monkeypatch, tmp_path):
 
 def test_mock_messages_tool_calls():
     msgs = vapi_mod.mock_messages([Turn(role="assistant", text="", tool_calls=[{"name": "get_policy", "args": {"a": 1}}], turn_idx=3)])
-    assert msgs[0]["tool_calls"][0]["function"] == {"name": "get_policy", "arguments": '{"a": 1}'}
+    assert msgs[0]["toolCalls"] == [{"name": "get_policy", "arguments": {"a": 1}}]

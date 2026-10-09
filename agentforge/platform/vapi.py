@@ -336,14 +336,8 @@ def mock_messages(turns: list[Turn]) -> list[dict[str, Any]]:
     for turn in turns:
         if turn.role == "assistant" and turn.tool_calls:
             message: dict[str, Any] = {"role": "assistant", "content": turn.text or ""}
-            message["tool_calls"] = [
-                {
-                    "id": f"call_{turn.turn_idx}_{i}",
-                    "type": "function",
-                    "function": {"name": c.get("name", ""), "arguments": json.dumps(c.get("args") or {}, ensure_ascii=False)},
-                }
-                for i, c in enumerate(turn.tool_calls)
-            ]
+            # POST /eval rejects OpenAI-style tool_calls; it accepts toolCalls as {name, arguments}.
+            message["toolCalls"] = [{"name": c.get("name", ""), "arguments": c.get("args") or {}} for c in turn.tool_calls]
             messages.append(message)
         else:
             messages.append({"role": turn.role, "content": turn.text})

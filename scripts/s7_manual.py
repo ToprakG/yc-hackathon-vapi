@@ -10,7 +10,8 @@ from agentforge.loop.gate import gate
 from agentforge.patch.patcher import patch_agent
 from agentforge.platform import get_platform
 from agentforge.run import runner
-from agentforge.schemas import AgentConfig, Assertion, Persona
+from agentforge.patch.patcher import next_label
+from agentforge.schemas import AgentConfig, Assertion, Persona, UnitTest
 from agentforge.store import load_model, load_models, save_json
 from agentforge.testgen.unit_tests import generate_unit_tests, save_unit_tests
 
@@ -20,6 +21,7 @@ def main() -> None:
     parser.add_argument("--platform", default="vapi")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--patch-mode", choices=["surgical", "free"], default="surgical")
+    parser.add_argument("--gate-only", action="store_true", help="reuse the saved candidate and unit tests")
     args = parser.parse_args()
 
     platform = get_platform(args.platform)
@@ -28,6 +30,11 @@ def main() -> None:
     assertions = load_models(RUNS_DIR / "testsets" / "assertions.json", Assertion)
     train = [p for p in personas if "train" in p.tags]
     heldout = [p for p in personas if "heldout" in p.tags]
+
+    if args.gate_only:
+        candidate = load_model(RUNS_DIR / next_label(v1.version_label) / "agent.json", AgentConfig)
+        tests = load_models(RUNS_DIR / v1.version_label / "unit_tests.json", UnitTest)
+        return run_gate(platform, candidate, v1, heldout, assertions, tests, args.runs)
 
     scored = runner.run_suite(platform, v1, train, assertions, runs_per_persona=args.runs, set_name="train")
     runner.report(scored, f"{v1.version_label} train")
@@ -47,7 +54,11 @@ def main() -> None:
     save_json(RUNS_DIR / candidate.version_label / "patches.json", patches)
     print(f"{candidate.version_label}: {len(patches)} patches, prompt {len(v1.system_prompt)} -> {len(candidate.system_prompt)} chars")
 
-    decision = gate(platform, candidate, v1, heldout, assertions, tests, runs_per_persona=args.runs)
+    run_gate(platform, candidate, v1, heldout, assertions, tests, args.runs)
+
+
+def run_gate(platform, candidate, best, heldout, assertions, tests, runs) -> None:
+    decision = gate(platform, candidate, best, heldout, assertions, tests, runs_per_persona=runs)
     print("COMMIT" if decision.commit else "DISCARD")
     for reason in decision.reasons:
         print(" -", reason)
