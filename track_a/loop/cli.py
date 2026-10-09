@@ -1,4 +1,4 @@
-"""Commands for Phase 0 and Phase 1."""
+"""Commands for Phase 0, Phase 1, and Phase 2."""
 
 from __future__ import annotations
 
@@ -76,6 +76,19 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_phase2(args: argparse.Namespace) -> int:
+    load_dotenv(args.root / ".env")
+    from loop.phase2 import run_phase2
+
+    return run_phase2(
+        args.root,
+        mock=args.mock,
+        simulate=args.simulate,
+        force=args.force,
+        task_filter=args.task,
+    )
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
     load_dotenv(args.root / ".env")
     from loop.schema import load_json, validate_agent
@@ -121,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--force", action="store_true", help="Replace an existing V1 and re-publish")
     build.add_argument("--mock", action="store_true", help="Store a template V1 without calling a model")
     build.set_defaults(func=cmd_build)
+
+    phase2 = sub.add_parser("phase2", parents=[common], help="Write 3–5 personas per V1, then stop before the gate")
+    phase2.add_argument("--simulate", action="store_true", help="Run the stored personas through Vapi webchat")
+    phase2.add_argument("--mock", action="store_true", help="Write template personas without calling a model")
+    phase2.add_argument("--force", action="store_true", help="Replace stored personas")
+    phase2.add_argument("--task", help="One development task id")
+    phase2.set_defaults(func=cmd_phase2)
 
     publish = sub.add_parser("publish", parents=[common], help="Push stored V1 configs through the Vapi adapter")
     publish.add_argument("--task", help="Publish one task id")

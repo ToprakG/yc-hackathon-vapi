@@ -5,11 +5,13 @@
 **Track B (partner):** tasks and prompts. Files live in `track_b/`. See `track_b/README.md`.
 **Runtime:** Vapi today (`POST /assistant` to publish, `POST /chat` when the builder itself runs through Vapi). Freya replaces that adapter later. The builder never calls the provider directly.
 
-**Status:** Phase 0 runs with no network. Phase 1 stores a schema-valid V1 per development task and can publish it through the Vapi adapter. Live generation needs `VAPI_API_KEY` or `OPENAI_API_KEY` in `.env` (see `.env.example`).
+**Status:** Phase 0 runs with no network. Phase 1 stores a schema-valid V1 and can publish it. Phase 2 stores 3–5 personas per V1 and stops. The next step is Vapi webchat testing (`phase2 --simulate`). The regression gate does not run until those transcripts exist. Live calls need `VAPI_API_KEY` or `OPENAI_API_KEY` in `.env`.
 
 ```bash
 python3 track_a/scripts/run_loop.py phase0
 python3 track_a/scripts/run_loop.py build --publish
+python3 track_a/scripts/run_loop.py phase2
+python3 track_a/scripts/run_loop.py phase2 --simulate
 ```
 
 ## What we are building

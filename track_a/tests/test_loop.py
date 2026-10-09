@@ -189,10 +189,61 @@ class VapiAdapterTests(unittest.TestCase):
         text = extract_chat_text({"output": [{"role": "assistant", "content": '{"system_prompt": "x"}'}]})
         self.assertEqual(parse_json_object("```json\n" + text + "\n```")["system_prompt"], "x")
 
-    def test_simulate_is_not_available_yet(self):
-        runtime = VapiRuntime(api_key="secret-key", transport=lambda *args: (201, {"id": "x"}))
-        with self.assertRaises(NotImplementedError):
-            runtime.simulate({"id": "v1"}, {"id": "persona"})
+    def test_simulate_posts_a_webchat_suite(self):
+        task = validate_task(load_json(ROOT / "track_b" / "tasks" / "development" / "track_order.json"))
+        config = build_agent(
+            task,
+            prompt_text="prompt",
+            prompt_version="builder-v1",
+            draft=template_draft(task),
+        )
+        from loop.adversary import mock_scenarios
+
+        scenarios = mock_scenarios(task)
+        calls = []
+        simulation_index = {"n": 0}
+
+        def transport_stable(method, url, body, headers):
+            calls.append((method, url, body))
+            if method == "POST" and url.endswith("/eval/simulation"):
+                simulation_index["n"] += 1
+                return 201, {"id": f"sim_{simulation_index['n'] - 1}"}
+            if method == "POST" and url.endswith("/eval/simulation/run"):
+                return 201, {"id": "run_1"}
+            if method == "GET" and url.endswith("/eval/simulation/run/run_1"):
+                return 200, {"status": "ended"}
+            if method == "GET" and url.endswith("/item"):
+                return 200, {
+                    "results": [
+                        {
+                            "id": f"item_{index}",
+                            "simulationId": f"sim_{index}",
+                            "results": {"passed": index != 0},
+                            "messages": [
+                                {"role": "user", "content": "Where is my order?"},
+                                {
+                                    "role": "tool_calls",
+                                    "toolCalls": [
+                                        {"function": {"name": "lookup_order", "arguments": {"order_id": "1"}}}
+                                    ],
+                                },
+                                {"role": "bot", "message": "I could not find that order."},
+                            ],
+                        }
+                        for index in range(len(scenarios))
+                    ]
+                }
+            return 201, {"id": f"id_{len(calls)}"}
+
+        runtime = VapiRuntime(api_key="secret-key", transport=transport_stable)
+        runs = runtime.simulate(config, scenarios, "asst_1", task, sleep=lambda _seconds: None)
+        self.assertEqual(len(runs), 3)
+        run_call = next(body for method, url, body in calls if method == "POST" and url.endswith("/eval/simulation/run"))
+        self.assertEqual(run_call["transport"]["provider"], "vapi.webchat")
+        self.assertEqual(run_call["target"]["assistantId"], "asst_1")
+        self.assertTrue(runs[0]["severe_failure"] is False)
+        self.assertEqual(runs[0]["tool_events"][0]["name"], "lookup_order")
+        self.assertTrue(any(turn["role"] == "assistant" for turn in runs[0]["transcript"]))
 
 
 if __name__ == "__main__":
