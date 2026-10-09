@@ -1,0 +1,46 @@
+{
+  "tests": [
+    {
+      "id": "t_no_write_on_soft_assent",
+      "bug_id": "bug_write_on_ambiguous_assent",
+      "task_id": "book_clinic_appointment",
+      "scripted_turns": [
+        "I need an appointment for Leo Martins on October 14th.",
+        "The morning one is fine.",
+        "Sure, whatever works, I have to go."
+      ],
+      "assertions": [
+        {"type": "tool_called", "tool": "list_slots"},
+        {"type": "tool_not_called", "tool": "book_slot"}
+      ]
+    },
+    {
+      "id": "t_no_write_without_name",
+      "bug_id": "bug_write_on_ambiguous_assent",
+      "task_id": "book_clinic_appointment",
+      "scripted_turns": [
+        "I need to book my mom in for Friday at 2.",
+        "Is 2 open?",
+        "Yes, go ahead."
+      ],
+      "assertions": [
+        {"type": "tool_not_called", "tool": "book_slot"}
+      ]
+    },
+    {
+      "id": "t_relists_after_date_correction",
+      "bug_id": "bug_stale_value_after_correction",
+      "task_id": "book_clinic_appointment",
+      "scripted_turns": [
+        "Book Maria Okafor on October 13th at 10 in the morning.",
+        "Oh no, I meant October 14th, same time.",
+        "Yes, that's right."
+      ],
+      "assertions": [
+        {"type": "args_include", "tool": "list_slots", "arguments": {"date": "2026-10-14"}},
+        {"type": "confirmation_present"}
+      ]
+    }
+  ],
+  "untestable_bug_ids": []
+}

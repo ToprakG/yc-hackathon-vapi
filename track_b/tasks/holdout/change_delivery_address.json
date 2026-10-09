@@ -1,0 +1,49 @@
+{
+  "id": "change_delivery_address",
+  "description": "Change the delivery address on an order that has not shipped yet. The agent must verify the order, and it may only change the address when the order system allows it.",
+  "tools": [
+    {
+      "name": "get_order",
+      "description": "Get an order's status and current delivery address by order id and the ZIP code on the order.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string"},
+          "zip_code": {"type": "string", "description": "ZIP code on the current delivery address."}
+        },
+        "required": ["order_id", "zip_code"]
+      },
+      "side_effects": "read",
+      "errors": ["not_found", "zip_mismatch"]
+    },
+    {
+      "name": "update_address",
+      "description": "Replace the delivery address on an order that has not shipped.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string"},
+          "street": {"type": "string"},
+          "city": {"type": "string"},
+          "state": {"type": "string"},
+          "zip_code": {"type": "string"}
+        },
+        "required": ["order_id", "street", "city", "state", "zip_code"]
+      },
+      "side_effects": "write",
+      "errors": ["already_shipped", "undeliverable_address"]
+    }
+  ],
+  "constraints": [
+    "Collect the order id and the current ZIP code before calling get_order.",
+    "If get_order returns zip_mismatch or not_found, do not change anything and ask the caller to check the details.",
+    "If get_order shows the order has shipped, do not call update_address. Report the status as the tool returned it.",
+    "Collect street, city, state, and ZIP for the new address. Do not fill in a missing part.",
+    "Call update_address only after the caller explicitly confirms the full new address read back to them.",
+    "Do not offer a refund, a cancellation, or a delivery date the tool did not return."
+  ],
+  "success_criteria": [
+    "The new address on the order matches the address the caller confirmed.",
+    "update_address is not called when confirmation is missing, verification failed, or the order has shipped."
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "cancel_appointment",
+  "description": "Cancel an existing dental appointment by phone. The caller names the patient and the appointment, and the agent may only cancel an appointment the schedule shows for that patient.",
+  "tools": [
+    {
+      "name": "find_appointments",
+      "description": "Find upcoming appointments for a patient by full name and date of birth.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {"type": "string"},
+          "date_of_birth": {"type": "string", "description": "Date of birth in YYYY-MM-DD."}
+        },
+        "required": ["patient_name", "date_of_birth"]
+      },
+      "side_effects": "read",
+      "errors": ["patient_not_found", "no_upcoming_appointments"]
+    },
+    {
+      "name": "cancel_appointment",
+      "description": "Cancel one appointment by its appointment id.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "appointment_id": {"type": "string"}
+        },
+        "required": ["appointment_id"]
+      },
+      "side_effects": "write",
+      "errors": ["already_cancelled", "too_late_to_cancel"]
+    }
+  ],
+  "constraints": [
+    "Collect the patient's full name and date of birth before calling find_appointments.",
+    "Only cancel an appointment id that find_appointments returned for this patient.",
+    "If find_appointments returns more than one appointment, ask which one by date and time. Do not pick one.",
+    "Call cancel_appointment only after the caller explicitly confirms the date and time of the appointment to cancel.",
+    "If cancel_appointment returns too_late_to_cancel, say so and do not promise a fee waiver."
+  ],
+  "success_criteria": [
+    "The cancelled appointment is the one the caller confirmed, and it belongs to the named patient.",
+    "cancel_appointment is not called when confirmation is missing or the appointment was not returned by find_appointments."
+  ]
+}

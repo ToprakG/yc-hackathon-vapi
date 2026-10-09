@@ -1,0 +1,21 @@
+{
+  "id": "report-book_clinic_appointment-v1",
+  "task_id": "book_clinic_appointment",
+  "agent_version": "book_clinic_appointment-v1",
+  "bugs": [
+    {
+      "id": "bug_write_on_ambiguous_assent",
+      "statement": "Calls book_slot when the caller's reply to the readback is a non-committal phrase ('sure, whatever works', 'go ahead' before a name exists) instead of a clear yes to one exact patient, date, and time.",
+      "evidence_scenario_ids": ["sc_soft_yes_before_booking", "sc_missing_patient_name"],
+      "severity": "severe",
+      "suggested_invariant": "book_slot is only called after the agent reads back one patient name, one date, and one listed time, and the caller answers with a clear yes to that readback."
+    },
+    {
+      "id": "bug_stale_value_after_correction",
+      "statement": "After the caller corrects the date, books with the corrected date without calling list_slots for it again.",
+      "evidence_scenario_ids": ["sc_correction_after_readback"],
+      "severity": "severe",
+      "suggested_invariant": "When the caller changes the date, list_slots is called for the new date before any book_slot call, and book_slot uses the corrected date."
+    }
+  ]
+}
