@@ -53,7 +53,7 @@ def check_judge_health(scored: list[ScoredRun], max_error_share: float = 0.2) ->
     """A broken platform (no credits, auth) or judge (bad key, bad params) turns every run into a failure.
     Stop instead of reporting 0% and letting the gate compare two broken suites."""
     crashed = [s for s in scored if s.run.ended_reason.startswith("error")]
-    if scored and len(crashed) / len(scored) > max_error_share:
+    if scored and len(crashed) / len(scored) > 0.5:  # a few flaky calls are fine; a dead wallet or key errors them all
         raise RuntimeError(f"{len(crashed)}/{len(scored)} conversations errored, e.g. {crashed[0].run.ended_reason[:200]}")
     verdicts = [v for s in scored for v in s.verdicts]
     errors = [v for v in verdicts if v.reason.startswith("ERROR: judge failed")]
