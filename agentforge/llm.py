@@ -55,12 +55,14 @@ def _anthropic(system: str, user: str, model: str, temperature: float, max_token
     import anthropic
 
     client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
+    # Current Claude models reject sampling params (temperature is gone from the SDK) and always think,
+    # so thinking tokens count against max_tokens; give them room and set effort explicitly.
     response = client.messages.create(
         model=model,
         system=system,
         messages=[{"role": "user", "content": user}],
-        temperature=temperature,
-        max_tokens=max_tokens,
+        max_tokens=max(max_tokens, 16000),
+        output_config={"effort": "medium"},
     )
     return "".join(block.text for block in response.content if block.type == "text")
 

@@ -192,3 +192,13 @@ def test_live_judge_sanity():
     ambiguous = scorer.score_run(AMBIGUOUS, PERSONA, ASSERTIONS)
     print("ambiguous:", [(v.check_name, v.passed, v.reason) for v in ambiguous.verdicts])
     assert not ambiguous.passed  # no claim was created
+
+
+def test_suite_stops_when_judge_is_broken():
+    from agentforge.run.runner import check_judge_health
+
+    broken = Verdict(check_name="successCriteria", passed=False, reason="ERROR: judge failed: no key")
+    run = RunResult(persona_name="p", agent_version="v1")
+    with pytest.raises(RuntimeError):
+        check_judge_health([ScoredRun(run=run, verdicts=[broken], passed=False)])
+    check_judge_health([ScoredRun(run=run, verdicts=[Verdict(check_name="x", passed=False, reason="no")], passed=False)])

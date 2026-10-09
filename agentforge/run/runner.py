@@ -45,7 +45,16 @@ def run_suite(
         futures = [pool.submit(_one, platform, cfg, persona, idx, assertions) for persona, idx in jobs]
         scored = [future.result() for future in futures]
     save_jsonl(RUNS_DIR / cfg.version_label / f"{set_name}.jsonl", scored)
+    check_judge_health(scored)
     return scored
+
+
+def check_judge_health(scored: list[ScoredRun], max_error_share: float = 0.2) -> None:
+    """A broken judge (bad key, bad params) turns every check into a failure; stop instead of reporting 0%."""
+    verdicts = [v for s in scored for v in s.verdicts]
+    errors = [v for v in verdicts if v.reason.startswith("ERROR: judge failed")]
+    if verdicts and len(errors) / len(verdicts) > max_error_share:
+        raise RuntimeError(f"{len(errors)}/{len(verdicts)} judge calls failed, e.g. {errors[0].reason}")
 
 
 def metrics(scored: list[ScoredRun]) -> dict:
