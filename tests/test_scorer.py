@@ -8,6 +8,12 @@ from agentforge.run.runner import metrics, run_suite
 from agentforge.schemas import Assertion, Persona, RunResult, ScoredRun, Turn, Verdict
 from tests.fakes import FakePlatform
 
+
+@pytest.fixture(autouse=True)
+def per_check_judge(monkeypatch):
+    """Most tests here script one judge reply per check; the batch mode has its own test."""
+    monkeypatch.setenv("JUDGE_BATCH", "0")
+
 PERSONA = Persona(
     name="hasar_normal",
     prompt="Ben Ayşe Kaya. Dün park halindeyken arabama çarptılar. Hasar kaydı açtırmak istiyorum.",
@@ -211,3 +217,23 @@ def test_suite_stops_when_platform_is_broken():
     verdict = Verdict(check_name="successCriteria", passed=False, reason="run failed")
     with pytest.raises(RuntimeError):
         check_judge_health([ScoredRun(run=run, verdicts=[verdict], passed=False)])
+
+
+def test_batch_judge_one_call(monkeypatch):
+    monkeypatch.setenv("JUDGE_BATCH", "1")
+    calls = []
+
+    def fake(system, user, **kwargs):
+        calls.append(user)
+        return {"verdicts": [
+            {"check_name": "successCriteria", "passed": True, "reason": "ok", "evidence_turn": 1},
+            {"check_name": "no_pii", "passed": False, "reason": "read TCKN", "evidence_turn": 2},
+        ]}
+
+    monkeypatch.setattr(llm, "call_llm", fake)
+    run = RunResult(persona_name="p", agent_version="v1", transcript=[Turn(role="assistant", text="Merhaba", turn_idx=0)])
+    persona = Persona(name="p", prompt="x", successCriteria="verifies")
+    scored = scorer.score_run(run, persona, [Assertion(name="no_pii", prompt="no PII"), Assertion(name="missing", prompt="x")])
+    assert len(calls) == 1
+    assert [(v.check_name, v.passed) for v in scored.verdicts] == [("successCriteria", True), ("no_pii", False), ("missing", False)]
+    assert scored.verdicts[2].reason.startswith("ERROR")

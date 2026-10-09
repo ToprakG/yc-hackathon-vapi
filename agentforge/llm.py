@@ -18,6 +18,7 @@ def call_llm(
     json_schema: dict[str, Any] | None = None,
     temperature: float = 0.2,
     max_tokens: int = 4096,
+    effort: str = "medium",
 ) -> str | dict[str, Any]:
     """Return text, or a parsed dict when json_schema is given."""
     provider, name = split_model(model or settings().builder_model)
@@ -30,7 +31,7 @@ def call_llm(
     for attempt in range(attempts):
         try:
             if provider == "anthropic":
-                text = _anthropic(system, user, name, temperature, max_tokens)
+                text = _anthropic(system, user, name, max_tokens, effort)
             elif provider == "openai":
                 text = _openai(system, user, name, temperature, max_tokens, json_mode=json_schema is not None)
             else:
@@ -51,18 +52,26 @@ def _retryable(error: Exception) -> bool:
     return status is None or status == 429 or status >= 500
 
 
-def _anthropic(system: str, user: str, model: str, temperature: float, max_tokens: int) -> str:
+def _anthropic(system: str, user: str, model: str, max_tokens: int, effort: str) -> str:
     import anthropic
 
     client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
     # Current Claude models reject sampling params (temperature is gone from the SDK) and always think,
     # so thinking tokens count against max_tokens; give them room and set effort explicitly.
+    kwargs: dict[str, Any] = {}
+    if effort == "low":
+        # Fast path for simple calls (the caller simulator): turn thinking off where the model allows it.
+        if "haiku" in model:
+            kwargs["thinking"] = {"type": "disabled"}
+        elif model == "claude-sonnet-5-5":
+            kwargs["thinking"] = {"type": "between_tools"}
     response = client.messages.create(
         model=model,
         system=system,
         messages=[{"role": "user", "content": user}],
         max_tokens=max(max_tokens, 16000),
-        output_config={"effort": "medium"},
+        output_config={"effort": effort},
+        **kwargs,
     )
     return "".join(block.text for block in response.content if block.type == "text")
 

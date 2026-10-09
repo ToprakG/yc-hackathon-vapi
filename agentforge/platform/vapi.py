@@ -81,7 +81,7 @@ class VapiPlatform(Platform):
 
         for _ in range(MAX_TURNS):
             caller_text = str(
-                llm.call_llm(simulator_system, _caller_view(transcript), model=self.simulator_model, temperature=0.7)
+                llm.call_llm(simulator_system, _caller_view(transcript), model=self.simulator_model, temperature=0.7, effort="low")
             ).strip()
             finished = END_TOKEN in caller_text
             caller_text = caller_text.replace(END_TOKEN, "").strip()

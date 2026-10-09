@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -85,6 +86,43 @@ def judge(check_name: str, instructions: str, context: str) -> Verdict:
     )
 
 
+BATCH_SCHEMA = {
+    "type": "object",
+    "properties": {"verdicts": {"type": "array", "items": {
+        "type": "object",
+        "properties": {**JUDGE_SCHEMA["properties"], "check_name": {"type": "string"}},
+        "required": ["check_name", *JUDGE_SCHEMA["required"]],
+    }}},
+    "required": ["verdicts"],
+}
+
+
+def judge_batch(checks: list[tuple[str, str, str]], run: RunResult) -> list[Verdict]:
+    """All checks of one run in a single judge call. Each check still only gets the evidence its config allows."""
+    listed = "\n\n".join(
+        f"CHECK '{name}' (may use: {'transcript' if 'TOOL CALLS' not in context else 'transcript, tool calls'}"
+        f"{', extraction events' if 'EXTRACTION EVENTS' in context else ''}):\n{instructions}"
+        for name, instructions, context in checks
+    )
+    user = (f"Judge each check independently and return one verdict per check, using each check_name exactly.\n\n"
+            f"{listed}\n\n{render_context(run, True, True)}")
+    try:
+        result = llm.call_llm(JUDGE_SYSTEM, user, model=settings().judge_model, json_schema=BATCH_SCHEMA, temperature=0)
+        by_name = {str(v.get("check_name")): v for v in result.get("verdicts") or [] if isinstance(v, dict)}
+    except Exception as error:
+        return [Verdict(check_name=name, passed=False, reason=f"ERROR: judge failed: {error}") for name, _, _ in checks]
+    verdicts = []
+    for name, _, _ in checks:
+        v = by_name.get(name)
+        if v is None:
+            verdicts.append(Verdict(check_name=name, passed=False, reason="ERROR: judge failed: no verdict returned"))
+            continue
+        evidence = v.get("evidence_turn")
+        verdicts.append(Verdict(check_name=name, passed=v.get("passed") is True, reason=str(v.get("reason", "")),
+                                evidence_turn=evidence if isinstance(evidence, int) and not isinstance(evidence, bool) else None))
+    return verdicts
+
+
 def score_run(run: RunResult, persona: Persona, assertions: list[Assertion]) -> ScoredRun:
     if run.ended_reason.startswith("error"):
         verdict = Verdict(check_name="successCriteria", passed=False, reason=f"run failed: {run.ended_reason}")
@@ -99,6 +137,9 @@ def score_run(run: RunResult, persona: Persona, assertions: list[Assertion]) -> 
         ctx = assertion.contextConfig
         instructions = f"ASSERTION '{assertion.name}' (must hold for the whole conversation):\n{assertion.prompt}"
         checks.append((assertion.name, instructions, render_context(run, ctx.includeToolCalls, ctx.includeExtractionEvents)))
-    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
-        verdicts = list(pool.map(lambda check: judge(*check), checks))
+    if os.environ.get("JUDGE_BATCH", "1") == "1":
+        verdicts = judge_batch(checks, run)
+    else:  # one call per check, closest to Freya's evaluation; ~9x the calls
+        with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+            verdicts = list(pool.map(lambda check: judge(*check), checks))
     return ScoredRun(run=run, verdicts=verdicts, passed=all(v.passed for v in verdicts))
