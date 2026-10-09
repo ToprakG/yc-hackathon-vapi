@@ -6,6 +6,10 @@ def get_platform(name: str = "vapi") -> Platform:
         from agentforge.platform.vapi import VapiPlatform
 
         return VapiPlatform()
+    if name == "local":
+        from agentforge.platform.local import LocalPlatform
+
+        return LocalPlatform()
     if name == "freya":
         from agentforge.platform.freya import FreyaPlatform
 
