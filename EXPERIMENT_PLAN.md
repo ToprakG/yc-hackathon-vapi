@@ -5,13 +5,21 @@
 **Track B (partner):** tasks and prompts. Files live in `track_b/`. See `track_b/README.md`.
 **Runtime:** Vapi today (`POST /assistant` to publish, `POST /chat` when the builder itself runs through Vapi). Freya replaces that adapter later. The builder never calls the provider directly.
 
-**Status:** Phase 0 runs with no network. Phase 1 stores a schema-valid V1 and can publish it. Phase 2 stores 3–5 personas per V1 and stops. The next step is Vapi webchat testing (`phase2 --simulate`). The regression gate does not run until those transcripts exist. Live calls need `VAPI_API_KEY` or `OPENAI_API_KEY` in `.env`.
+**Status:** Phases 0–5 have run on the three development tasks. The gate discarded both patches, so `BEST` stays `v1` for every task. Holdout has no task files, so Phase 6 did not score a holdout. Live calls need `VAPI_API_KEY` in `.env` and `BUILDER_PROVIDER=vapi`.
+
+| Task | Transcripts | Gate |
+|---|---|---|
+| book_clinic_appointment | 5 on V1, 5 on V2 | DISCARD. Targeted tests failed on V2. Scenarios 2 and 4 did not improve. |
+| reserve_table | 4 on V1 | No generalized bug. No V2. |
+| track_order | 5 on V1, 5 on V2 | DISCARD. Scenario 4 did not improve. |
 
 ```bash
 python3 track_a/scripts/run_loop.py phase0
-python3 track_a/scripts/run_loop.py build --publish
-python3 track_a/scripts/run_loop.py phase2
-python3 track_a/scripts/run_loop.py phase2 --simulate
+BUILDER_PROVIDER=vapi python3 track_a/scripts/run_loop.py phase2 --simulate
+BUILDER_PROVIDER=vapi python3 track_a/scripts/run_loop.py phase3
+BUILDER_PROVIDER=vapi python3 track_a/scripts/run_loop.py phase4
+BUILDER_PROVIDER=vapi python3 track_a/scripts/run_loop.py phase5
+python3 track_a/scripts/run_loop.py phase6
 ```
 
 ## What we are building

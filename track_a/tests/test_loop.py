@@ -247,6 +247,40 @@ class VapiAdapterTests(unittest.TestCase):
         self.assertEqual(runs[0]["tool_events"][0]["name"], "lookup_order")
         self.assertTrue(any(turn["role"] == "assistant" for turn in runs[0]["transcript"]))
 
+    def test_transcript_reads_metadata_call_messages(self):
+        from loop.vapi_runtime import transcript_from_item
+
+        transcript, events = transcript_from_item(
+            {
+                "metadata": {
+                    "call": {
+                        "messages": [
+                            {"role": "user", "message": "Book Friday at 3."},
+                            {
+                                "role": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "call_1",
+                                        "function": {"name": "list_slots", "arguments": "{\"date\": \"2026-10-09\"}"},
+                                    }
+                                ],
+                            },
+                            {
+                                "role": "tool_call_result",
+                                "toolCallId": "call_1",
+                                "result": "{\"ok\": true}",
+                            },
+                            {"role": "bot", "message": "That slot is open."},
+                        ]
+                    }
+                }
+            }
+        )
+        self.assertEqual(events[0]["name"], "list_slots")
+        self.assertEqual(events[0]["arguments"]["date"], "2026-10-09")
+        self.assertEqual(events[0]["result"], {"ok": True})
+        self.assertTrue(any(turn["role"] == "assistant" for turn in transcript))
+
 
 if __name__ == "__main__":
     unittest.main()

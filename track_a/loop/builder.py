@@ -67,6 +67,8 @@ def user_message(task: dict[str, Any]) -> str:
 def assemble(task: dict[str, Any], draft: dict[str, Any], prompt_version: str) -> dict[str, Any]:
     if not isinstance(draft, dict):
         raise SchemaError(["builder draft must be an object"])
+    # The patcher returns a changes log beside the draft. It is not part of AgentConfig.
+    draft = {key: value for key, value in draft.items() if key != "changes"}
     errors: list[str] = []
     for key in ("system_prompt", "first_message", "tools"):
         if key not in draft:

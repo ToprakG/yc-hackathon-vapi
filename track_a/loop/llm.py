@@ -7,6 +7,7 @@ import os
 import re
 from typing import Any, Protocol
 
+from loop.schema import SchemaError
 from loop.vapi_runtime import request_json
 
 
@@ -107,6 +108,21 @@ def extract_chat_text(payload: dict[str, Any]) -> str:
     if not text:
         raise RuntimeError("Vapi chat returned no assistant text")
     return text
+
+
+def repairing_json(llm: LLMClient, *, system: str, user: str, accept):
+    raw = llm.complete(system=system, user=user)
+    try:
+        return accept(parse_json_object(raw))
+    except (SchemaError, ValueError, KeyError) as error:
+        repair = llm.complete(
+            system=system,
+            user=(
+                "Your previous JSON failed validation. Return only the corrected JSON object.\n\n"
+                f"Errors: {error}\n\nPrevious output:\n{raw}"
+            ),
+        )
+        return accept(parse_json_object(repair))
 
 
 def make_llm_client() -> LLMClient:

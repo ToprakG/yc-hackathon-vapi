@@ -76,13 +76,16 @@ def run_phase2(
             print(f"stored {len(scenarios)} scenarios for {config['id']} ({prompt_version}) -> {bundle_path}")
         if not simulate:
             continue
-        binding = load_binding(root, config)
-        if not binding or not binding.get("assistant_id"):
-            print(f"{config['id']} is not published. Run build --publish before Vapi testing.")
-            return 1
         if runtime is None:
             runtime = VapiRuntime.from_env()
-        runs = runtime.simulate(config, scenarios, binding["assistant_id"], task)
+        binding = load_binding(root, config)
+        if not binding or not binding.get("assistant_id"):
+            binding = runtime.publish(config)
+            from loop.store import save_binding
+
+            save_binding(root, config, binding)
+            print(f"published {config['id']} -> {binding['assistant_id']}")
+        runs = runtime.simulate(config, scenarios, binding["assistant_id"], task, attempts=150, interval=5)
         if not 3 <= len(runs) <= 5:
             print(f"{config['id']} simulation returned {len(runs)} transcripts; expected 3 to 5")
             return 1

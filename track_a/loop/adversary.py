@@ -59,14 +59,7 @@ def mock_scenarios(task: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def user_message(task: dict[str, Any], config: dict[str, Any]) -> str:
-    return (
-        "Write 3 to 5 ScenarioSpec objects for this task and this agent. "
-        "Return one JSON object with a scenarios array. No markdown.\n\n"
-        "TaskSpec:\n"
-        + json.dumps(task, indent=2)
-        + "\n\nAgentConfig:\n"
-        + json.dumps(config, indent=2)
-    )
+    return json.dumps({"task": task, "agent": config}, indent=2)
 
 
 def accept_scenarios(task: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, Any]]:

@@ -89,6 +89,52 @@ def cmd_phase2(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_phase3(args: argparse.Namespace) -> int:
+    load_dotenv(args.root / ".env")
+    from loop.phase3 import run_phase3
+
+    return run_phase3(args.root, task_filter=args.task)
+
+
+def cmd_phase4(args: argparse.Namespace) -> int:
+    load_dotenv(args.root / ".env")
+    from loop.phase4 import run_phase4
+
+    return run_phase4(args.root, task_filter=args.task)
+
+
+def cmd_phase5(args: argparse.Namespace) -> int:
+    load_dotenv(args.root / ".env")
+    from loop.phase5 import run_phase5
+
+    return run_phase5(args.root, task_filter=args.task)
+
+
+def cmd_phase6(args: argparse.Namespace) -> int:
+    from loop.phase6 import run_phase6
+
+    return run_phase6(args.root)
+
+
+def cmd_next(args: argparse.Namespace) -> int:
+    load_dotenv(args.root / ".env")
+    from loop.phase2 import run_phase2
+    from loop.phase3 import run_phase3
+    from loop.phase4 import run_phase4
+    from loop.phase5 import run_phase5
+
+    code = run_phase2(args.root, simulate=True, task_filter=args.task)
+    if code != 0:
+        return code
+    code = run_phase3(args.root, task_filter=args.task)
+    if code != 0:
+        return code
+    code = run_phase4(args.root, task_filter=args.task)
+    if code != 0:
+        return code
+    return run_phase5(args.root, task_filter=args.task)
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
     load_dotenv(args.root / ".env")
     from loop.schema import load_json, validate_agent
@@ -141,6 +187,25 @@ def build_parser() -> argparse.ArgumentParser:
     phase2.add_argument("--force", action="store_true", help="Replace stored personas")
     phase2.add_argument("--task", help="One development task id")
     phase2.set_defaults(func=cmd_phase2)
+
+    phase3 = sub.add_parser("phase3", parents=[common], help="Write a failure report from the transcripts")
+    phase3.add_argument("--task", help="One development task id")
+    phase3.set_defaults(func=cmd_phase3)
+
+    phase4 = sub.add_parser("phase4", parents=[common], help="Write unit tests and a V2 from the failure report")
+    phase4.add_argument("--task", help="One development task id")
+    phase4.set_defaults(func=cmd_phase4)
+
+    phase5 = sub.add_parser("phase5", parents=[common], help="Replay V2 and commit or discard")
+    phase5.add_argument("--task", help="One development task id")
+    phase5.set_defaults(func=cmd_phase5)
+
+    phase6 = sub.add_parser("phase6", parents=[common], help="Report BEST and whether holdout can be scored")
+    phase6.set_defaults(func=cmd_phase6)
+
+    nxt = sub.add_parser("next", parents=[common], help="Run simulate, analyzer, patch, and the gate")
+    nxt.add_argument("--task", help="One development task id")
+    nxt.set_defaults(func=cmd_next)
 
     publish = sub.add_parser("publish", parents=[common], help="Push stored V1 configs through the Vapi adapter")
     publish.add_argument("--task", help="Publish one task id")
