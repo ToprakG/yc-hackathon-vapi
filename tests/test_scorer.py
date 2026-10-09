@@ -202,3 +202,12 @@ def test_suite_stops_when_judge_is_broken():
     with pytest.raises(RuntimeError):
         check_judge_health([ScoredRun(run=run, verdicts=[broken], passed=False)])
     check_judge_health([ScoredRun(run=run, verdicts=[Verdict(check_name="x", passed=False, reason="no")], passed=False)])
+
+
+def test_suite_stops_when_platform_is_broken():
+    from agentforge.run.runner import check_judge_health
+
+    run = RunResult(persona_name="p", agent_version="v1", ended_reason="error: POST /chat -> 402")
+    verdict = Verdict(check_name="successCriteria", passed=False, reason="run failed")
+    with pytest.raises(RuntimeError):
+        check_judge_health([ScoredRun(run=run, verdicts=[verdict], passed=False)])
