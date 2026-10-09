@@ -47,11 +47,11 @@ class LocalPlatform(Platform):
         if provider == "anthropic":
             import anthropic
 
-            self._client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
+            self._client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None, max_retries=6)
         else:
             import openai
 
-            self._client = openai.OpenAI(api_key=settings().openai_api_key or None)
+            self._client = openai.OpenAI(api_key=settings().openai_api_key or None, max_retries=6)
         return self._client
 
     def upsert_agent(self, cfg: AgentConfig) -> str:

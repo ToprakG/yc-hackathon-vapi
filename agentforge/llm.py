@@ -55,7 +55,7 @@ def _retryable(error: Exception) -> bool:
 def _anthropic(system: str, user: str, model: str, max_tokens: int, effort: str) -> str:
     import anthropic
 
-    client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
+    client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None, max_retries=6)
     # Current Claude models reject sampling params (temperature is gone from the SDK) and always think,
     # so thinking tokens count against max_tokens; give them room and set effort explicitly.
     kwargs: dict[str, Any] = {}
@@ -79,7 +79,7 @@ def _anthropic(system: str, user: str, model: str, max_tokens: int, effort: str)
 def _openai(system: str, user: str, model: str, temperature: float, max_tokens: int, json_mode: bool) -> str:
     import openai
 
-    client = openai.OpenAI(api_key=settings().openai_api_key or None)
+    client = openai.OpenAI(api_key=settings().openai_api_key or None, max_retries=6)
     kwargs: dict[str, Any] = {}
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
