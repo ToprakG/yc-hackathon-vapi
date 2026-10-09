@@ -25,6 +25,10 @@ def request_json(
     timeout: int = 90,
 ) -> tuple[int, dict[str, Any]]:
     data = None if body is None else json.dumps(body).encode()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; yc-hackathon-vapi/phase2)",
+        **headers,
+    }
     request = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
