@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "unit_test.json",
+  "title": "UnitTest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "bug_id", "task_id", "scripted_turns", "assertions"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "bug_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "scripted_turns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "assertions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "enum": ["tool_called", "tool_not_called", "args_include", "confirmation_present", "final_state_equals"]
+          },
+          "tool": {"type": "string"},
+          "arguments": {"type": "object"},
+          "path": {"type": "string"},
+          "value": {}
+        }
+      }
+    }
+  }
+}

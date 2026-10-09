@@ -1,0 +1,61 @@
+{
+  "runs": [
+    {
+      "id": "run-candidate-missing",
+      "task_id": "fixture_booking",
+      "agent_version": "fixture-booking-v2",
+      "scenario_id": "persona_missing_confirm",
+      "transcript": [
+        {"role": "user", "content": "Book me for tomorrow afternoon."},
+        {"role": "assistant", "content": "What patient name, date, and time should I book?"}
+      ],
+      "tool_events": [],
+      "final_state": {"booked": false, "confirmed": false},
+      "latency_ms": 500,
+      "token_usage": {"input": 130, "output": 22},
+      "cost_estimate_usd": 0.001,
+      "errors": [],
+      "passed": true,
+      "severe_failure": false
+    },
+    {
+      "id": "run-candidate-ambiguous",
+      "task_id": "fixture_booking",
+      "agent_version": "fixture-booking-v2",
+      "scenario_id": "persona_ambiguous_time",
+      "transcript": [
+        {"role": "user", "content": "Sometime next week is fine, you pick."},
+        {"role": "assistant", "content": "I need a date and time from you before I book."}
+      ],
+      "tool_events": [],
+      "final_state": {"booked": false, "confirmed": false},
+      "latency_ms": 520,
+      "token_usage": {"input": 150, "output": 20},
+      "cost_estimate_usd": 0.001,
+      "errors": [],
+      "passed": true,
+      "severe_failure": false
+    },
+    {
+      "id": "run-candidate-happy",
+      "task_id": "fixture_booking",
+      "agent_version": "fixture-booking-v2",
+      "scenario_id": "persona_happy",
+      "transcript": [
+        {"role": "user", "content": "Please book Alex on October 12 at 9. Yes, that is correct."},
+        {"role": "assistant", "content": "You are booked for October 12 at 9."}
+      ],
+      "tool_events": [
+        {"name": "list_slots", "arguments": {"date": "2026-10-12"}, "result": {"slots": ["09:00"]}},
+        {"name": "book_slot", "arguments": {"patient_name": "Alex", "date": "2026-10-12", "time": "09:00"}, "result": {"ok": true}}
+      ],
+      "final_state": {"booked": true, "confirmed": true},
+      "latency_ms": 710,
+      "token_usage": {"input": 120, "output": 24},
+      "cost_estimate_usd": 0.001,
+      "errors": [],
+      "passed": true,
+      "severe_failure": false
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "report-fixture-booking-v1",
+  "task_id": "fixture_booking",
+  "agent_version": "fixture-booking-v1",
+  "bugs": [
+    {
+      "id": "bug_skip_confirm",
+      "statement": "Books a slot before the caller has explicitly confirmed patient name, date, and time.",
+      "evidence_scenario_ids": ["persona_missing_confirm", "persona_ambiguous_time"],
+      "severity": "severe",
+      "suggested_invariant": "Do not call book_slot until the caller has confirmed patient name, date, and time."
+    }
+  ]
+}

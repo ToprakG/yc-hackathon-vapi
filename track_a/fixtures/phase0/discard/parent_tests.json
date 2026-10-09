@@ -1,0 +1,6 @@
+{
+  "results": [
+    {"test_id": "t_list_slots", "bug_id": "bug_old_lookup", "passed": true},
+    {"test_id": "t_confirm_before_book", "bug_id": "bug_skip_confirm", "passed": false}
+  ]
+}

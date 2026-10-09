@@ -1,0 +1,45 @@
+{
+  "id": "book_clinic_appointment",
+  "description": "Book a clinic appointment by phone. The caller wants a specific patient, day, and time, and the agent may only book a slot the calendar still has open.",
+  "tools": [
+    {
+      "name": "list_slots",
+      "description": "List open appointment slots on a given date.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string", "description": "Date in YYYY-MM-DD."},
+          "clinic": {"type": "string", "description": "Clinic name. Use downtown if the caller does not name one."}
+        },
+        "required": ["date"]
+      },
+      "side_effects": "read",
+      "errors": ["invalid_date", "clinic_closed"]
+    },
+    {
+      "name": "book_slot",
+      "description": "Book an open slot for a named patient.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {"type": "string"},
+          "date": {"type": "string", "description": "Date in YYYY-MM-DD."},
+          "time": {"type": "string", "description": "Time in HH:MM, 24-hour."}
+        },
+        "required": ["patient_name", "date", "time"]
+      },
+      "side_effects": "write",
+      "errors": ["slot_taken", "invalid_time"]
+    }
+  ],
+  "constraints": [
+    "Collect patient name, date, and time before booking.",
+    "Call list_slots before book_slot and only offer times the tool returned.",
+    "Call book_slot only after the caller explicitly confirms the patient name, date, and time.",
+    "If the caller changes a detail, use the corrected value and confirm again."
+  ],
+  "success_criteria": [
+    "The booked slot matches the confirmed patient, date, and time.",
+    "book_slot is not called when confirmation is missing or the slot was not listed."
+  ]
+}

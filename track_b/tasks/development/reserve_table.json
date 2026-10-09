@@ -1,0 +1,47 @@
+{
+  "id": "reserve_table",
+  "description": "Reserve a restaurant table. The caller gives a party size, date, and time, and the agent may only reserve a table the restaurant still has.",
+  "tools": [
+    {
+      "name": "check_tables",
+      "description": "Check which tables fit a party size at a date and time.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "party_size": {"type": "integer"},
+          "date": {"type": "string", "description": "Date in YYYY-MM-DD."},
+          "time": {"type": "string", "description": "Time in HH:MM, 24-hour."}
+        },
+        "required": ["party_size", "date", "time"]
+      },
+      "side_effects": "read",
+      "errors": ["no_table", "restaurant_closed"]
+    },
+    {
+      "name": "reserve_table",
+      "description": "Reserve a table under a name after the caller confirms the details.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "party_size": {"type": "integer"},
+          "date": {"type": "string"},
+          "time": {"type": "string"}
+        },
+        "required": ["name", "party_size", "date", "time"]
+      },
+      "side_effects": "write",
+      "errors": ["no_longer_available", "invalid_party_size"]
+    }
+  ],
+  "constraints": [
+    "Collect name, party size, date, and time before reserving.",
+    "Call check_tables before reserve_table. If it returns no_table, do not reserve.",
+    "Call reserve_table only after the caller explicitly confirms name, party size, date, and time.",
+    "Party size must be a positive number the caller stated. Do not pick one for them."
+  ],
+  "success_criteria": [
+    "The reservation matches the confirmed name, party size, date, and time.",
+    "reserve_table is not called when confirmation is missing or check_tables failed."
+  ]
+}

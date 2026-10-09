@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scenario_spec.json",
+  "title": "ScenarioSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "persona", "attack_objective", "turn_strategy", "expected_behavior", "failure_condition", "severity"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "persona": {"type": "string", "minLength": 1},
+    "attack_objective": {"type": "string", "minLength": 1},
+    "turn_strategy": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "expected_behavior": {"type": "string", "minLength": 1},
+    "failure_condition": {"type": "string", "minLength": 1},
+    "severity": {"enum": ["low", "medium", "high", "severe"]}
+  }
+}

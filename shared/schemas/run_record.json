@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run_record.json",
+  "title": "RunRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "agent_version", "scenario_id", "transcript", "tool_events", "final_state", "latency_ms", "token_usage", "cost_estimate_usd", "errors", "passed", "severe_failure"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "agent_version": {"type": "string", "minLength": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "transcript": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "content"],
+        "properties": {
+          "role": {"enum": ["user", "assistant", "tool", "system"]},
+          "content": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "tool_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "arguments", "result"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "arguments": {"type": "object"},
+          "result": {}
+        }
+      }
+    },
+    "final_state": {"type": "object"},
+    "latency_ms": {"type": "number", "minimum": 0},
+    "token_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "input": {"type": "integer", "minimum": 0},
+        "output": {"type": "integer", "minimum": 0}
+      }
+    },
+    "cost_estimate_usd": {"type": "number", "minimum": 0},
+    "errors": {"type": "array", "items": {"type": "string"}},
+    "passed": {"type": "boolean"},
+    "severe_failure": {"type": "boolean"}
+  }
+}

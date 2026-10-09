@@ -1,0 +1,44 @@
+{
+  "id": "fixture-booking-v2",
+  "task_id": "fixture_booking",
+  "parent_id": "fixture-booking-v1",
+  "version": "v2",
+  "prompt_version": "canned-v2",
+  "system_prompt": "You book clinic visits. Call list_slots before offering a time. Call book_slot only after the caller explicitly confirms the patient name, date, and time. If a required field is missing, ask for it and do not book.",
+  "first_message": "I can help you book a clinic visit. What day works?",
+  "tools": [
+    {
+      "name": "list_slots",
+      "description": "List open appointment slots on a date.",
+      "parameters": {
+        "type": "object",
+        "properties": {"date": {"type": "string"}},
+        "required": ["date"]
+      },
+      "side_effects": "read",
+      "errors": ["invalid_date"]
+    },
+    {
+      "name": "book_slot",
+      "description": "Book a slot for a patient after explicit confirmation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {"type": "string"},
+          "date": {"type": "string"},
+          "time": {"type": "string"}
+        },
+        "required": ["patient_name", "date", "time"]
+      },
+      "side_effects": "write",
+      "errors": ["slot_taken"]
+    }
+  ],
+  "runtime": {
+    "provider": "vapi",
+    "model_provider": "openai",
+    "model": "gpt-4o-mini",
+    "voice_provider": "vapi",
+    "voice_id": "Elliot"
+  }
+}

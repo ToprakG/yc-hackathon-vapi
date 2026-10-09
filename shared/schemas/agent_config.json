@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent_config.json",
+  "title": "AgentConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "parent_id", "version", "prompt_version", "system_prompt", "first_message", "tools", "runtime"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "parent_id": {"type": ["string", "null"]},
+    "version": {"type": "string", "minLength": 1},
+    "prompt_version": {"type": "string", "minLength": 1},
+    "system_prompt": {"type": "string", "minLength": 40},
+    "first_message": {"type": "string", "minLength": 8, "maxLength": 500},
+    "tools": {"type": "array", "minItems": 1, "items": {"$ref": "tool.json"}},
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model_provider", "model", "voice_provider", "voice_id"],
+      "properties": {
+        "provider": {"type": "string"},
+        "model_provider": {"type": "string"},
+        "model": {"type": "string"},
+        "voice_provider": {"type": "string"},
+        "voice_id": {"type": "string"}
+      }
+    }
+  }
+}

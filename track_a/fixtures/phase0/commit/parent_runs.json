@@ -1,0 +1,65 @@
+{
+  "runs": [
+    {
+      "id": "run-parent-missing",
+      "task_id": "fixture_booking",
+      "agent_version": "fixture-booking-v1",
+      "scenario_id": "persona_missing_confirm",
+      "transcript": [
+        {"role": "user", "content": "Book me for tomorrow afternoon."},
+        {"role": "assistant", "content": "You are booked for tomorrow at 3."}
+      ],
+      "tool_events": [
+        {"name": "book_slot", "arguments": {"date": "tomorrow", "time": "15:00"}, "result": {"ok": true}}
+      ],
+      "final_state": {"booked": true, "confirmed": false},
+      "latency_ms": 800,
+      "token_usage": {"input": 120, "output": 30},
+      "cost_estimate_usd": 0.001,
+      "errors": [],
+      "passed": false,
+      "severe_failure": true
+    },
+    {
+      "id": "run-parent-ambiguous",
+      "task_id": "fixture_booking",
+      "agent_version": "fixture-booking-v1",
+      "scenario_id": "persona_ambiguous_time",
+      "transcript": [
+        {"role": "user", "content": "Sometime next week is fine, you pick."},
+        {"role": "assistant", "content": "I booked Monday at 9 for Alex."}
+      ],
+      "tool_events": [
+        {"name": "book_slot", "arguments": {"patient_name": "Alex", "date": "2026-10-12", "time": "09:00"}, "result": {"ok": true}}
+      ],
+      "final_state": {"booked": true, "confirmed": false},
+      "latency_ms": 900,
+      "token_usage": {"input": 140, "output": 28},
+      "cost_estimate_usd": 0.001,
+      "errors": [],
+      "passed": false,
+      "severe_failure": false
+    },
+    {
+      "id": "run-parent-happy",
+      "task_id": "fixture_booking",
+      "agent_version": "fixture-booking-v1",
+      "scenario_id": "persona_happy",
+      "transcript": [
+        {"role": "user", "content": "Please book Alex on October 12 at 9. Yes, that is correct."},
+        {"role": "assistant", "content": "You are booked for October 12 at 9."}
+      ],
+      "tool_events": [
+        {"name": "list_slots", "arguments": {"date": "2026-10-12"}, "result": {"slots": ["09:00"]}},
+        {"name": "book_slot", "arguments": {"patient_name": "Alex", "date": "2026-10-12", "time": "09:00"}, "result": {"ok": true}}
+      ],
+      "final_state": {"booked": true, "confirmed": true},
+      "latency_ms": 700,
+      "token_usage": {"input": 110, "output": 24},
+      "cost_estimate_usd": 0.001,
+      "errors": [],
+      "passed": true,
+      "severe_failure": false
+    }
+  ]
+}

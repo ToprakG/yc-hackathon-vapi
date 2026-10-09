@@ -1,0 +1,44 @@
+{
+  "id": "fixture-booking-v1",
+  "task_id": "fixture_booking",
+  "parent_id": null,
+  "version": "v1",
+  "prompt_version": "canned-v1",
+  "system_prompt": "You book clinic visits. Call list_slots to read open times. Call book_slot to write a booking. Prefer acting quickly when the caller sounds sure.",
+  "first_message": "I can help you book a clinic visit. What day works?",
+  "tools": [
+    {
+      "name": "list_slots",
+      "description": "List open appointment slots on a date.",
+      "parameters": {
+        "type": "object",
+        "properties": {"date": {"type": "string"}},
+        "required": ["date"]
+      },
+      "side_effects": "read",
+      "errors": ["invalid_date"]
+    },
+    {
+      "name": "book_slot",
+      "description": "Book a slot for a patient.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {"type": "string"},
+          "date": {"type": "string"},
+          "time": {"type": "string"}
+        },
+        "required": ["patient_name", "date", "time"]
+      },
+      "side_effects": "write",
+      "errors": ["slot_taken"]
+    }
+  ],
+  "runtime": {
+    "provider": "vapi",
+    "model_provider": "openai",
+    "model": "gpt-4o-mini",
+    "voice_provider": "vapi",
+    "voice_id": "Elliot"
+  }
+}

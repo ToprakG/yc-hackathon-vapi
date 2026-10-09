@@ -1,304 +1,255 @@
-# Freya Voice Agent-Builder Hackathon — Experiment Plan
+# Closed-Loop Agent Builder — Experiment Plan
+
+**Date:** October 9, 2026
+**Track A (us):** harness, Vapi adapter, tests, regression gate. Code lives in `track_a/`.
+**Track B (partner):** tasks and prompts. Files live in `track_b/`. See `track_b/README.md`.
+**Runtime:** Vapi today (`POST /assistant` to publish, `POST /chat` when the builder itself runs through Vapi). Freya replaces that adapter later. The builder never calls the provider directly.
+
+**Status:** Phase 0 runs with no network. Phase 1 stores a schema-valid V1 per development task and can publish it through the Vapi adapter. Live generation needs `VAPI_API_KEY` or `OPENAI_API_KEY` in `.env` (see `.env.example`).
+
+```bash
+python3 track_a/scripts/run_loop.py phase0
+python3 track_a/scripts/run_loop.py build --publish
+```
+
+## What we are building
+
+One loop. It starts from a task and its tools, and it ends with the best committed agent version.
+
+```text
+TASK + TOOLS
+      │
+      ▼
+ LLM BUILDER ──► V1
+      │
+      ▼
+ LLM ADVERSARY          find likely failure modes
+      │
+      ▼
+ 3–5 PERSONAS
+      │
+      ▼
+ FREYA SIMULATIONS ──► TRANSCRIPTS
+      │
+      ▼
+ LLM ANALYZER           generalized behavioral bugs, not one-off lines
+      │
+      ▼
+ FAILURE REPORT
+      ├──────────────────────┐
+      ▼                      ▼
+ LLM TEST GENERATOR     LLM PATCHER
+      │                      │
+      ▼                      ▼
+ UNIT TESTS                V2
+                             │
+                             ▼
+                   SIMULATIONS + TESTS
+                             │
+                             ▼
+                      REGRESSION GATE
+                        │         │
+                        ▼         ▼
+                     COMMIT    DISCARD
+                        │
+                        ▼
+                      BEST
+```
 
-**Date:** October 9, 2026  
-**Execution today:** Vapi  
-**Target runtime tomorrow:** Freya  
-**Goal:** Find the best-performing agent-builder under a fair, repeatable evaluation budget.
+The thing we are optimizing is the **builder loop**, not a single hand-written prompt. A version is kept only when the gate says it is better. `BEST` is the latest committed version, or V1 if nothing has passed the gate.
 
-## Mission
+We are not comparing a menu of optimizers today (GEPA, beam search, tournaments). Those stay out of the critical path. If the loop is running and there is time left, a second builder prompt can be dropped in as another candidate and judged by the same gate.
 
-We are optimizing the **builder**, not one hand-written voice agent. The builder receives a task and available tools, then produces a voice-agent configuration and prompt that can complete the task reliably.
+## What each box must do
 
-We will explore broadly, but keep experiments isolated. Every candidate must be evaluated on the same development scenarios and a hidden holdout set. Complexity only stays if it improves results.
+| Step | Input | Output | Rule |
+|---|---|---|---|
+| Builder | `TaskSpec` | `AgentConfig` V1 | One shot. Schema-valid before it is simulated. |
+| Adversary | task + tools + V1 | 3–5 `ScenarioSpec`s | Attacks tied to this task and these tools. Not generic rude users. |
+| Simulations | personas + agent version | `RunRecord`s with transcripts and tool events | Same personas are reused when we retest V2. |
+| Analyzer | transcripts + task | `FailureReport` | Bugs are generalized behaviors (“skips confirmation when a required field is missing”), not quotes from one turn. |
+| Test generator | failure report | unit tests | Tests encode the bug, not the patch. Written before or without seeing V2. |
+| Patcher | failure report + current prompt | V2 | Smallest change that should fix the generalized bug. |
+| Regression gate | V1 results, V2 simulations, unit tests | commit or discard | Commit only if targeted failures improve and existing tests do not regress. |
 
-## Parallel tracks
+The test generator and the patcher both read the failure report. They do not read each other. That keeps the tests from becoming a restatement of the patch.
 
-We split ownership roughly evenly:
+## How we collaborate
 
-- **Track A — Technical / Optimization & Evaluation (Owner A):** harness, baseline, optimizer strategies, scoring, experiment analysis, holdout evaluation.
-- **Track B — Product / Agent Quality & Adversarial Testing (Owner B):** task fixtures, agent compiler variants, adversarial personas, voice/tool scenarios, regression cases, prompt/configuration experiments.
+Two owners, one repo, file handoffs. Chat is for decisions. The artifact is the source of truth.
 
-Both owners should make their work runnable independently through shared interfaces below. Pair on integration and final decisions.
+**Shared, both tracks**
 
----
+- `shared/schemas/` — the JSON contracts. Neither track renames fields alone.
+- `shared/versions/` — Track A writes each agent version. Track B reads it. Do not hand-edit it.
+- `shared/runs/` — Track A writes transcripts and gate decisions. Track B reads them.
+- `EXPERIMENT_PLAN.md` and `.env.example`.
 
-# Track A — Optimization, Harness & Evaluation
+**Track A, `track_a/`**
 
-**Owner:** Technical lead  
-**Focus:** Prove which builder/optimizer actually performs best.
+- The loop runner, schema checks, version store, and holdout lock.
+- The Vapi runtime adapter.
+- The regression gate and the unit-test runner.
+- Canned Phase 0 fixtures under `track_a/fixtures/`.
 
-### A0. Shared experiment contract
+**Track B, `track_b/`**
 
-Implement or agree on these stable artifacts before parallel work begins:
+- Task fixtures: description, tools, constraints, success criteria.
+- Prompts for builder, adversary, analyzer, test generator, and patcher.
+- The bar for a “generalized” bug versus a one-off transcript nit.
+- Spot-checks: are the 3–5 personas actually capable of exposing a real defect?
 
-- `TaskSpec`: task description, available tools, constraints, success criteria.
-- `AgentConfig`: provider/runtime settings, system prompt, first message, tool definitions.
-- `ScenarioSpec`: persona, attack objective, turn strategy, expected behavior, failure condition, severity.
-- `RunRecord`: task ID, candidate ID, scenario ID, transcript, tool events, final state, latency, token/cost estimates, errors.
-- `Evaluation`: criterion-level scores, overall score, failure labels, judge rationale.
-- `PatchCandidate`: changed prompt sections/rules, rationale, source failures, expected benefit, regression risk.
+**Decision rights**
 
-Keep provider-specific calls behind a runtime adapter so Vapi can be replaced by Freya without changing optimizer logic.
+- We decide whether a run is valid (schema, reproducibility, gate math).
+- Partner decides whether a persona or a bug label is meaningful.
+- Either side can discard a patch. Only the gate can commit one.
+- Holdout results are not an input to the patcher. We run holdout once, at the end, on `BEST` vs V1.
 
-### A1. Baseline harness — P0
+**Handoff format**
 
-- [ ] Build one-shot baseline: `TaskSpec + tools -> AgentConfig`.
-- [ ] Validate generated configuration against a schema before execution.
-- [ ] Run a fixed starter set of 6 tasks.
-- [ ] Store prompts, configs, scenarios, transcripts, tool events, scores, and run metadata.
-- [ ] Make runs reproducible and label each experiment/version.
-- [ ] Separate development data from hidden holdout data.
+Every step writes a JSON file under a version directory. The next step reads that file, not a pasted chat message. If a prompt changes, the partner bumps the prompt version in the file header so a run can be reproduced.
 
-**Deliverable:** baseline scores and a repeatable command to run/evaluate a candidate.
+**Sync points**
 
-### A2. Optimizer comparisons — P1
+We do not wait on each other inside a phase. We sync only at the phase exit below. If one side is blocked, it leaves a stub that still matches the schema so the other side can keep going.
 
-Compare each optimizer against the same baseline and comparable simulation budget:
+## Shared contracts
 
-- [ ] **Manual reflective patching:** diagnose a failure and make a minimal generalized patch.
-- [ ] **GEPA-style reflection:** reflect across multiple successful/failed traces and synthesize generalized improvements. This is inspired by GEPA, not a claim to reproduce the full algorithm.
-- [ ] **Best-of-3:** create three strategically different prompts; evaluate and select the best.
-- [ ] **Pairwise tournament:** compare candidate transcripts head-to-head.
-- [ ] **Coordinate descent:** optimize one prompt section at a time.
-- [ ] **Multi-trace synthesis:** combine lessons from several failures rather than patching one transcript at a time.
-- [ ] **Revert-on-regression:** retain a patch only when the score improves without unacceptable regressions.
-- [ ] If time permits: **beam search** (keep multiple candidates alive) or small evolutionary search.
+Agree on these before writing prompts or the runner. Field names can be thin; they should not churn after Phase 0.
 
-**Deliverable:** comparison table showing quality, cost, runtime, and holdout performance per approach.
+- `TaskSpec` — task, tools, constraints, success criteria.
+- `AgentConfig` — system prompt, first message, tool definitions, model/runtime settings, version id, parent id.
+- `ScenarioSpec` — persona, attack objective, turn strategy, expected good behavior, observable failure, severity.
+- `RunRecord` — task id, agent version, scenario id, transcript, tool events, final state, latency, token/cost, errors.
+- `FailureReport` — bug id, generalized statement, evidence scenario ids, severity, suggested invariant.
+- `UnitTest` — bug id, scenario or scripted user turns, deterministic assertions.
+- `GateDecision` — compared versions, test deltas, simulation deltas, `commit` or `discard`, one-sentence reason.
 
-### A3. Evaluation quality — P1
+Provider calls sit behind a runtime adapter. Builder logic never imports Freya or Vapi directly.
 
-- [ ] Use an explicit rubric: task completion, correct tool use, ambiguity/state handling, safety/confirmation, clarity/efficiency.
-- [ ] Prefer deterministic checks for observable facts (tool called, arguments, confirmation present, final state).
-- [ ] Use an LLM judge for semantic behavior that code cannot reliably assess.
-- [ ] Compare single-judge scores with pairwise or double-judge evaluation on a small sample.
-- [ ] Manually inspect judge disagreements and calibrate the rubric.
-- [ ] Track repeated-run variance for stochastic scenarios.
-- [ ] Track average score, severe failure rate, latency, and cost—not just best score.
+## Phases
 
-**Deliverable:** a scoring method we trust enough to select candidates.
+Each phase has an exit. We do not start the next phase’s real LLM calls until the exit is true. Stubs are fine.
 
-### A4. Patch quality gate — P2
+### Phase 0 — Contracts and skeleton
 
-- [ ] Add a patch review step that labels patches `ACCEPT`, `REJECT`, or `REVISE`.
-- [ ] Check generality, redundancy, contradictions, overfitting, and regression risk.
-- [ ] Compare an ordinary LLM judge with the OpenAI Decisions API if access and integration are practical.
-- [ ] Keep deterministic token/diff/schema checks separate from semantic judgment.
-- [ ] Run an ablation: same patch candidates with and without the gate.
+Agree the JSON shapes, directory layout, and who writes which prompt. Runner can execute the loop with canned files and print commit/discard.
 
-**Deliverable:** evidence on whether a gate improves final outcomes enough to justify its cost.
+**Exit:** a fake V1 → fake report → fake V2 runs through the gate locally, with no network.
 
-### A5. Generalization and final selection — P0/P1
+### Phase 1 — Builder to a real V1
 
-- [ ] Lock a holdout set that the optimizer cannot inspect.
-- [ ] Include paraphrases and unseen scenarios.
-- [ ] Where possible, include task-family holdouts—not just new wording of familiar tasks.
-- [ ] Compare baseline and finalists on the same holdout.
-- [ ] Choose the winner based on holdout success per unit of time/compute, with severe failures considered separately.
-- [ ] Export the winner and its artifacts for the Freya adapter tomorrow.
+Partner supplies 2–3 development tasks (not the holdout). Builder prompt turns a `TaskSpec` into a schema-valid `AgentConfig`. We reject invalid configs before simulation.
 
-**Deliverable:** final evidence-backed recommendation, not just a favorite architecture.
+**Exit:** one command produces a stored V1 for each development task.
 
----
-
-# Track B — Agent Compiler, Adversarial Personas & Prompt Quality
+### Phase 2 — Adversary and Freya simulations
 
-**Owner:** Product / agent-quality lead  
-**Focus:** Discover which agent construction and test-generation techniques expose and prevent real failures.
+Adversary reads the task and V1 and writes 3–5 personas. We run those personas and store transcripts and tool events.
 
-### B0. Task fixtures and tool scenarios — P0
+**Exit:** every development task has 3–5 transcripts tied to a version id. Partner has skimmed them and confirmed the personas are task-specific.
 
-- [ ] Create 6 diverse representative tasks with clear success criteria and tool definitions.
-- [ ] Ensure each task has enough detail to evaluate success, not merely conversational quality.
-- [ ] Include tool success and failure paths where relevant.
-- [ ] Write a few manually verified “gold” scenarios for checking automated persona/judge quality.
-- [ ] Avoid using the hidden holdout examples to develop prompts or attacks.
+### Phase 3 — Analyzer
 
-**Deliverable:** versioned task fixtures and a starter set of trustworthy scenarios.
+Analyzer reads only transcripts plus the task. It emits a failure report of generalized bugs. If it cannot support a bug with more than a single lucky turn, it drops that bug.
 
-### B1. Agent compiler experiments — P1
+**Exit:** a failure report we both accept as “behavioral,” with severity, for at least one task that actually failed.
 
-Generate agent configurations using the same task fixtures:
+### Phase 4 — Tests and patch, in parallel
 
-- [ ] **One-shot compiler:** direct task-to-agent generation.
-- [ ] **Requirements-first compiler:** extract goals, constraints, required fields, tool contracts, and success criteria before generating.
-- [ ] **Planner + compiler:** create a structured workflow, then compile it into the voice prompt.
-- [ ] **Failure-mode-first compiler:** enumerate likely failure modes before prompt writing.
-- [ ] **Workflow templates:** adapt a proven template for a similar task.
-- [ ] **Modular vs monolithic prompt:** compare separate workflow/tool/clarification/safety sections against one cohesive prompt.
-- [ ] **Tool-contract detail:** compare minimal tool descriptions with explicit arguments, side effects, and error behavior.
+Same failure report feeds both branches.
 
-**Deliverable:** candidate prompts/configurations for the shared evaluation harness.
+- Test generator writes unit tests for the invariants in the report.
+- Patcher writes V2 from the current prompt plus the report.
 
-### B2. Adversarial persona generator — P1
+We run the test generator first in wall-clock terms only if we have to serialize. The patcher prompt must not be given the tests, and the test prompt must not be given V2.
 
-Do not generate generic “rude users.” Generate attacks tied to the task and available tools.
+**Exit:** V2 is schema-valid, and there is at least one unit test per accepted bug.
 
-For each task:
-1. Identify relevant attack surfaces.
-2. Generate 8–12 candidate attack specs.
-3. Rank by plausibility, severity, and likelihood of exposing a defect.
-4. Execute the top 3–5 in development.
-5. Preserve a separate hidden attack pool for holdout evaluation.
+### Phase 5 — Regression gate
 
-Attack surfaces to consider:
+Replay the same personas on V2. Run the unit tests on V2 and, where they apply, on V1 as a baseline.
 
-- [ ] Missing required information.
-- [ ] Ambiguous requests / “you choose.”
-- [ ] Changing or contradictory requirements.
-- [ ] Multi-turn state tracking and corrections.
-- [ ] Tool errors, empty results, timeouts, unavailable options.
-- [ ] Premature actions or skipped confirmation.
-- [ ] Attempts to override agent instructions or constraints.
-- [ ] Voice-specific interruption, disfluency, fragmented speech, ambiguous numbers.
-- [ ] Multi-objective requests or changes of intent mid-conversation.
+Commit V2 only when all of these hold:
 
-Every `ScenarioSpec` should include:
-- persona/behavior
-- attack surface and objective
-- multi-turn strategy
-- expected good behavior
-- observable failure condition
-- severity / priority
+- New tests for the targeted bugs pass on V2.
+- Tests that already passed on the parent still pass.
+- Targeted simulation failures improve.
+- No new severe failure on the replayed personas.
 
-### B3. Compare adversary strategies — P1
+Otherwise discard. Parent stays `BEST`. Record the reason either way.
 
-- [ ] **Random/generic personas vs task-aware attacks.**
-- [ ] **Taxonomy-driven attacks vs attack-surface-first generation.**
-- [ ] **Static scripts vs adaptive adversaries** that respond to the agent’s last turn.
-- [ ] **Single-turn vs multi-turn attacks.**
-- [ ] **Persona pairs:** cooperative vs difficult user with the same objective.
-- [ ] **Attack mutation:** paraphrase or restructure an attack while preserving its objective.
-- [ ] **Attack ranking:** keep scenarios that uncover real, meaningful failures; remove trivial or impossible ones.
-- [ ] **Failure prediction:** ask the generator to predict likely failures before testing, then compare with observed failures.
+**Exit:** one real commit or one real discard, with the artifacts on disk. The decision is reproducible from the saved scores.
 
-**Deliverable:** a reusable adversarial scenario generator and a comparison of which approach finds the most meaningful failures.
+### Phase 6 — Repeat, then holdout
 
-### B4. Prompt maintenance and regression memory — P1/P2
+Run the loop again from `BEST` until the budget is gone (time, simulated calls, or no new accepted bugs). Then run V1 and `BEST` on the locked holdout. Holdout does not feed the patcher.
 
-- [ ] **Append vs merge:** add a new rule or incorporate it into an existing rule.
-- [ ] **Prompt bloat test:** retain all accepted rules vs merge/prune redundant rules.
-- [ ] **Rule metadata:** link each rule to its source failure and regression tests.
-- [ ] **Counterexample-guided refinement:** generate a minimal counterexample for each failure, then fix the general behavior.
-- [ ] **Contrastive repair:** compare a failed transcript with a successful one for the same task.
-- [ ] **Root cause vs symptom patch:** evaluate whether the patch generalizes beyond the triggering transcript.
-- [ ] **Rule deletion/ablation:** remove rules or sections to discover which ones actually contribute.
-- [ ] **Regression suite:** convert every confirmed failure into a persistent behavioral test.
-- [ ] **Cross-task transfer:** check whether a fix helps similar tasks without harming unrelated tasks.
+**Exit:** a short result: V1 vs `BEST` on development and on holdout, plus severe-failure count, latency, and cost.
 
-**Deliverable:** concise prompts with traceable rules and a reusable regression suite.
+## Gate rules (so we do not relitigate them mid-run)
 
-### B5. Voice-agent-specific experiments — P2
+- A high average cannot hide a new severe failure. Severe failure discards the patch.
+- One flaky scenario does not commit a patch. The bug statement has to be general, and the replay has to support it.
+- Editing tests after seeing V2 invalidates the run. Save the tests, then patch.
+- Prompt growth is a cost. If two rules say the same thing, the patcher should merge, not append forever.
+- `BEST` is whatever is committed. Discarded versions stay on disk for the log and are never selected.
 
-- [ ] First-message variants: direct, warm, or information-gathering first message.
-- [ ] Concision vs detailed workflow instructions.
-- [ ] Explicit clarification policy for missing decision-critical fields.
-- [ ] Explicit tool-failure recovery instructions.
-- [ ] State ledger: known facts, unresolved fields, and user corrections.
-- [ ] Interruption/correction recovery.
-- [ ] Robustness to plausible speech-recognition errors.
-- [ ] Model/settings search only if allowed by the task and benchmark.
-- [ ] Prompt-only vs prompt + tool/configuration optimization.
+## Provisional score
 
-**Deliverable:** a ranked list of voice-agent-specific changes that improve task completion.
+Use the hackathon rubric if it is published. Until then, rank in this order:
 
----
+1. Severe failures (safety, wrong tool side effect, skipped required confirmation). Fewer is better. This can veto a commit by itself.
+2. Task completion and correct tool use.
+3. Recovery from ambiguity, correction, and tool failure.
+4. Then latency and token cost.
 
-# Shared experiment protocol
+Deterministic checks own tool name, arguments, required confirmation, and final state. An LLM judge is only for behavior those checks cannot see. The gate’s commit/discard uses the deterministic tests plus the severe-failure flag. Judge prose is evidence for the analyzer, not a second vote that overrides the gate.
 
-## Fair comparisons
-
-- Same task fixtures, base model where possible, tools, and runtime conditions.
-- Same development scenarios for candidate comparison.
-- Comparable optimization/evaluation budgets; record actual spend and latency.
-- Store every candidate and its parent so results can be reproduced.
-- Never select a candidate using holdout results and then report that same holdout as unbiased final performance.
-- Do not trust the optimizer’s own claim that its patch is better.
-
-## Starter scoring rubric
-
-Use the official hackathon scoring criteria if available. Until then, use this provisional proxy:
-
-| Criterion | Weight |
-|---|---:|
-| Task completion / outcome | 40% |
-| Correct tool use and constraints | 25% |
-| Ambiguity, corrections, and recovery | 20% |
-| Safety and confirmation | 10% |
-| Clarity and efficiency | 5% |
-
-Score observable requirements deterministically where possible; use an LLM judge for semantic requirements. Track severe failures separately so a high average cannot hide dangerous mistakes.
-
-## Experiment log
-
-For every run, record:
-
-- Experiment ID and hypothesis.
-- Parent candidate and exact prompt/config version.
-- Task and scenario IDs.
-- Changes made.
-- Development score and holdout score (holdout visible only to final evaluator).
-- Failure categories and regression count.
-- Latency, token usage, estimated cost, and errors.
-- Decision: keep / reject / rerun.
-- One-sentence conclusion.
-
-## Suggested repository layout
+## Layout
 
 ```text
 .
-├── README.md
 ├── EXPERIMENT_PLAN.md
-├── schemas/
-│   ├── task_spec.json
-│   ├── agent_config.json
-│   ├── scenario_spec.json
-│   ├── run_record.json
-│   └── patch_candidate.json
-├── tasks/
-│   ├── development/
-│   └── gold_scenarios/
-├── holdout/
-│   └── README.md
-├── prompts/
-│   ├── compiler/
-│   ├── adversary/
-│   ├── evaluator/
-│   └── optimizer/
-├── adapters/
-│   ├── vapi/
-│   └── freya/
-├── experiments/
-│   ├── configs/
-│   └── results/
-├── regression_tests/
-├── scripts/
-└── reports/
+├── shared/
+│   ├── schemas/          # both tracks
+│   ├── versions/         # Track A writes, Track B reads
+│   └── runs/
+├── track_a/              # harness, adapter, gate, tests
+│   ├── loop/
+│   ├── fixtures/phase0/
+│   ├── tests/
+│   └── scripts/run_loop.py
+└── track_b/              # tasks and prompts
+    ├── tasks/
+    │   ├── development/
+    │   └── holdout/      # loop cannot read this until Phase 6
+    └── prompts/
+        ├── builder/
+        ├── adversary/
+        ├── analyzer/
+        ├── test_generator/
+        └── patcher/
 ```
 
-Keep actual secret keys in environment variables or a local ignored `.env` file. Never commit keys, call recordings, or sensitive transcripts.
+Secrets stay in the environment or a local ignored `.env`. Do not commit keys or raw call recordings.
 
-## Suggested schedule for today
+## Today, in order
 
-1. **First 30–45 min:** agree on schemas, task fixtures, scoring, and adapter interface.
-2. **Next 60 min:** Track A gets the baseline harness running; Track B builds task fixtures and compiler variants in parallel.
-3. **Next 60–90 min:** Track A runs baseline and repair/reflective optimization; Track B builds attack generation and runs persona comparisons.
-4. **Next 45–60 min:** integrate regression memory, test candidate selection, and compare prompt maintenance strategies.
-5. **Final 30–45 min:** evaluate finalists on the locked holdout, record conclusions, and freeze the winner.
-6. **Tomorrow:** replace Vapi runtime/evaluation calls with Freya-compatible calls and rerun smoke tests plus the same evaluation protocol.
+1. Phase 0 together, short. Freeze schemas.
+2. Partner writes tasks and the builder prompt. We wire the runner and the schema check.
+3. Adversary prompt + simulation adapter. Get transcripts.
+4. Analyzer prompt. Agree the first failure report is actually general.
+5. Split: partner finishes test-generator and patcher prompts; we finish the test runner and the gate.
+6. One full commit/discard. If that works, repeat within budget, then holdout.
+
+If Freya is down, we still finish Phases 0–1 and the gate against recorded or stub transcripts. We do not block the loop on the provider.
 
 ## Definition of done
 
-- [ ] A reproducible baseline exists.
-- [ ] At least three meaningful builder/optimizer strategies have been compared.
-- [ ] Targeted adversarial tests uncover and document failures.
-- [ ] Regression tests exist for confirmed failures.
-- [ ] The best candidate is evaluated on a locked holdout.
-- [ ] Results include quality, severe failures, latency, and cost.
-- [ ] The winning system can be ported to Freya by replacing the runtime adapter rather than rewriting the optimizer.
-
-## Guiding principle
-
-**LLM generates → evaluator measures → optimizer proposes → checks reject bad patches → simulations verify → holdout decides.**
-
-We are trying many promising approaches, but the winning architecture is the simplest one that measurably improves unseen-task success within the available time and compute.
+- The loop runs from task + tools to a gate decision without hand-copying JSON between steps.
+- At least one development task has gone V1 → personas → transcripts → failure report → tests + V2 → commit or discard.
+- `BEST` is selected only by the gate.
+- V1 and `BEST` are both scored on a holdout the loop did not train on.
+- Swapping the runtime adapter to Freya does not require rewriting the builder, analyzer, patcher, or gate.

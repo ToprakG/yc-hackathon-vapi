@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tool.json",
+  "title": "Tool",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "parameters", "side_effects", "errors"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "description": {"type": "string", "minLength": 1},
+    "parameters": {"type": "object"},
+    "side_effects": {"enum": ["none", "read", "write"]},
+    "errors": {"type": "array", "items": {"type": "string"}}
+  }
+}

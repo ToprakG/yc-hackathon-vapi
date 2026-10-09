@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "failure_report.json",
+  "title": "FailureReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "agent_version", "bugs"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "agent_version": {"type": "string", "minLength": 1},
+    "bugs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "evidence_scenario_ids", "severity", "suggested_invariant"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 20},
+          "evidence_scenario_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "severity": {"enum": ["low", "medium", "high", "severe"]},
+          "suggested_invariant": {"type": "string", "minLength": 20}
+        }
+      }
+    }
+  }
+}

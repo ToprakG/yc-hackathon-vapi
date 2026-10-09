@@ -1,0 +1,10 @@
+{
+  "id": "t_confirm_before_book",
+  "bug_id": "bug_skip_confirm",
+  "task_id": "fixture_booking",
+  "scripted_turns": ["Book me for tomorrow afternoon."],
+  "assertions": [
+    {"type": "tool_not_called", "tool": "book_slot"},
+    {"type": "confirmation_present"}
+  ]
+}

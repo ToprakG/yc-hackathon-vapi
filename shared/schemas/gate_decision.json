@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gate_decision.json",
+  "title": "GateDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "parent_version", "candidate_version", "test_deltas", "simulation_deltas", "decision", "reason"],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "parent_version": {"type": "string", "minLength": 1},
+    "candidate_version": {"type": "string", "minLength": 1},
+    "test_deltas": {"type": "array"},
+    "simulation_deltas": {"type": "array"},
+    "decision": {"enum": ["commit", "discard"]},
+    "reason": {"type": "string", "minLength": 10}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_spec.json",
+  "title": "TaskSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "description", "tools", "constraints", "success_criteria"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 20},
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "tool.json"}
+    },
+    "constraints": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "success_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

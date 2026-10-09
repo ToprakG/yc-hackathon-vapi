@@ -1,0 +1,30 @@
+{
+  "id": "track_order",
+  "description": "Look up an order for a caller and report only the status the order system returns. The agent must not guess shipping dates or promise a refund.",
+  "tools": [
+    {
+      "name": "lookup_order",
+      "description": "Look up an order by order id, or by the phone number on the order.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string", "description": "Order id, if the caller has it."},
+          "phone": {"type": "string", "description": "Phone number on the order, if there is no order id."}
+        },
+        "required": []
+      },
+      "side_effects": "read",
+      "errors": ["not_found", "ambiguous_match"]
+    }
+  ],
+  "constraints": [
+    "Require an order id or a phone number before calling lookup_order.",
+    "If the tool returns more than one order, ask which order id the caller means.",
+    "Report the status, carrier, and date exactly as the tool returned them.",
+    "Do not offer a refund, replacement, or address change. This task is status only."
+  ],
+  "success_criteria": [
+    "The spoken status matches the lookup_order result for the confirmed order.",
+    "The agent asks for an identifier when both order id and phone are missing."
+  ]
+}
