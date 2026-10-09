@@ -41,6 +41,7 @@ def loop_env(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(unit_tests, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(run_loop, "load_domain", lambda domain: ("SOP", []))
+    monkeypatch.setattr(run_loop, "persona_context", lambda domain, task_md: task_md)
     v1 = AgentConfig(version_label="v1", system_prompt="Sen bir sigorta asistanısın.", first_message="Merhaba", model="openai:x")
     monkeypatch.setattr(builder, "build_agent", lambda task_md, tools: v1)
     monkeypatch.setattr(assertions, "generate_assertions", lambda task_md: [Assertion(name="no_pii", prompt="No PII")])

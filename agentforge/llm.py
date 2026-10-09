@@ -22,8 +22,8 @@ def call_llm(
     provider, name = split_model(model or settings().builder_model)
     if json_schema is not None:
         system = (
-            f"{system}\n\nReply with ONE JSON object only, no prose, matching this JSON schema:\n"
-            f"{json.dumps(json_schema)}"
+            f"{system}\n\nReply with ONE JSON object only, no prose. The JSON Schema below describes that object; "
+            f"return an instance with real values, NOT the schema itself:\n{json.dumps(json_schema)}"
         )
     for attempt in range(4):
         try:
@@ -33,7 +33,7 @@ def call_llm(
                 text = _openai(system, user, name, temperature, max_tokens, json_mode=json_schema is not None)
             else:
                 raise ValueError(f"unknown LLM provider: {provider}")
-            return parse_json(text) if json_schema is not None else text
+            return unwrap_schema_echo(parse_json(text), json_schema) if json_schema is not None else text
         except ValueError:
             if attempt == 3:
                 raise
@@ -78,6 +78,18 @@ def _openai(system: str, user: str, model: str, temperature: float, max_tokens: 
         **kwargs,
     )
     return response.choices[0].message.content or ""
+
+
+def unwrap_schema_echo(payload: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    """Some models answer with the schema shape, values under properties.<key>.value. Recover the instance."""
+    required = schema.get("required") or []
+    if all(key in payload for key in required) or not isinstance(payload.get("properties"), dict):
+        return payload
+    properties = payload["properties"]
+    return {
+        key: value.get("value", value.get("default")) if isinstance(value, dict) and ("value" in value or "default" in value) else value
+        for key, value in properties.items()
+    }
 
 
 def parse_json(text: str) -> dict[str, Any]:

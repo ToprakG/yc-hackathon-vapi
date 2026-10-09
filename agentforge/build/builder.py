@@ -61,15 +61,19 @@ def builder_user_message(task_md: str, tools: list[ToolDef]) -> str:
 
 
 def build_agent(task_md: str, tools: list[ToolDef], model: str | None = None) -> AgentConfig:
-    payload = llm.call_llm(
-        BUILDER_SYSTEM,
-        builder_user_message(task_md, tools),
-        model=model or settings().builder_model,
-        json_schema=BUILDER_SCHEMA,
-        temperature=0.2,
-        max_tokens=8000,
-    )
-    if not isinstance(payload, dict) or not payload.get("system_prompt") or not payload.get("first_message"):
+    # Models occasionally return JSON without the required keys; one retry fixes it.
+    for attempt in range(2):
+        payload = llm.call_llm(
+            BUILDER_SYSTEM,
+            builder_user_message(task_md, tools),
+            model=model or settings().builder_model,
+            json_schema=BUILDER_SCHEMA,
+            temperature=0.2,
+            max_tokens=8000,
+        )
+        if isinstance(payload, dict) and payload.get("system_prompt") and payload.get("first_message"):
+            break
+    else:
         raise ValueError("builder output is missing system_prompt or first_message")
     descriptions = payload.get("tool_descriptions") or {}
     merged = [

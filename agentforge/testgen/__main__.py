@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from agentforge.config import RUNS_DIR
-from agentforge.domain import load_domain
+from agentforge.domain import load_domain, persona_context
 from agentforge.schemas import AgentConfig, Persona
 from agentforge.store import load_model, save_json
 from agentforge.testgen.adversary import generate_adversary
@@ -37,7 +37,8 @@ def main() -> None:
 
     task_md, tools = load_domain(args.domain)
     cfg = load_model(Path(args.agent), AgentConfig)
-    personas = generate_adversary(task_md, tools, cfg, n=args.adversary) + generate_coverage(task_md, tools, n=args.coverage)
+    context = persona_context(args.domain, task_md)
+    personas = generate_adversary(context, tools, cfg, n=args.adversary) + generate_coverage(context, tools, n=args.coverage)
     personas = split_personas(personas)
     assertions = generate_assertions(task_md)
     save_json(RUNS_DIR / "testsets" / "personas.json", personas)

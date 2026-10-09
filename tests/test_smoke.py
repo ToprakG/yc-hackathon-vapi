@@ -57,3 +57,12 @@ def test_persona_rejects_two_split_tags():
 def test_parse_json_tolerates_fences():
     assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
     assert parse_json('Here: {"a": 2} done') == {"a": 2}
+
+
+def test_unwrap_schema_echo():
+    from agentforge.llm import unwrap_schema_echo
+
+    schema = {"type": "object", "required": ["a"], "properties": {"a": {"type": "string"}}}
+    echoed = {"type": "object", "properties": {"a": {"type": "string", "value": "x"}}}
+    assert unwrap_schema_echo(echoed, schema) == {"a": "x"}
+    assert unwrap_schema_echo({"a": "y"}, schema) == {"a": "y"}

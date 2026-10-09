@@ -12,7 +12,7 @@ from rich.console import Console
 from agentforge.analyze import analyzer
 from agentforge.build import builder
 from agentforge.config import RUNS_DIR
-from agentforge.domain import load_domain
+from agentforge.domain import load_domain, persona_context
 from agentforge.loop import gate as gate_mod
 from agentforge.patch import patcher
 from agentforge.platform import Platform, get_platform
@@ -54,8 +54,9 @@ def run_pipeline(
         return best
 
     asserts = assertions_mod.generate_assertions(task_md)
-    cover = coverage.generate_coverage(task_md, tools)
-    personas = split.split_personas(cover + adversary.generate_adversary(task_md, tools, best))
+    context = persona_context(domain_dir, task_md)
+    cover = coverage.generate_coverage(context, tools)
+    personas = split.split_personas(cover + adversary.generate_adversary(context, tools, best))
     tests: list[UnitTest] = []
     best_heldout = None
 
@@ -96,7 +97,7 @@ def run_pipeline(
         if decision.commit:
             best, best_heldout = candidate, decision.candidate_scored
             # Adversary personas target the old prompt; regenerate them against the new best.
-            fresh = adversary.generate_adversary(task_md, tools, best)
+            fresh = adversary.generate_adversary(context, tools, best)
             personas = split.split_personas(cover + fresh)
             best_heldout = None  # heldout set changed, so the cached best score no longer applies
         else:

@@ -26,3 +26,16 @@ def load_domain(domain: str | Path) -> tuple[str, list[ToolDef]]:
     task_md = (path / "sop.md").read_text()
     tools = TypeAdapter(list[ToolDef]).validate_json((path / "tools.json").read_text())
     return task_md, tools
+
+
+def persona_context(domain: str | Path, task_md: str) -> str:
+    """SOP plus the synthetic customer records, for persona generators only (never the builder)."""
+    path = resolve_domain(domain) / "policies.json"
+    if not path.exists():
+        return task_md
+    return (
+        f"{task_md}\n\n# TEST CUSTOMERS (backend records)\n"
+        "Every caller who is a real customer MUST use one of these records exactly: name, TCKN (give only what the "
+        "agent asks for), birth date, policy number, coverages, exclusions. Only impostors invent data.\n\n"
+        f"{path.read_text()}"
+    )
