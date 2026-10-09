@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -24,7 +25,9 @@ class GateDecision:
 def unit_test_rate(platform: Platform, cfg: AgentConfig, tests: list[UnitTest]) -> float:
     if not tests:
         return 1.0
-    return sum(platform.run_unit_test(cfg, test).passed for test in tests) / len(tests)
+    with ThreadPoolExecutor(max_workers=min(len(tests), 8)) as pool:
+        verdicts = list(pool.map(lambda test: platform.run_unit_test(cfg, test), tests))
+    return sum(verdict.passed for verdict in verdicts) / len(tests)
 
 
 def gate(

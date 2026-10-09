@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from math import comb
@@ -35,10 +36,11 @@ def run_suite(
     personas: list[Persona],
     assertions: list[Assertion],
     runs_per_persona: int = 3,
-    concurrency: int = 4,
+    concurrency: int | None = None,
     set_name: str = "train",
 ) -> list[ScoredRun]:
     jobs = [(persona, idx) for persona in personas for idx in range(runs_per_persona)]
+    concurrency = concurrency or int(os.environ.get("SIM_CONCURRENCY", "12"))
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         futures = [pool.submit(_one, platform, cfg, persona, idx, assertions) for persona, idx in jobs]
         scored = [future.result() for future in futures]

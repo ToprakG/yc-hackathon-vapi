@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from rich.console import Console
 
@@ -93,10 +94,11 @@ def score_run(run: RunResult, persona: Persona, assertions: list[Assertion]) -> 
     criteria = f"SUCCESS CRITERIA for caller '{persona.name}':\n{persona.successCriteria}"
     if persona.evaluationPrompt:
         criteria = f"{persona.evaluationPrompt}\n\n{criteria}"
-    verdicts = [judge("successCriteria", criteria, render_context(run, True, True))]
+    checks = [("successCriteria", criteria, render_context(run, True, True))]
     for assertion in assertions:
         ctx = assertion.contextConfig
         instructions = f"ASSERTION '{assertion.name}' (must hold for the whole conversation):\n{assertion.prompt}"
-        context = render_context(run, ctx.includeToolCalls, ctx.includeExtractionEvents)
-        verdicts.append(judge(assertion.name, instructions, context))
+        checks.append((assertion.name, instructions, render_context(run, ctx.includeToolCalls, ctx.includeExtractionEvents)))
+    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+        verdicts = list(pool.map(lambda check: judge(*check), checks))
     return ScoredRun(run=run, verdicts=verdicts, passed=all(v.passed for v in verdicts))

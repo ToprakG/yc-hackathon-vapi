@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from typing import Any
@@ -25,7 +26,8 @@ def call_llm(
             f"{system}\n\nReply with ONE JSON object only, no prose. The JSON Schema below describes that object; "
             f"return an instance with real values, NOT the schema itself:\n{json.dumps(json_schema)}"
         )
-    for attempt in range(4):
+    attempts = 6
+    for attempt in range(attempts):
         try:
             if provider == "anthropic":
                 text = _anthropic(system, user, name, temperature, max_tokens)
@@ -35,12 +37,12 @@ def call_llm(
                 raise ValueError(f"unknown LLM provider: {provider}")
             return unwrap_schema_echo(parse_json(text), json_schema) if json_schema is not None else text
         except ValueError:
-            if attempt == 3:
+            if attempt == attempts - 1:
                 raise
         except Exception as error:  # rate limits and transient 5xx
-            if attempt == 3 or not _retryable(error):
+            if attempt == attempts - 1 or not _retryable(error):
                 raise
-        time.sleep(2**attempt)
+        time.sleep(min(2**attempt, 20) + random.random())  # jitter so parallel callers don't retry in lockstep
     raise RuntimeError("unreachable")
 
 

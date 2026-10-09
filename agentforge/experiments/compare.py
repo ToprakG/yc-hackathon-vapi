@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import time
 from pathlib import Path
@@ -63,8 +64,7 @@ def compare(variants: list[str], platform_name: str = "vapi", max_iters: int = 3
     else:
         v1 = builder.build_agent(*load_domain(domain_dir))
 
-    rows: dict[str, dict] = {}
-    for name in variants:
+    def run_variant(name: str) -> dict:
         mode, patch_mode = VARIANTS[name]
         started = time.monotonic()
         if mode == "builder":
@@ -77,7 +77,7 @@ def compare(variants: list[str], platform_name: str = "vapi", max_iters: int = 3
         build_minutes = (time.monotonic() - started) / 60
         scored = runner.run_suite(platform, agent, blind_personas, blind_assertions, runs_per_persona=runs, set_name="blind")
         metrics = runner.metrics(scored)
-        rows[name] = {
+        return {
             "variant": name,
             "agent_version": agent.version_label,
             "blind_pass_rate": metrics["pass_rate"],
@@ -89,6 +89,10 @@ def compare(variants: list[str], platform_name: str = "vapi", max_iters: int = 3
             "minutes": round(build_minutes + metrics["total_minutes"], 1),
             "cost_usd": round(metrics["total_cost"] or 0, 2),
         }
+
+    # Variants are independent (own version labels and tool sessions), so they run side by side.
+    with ThreadPoolExecutor(max_workers=len(variants)) as pool:
+        rows = dict(zip(variants, pool.map(run_variant, variants)))
 
     noise = load_noise()
     base = rows.get("A")
