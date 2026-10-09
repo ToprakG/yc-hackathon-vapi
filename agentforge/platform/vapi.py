@@ -206,10 +206,17 @@ class VapiPlatform(Platform):
                 "messages": [*prefix, {"role": "assistant", "judgePlan": plan}],
             },
         )
-        run = self._request(
-            "POST", "/eval/run", {"type": "eval", "evalId": created["id"], "target": {"type": "assistant", "assistant": assistant}}
-        )
-        run_id = run.get("id") or run.get("evalRunId")
+        # Under load Vapi sometimes answers 201 with {"error": ...} (a database timeout) and no run id.
+        for attempt in range(3):
+            run = self._request(
+                "POST", "/eval/run", {"type": "eval", "evalId": created["id"], "target": {"type": "assistant", "assistant": assistant}}
+            )
+            run_id = run.get("id") or run.get("evalRunId")
+            if run_id:
+                break
+            self.sleep(2 * (attempt + 1))
+        else:
+            return False, f"ERROR: eval run was not created: {str(run.get('error'))[:200]}"
         deadline = time.monotonic() + UNIT_TEST_DEADLINE_S
         while True:
             state = self._request("GET", f"/eval/run/{run_id}")

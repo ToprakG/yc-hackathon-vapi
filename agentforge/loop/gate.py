@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from rich.console import Console
 
 from agentforge.platform.base import Platform
-from agentforge.schemas import AgentConfig, Assertion, Persona, ScoredRun, UnitTest
+from agentforge.schemas import AgentConfig, Assertion, Persona, ScoredRun, UnitTest, Verdict
 
 
 @dataclass
@@ -25,8 +25,14 @@ class GateDecision:
 def unit_test_rate(platform: Platform, cfg: AgentConfig, tests: list[UnitTest]) -> float:
     if not tests:
         return 1.0
-    with ThreadPoolExecutor(max_workers=min(len(tests), 8)) as pool:
-        verdicts = list(pool.map(lambda test: platform.run_unit_test(cfg, test), tests))
+    def run_one(test: UnitTest) -> Verdict:
+        try:
+            return platform.run_unit_test(cfg, test)
+        except Exception as error:  # one flaky platform call must not abort the whole gate
+            return Verdict(check_name=test.name, passed=False, reason=f"ERROR: {error}")
+
+    with ThreadPoolExecutor(max_workers=min(len(tests), 4)) as pool:
+        verdicts = list(pool.map(run_one, tests))
     return sum(verdict.passed for verdict in verdicts) / len(tests)
 
 
