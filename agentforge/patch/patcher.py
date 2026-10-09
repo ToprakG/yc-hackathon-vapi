@@ -51,11 +51,13 @@ SURGICAL_SYSTEM = """You patch a Turkish voice agent. For EACH bug make exactly 
   after = the new text. State preconditions and formats explicitly.
 - layer "first_message": operator "edit_first_message"; before = exact text in the first message, after = replacement.
 "before" MUST be copied character for character from the current text, or be "". Keep spoken Turkish, short sentences,
-no markdown. Keep growth small: total system prompt growth must stay under {budget} characters."""
+no markdown. Keep growth small: total system prompt growth must stay under {budget} characters.
+If the bug is about something the prompt already says but the agent ignored, do not restate it: replace the existing rule with a concrete version that shows exactly what to say, e.g. for digit-by-digit reading: "KSK-2024-007831 numarasını şöyle oku: K, S, K, iki, sıfır, iki, dört, sıfır, sıfır, yedi, sekiz, üç, bir.»"""
 
 FREE_SYSTEM = """You improve a Turkish voice agent. Rewrite the system prompt and first message so the agent follows every
 generalized rule in the failure report while keeping all existing correct behaviour. Spoken Turkish, short sentences,
-numbered stages, a "Kesin kurallar" section, no markdown lists in speech."""
+numbered stages, a "Kesin kurallar" section, no markdown lists in speech.
+If the bug is about something the prompt already says but the agent ignored, do not restate it: replace the existing rule with a concrete version that shows exactly what to say, e.g. for digit-by-digit reading: "KSK-2024-007831 numarasını şöyle oku: K, S, K, iki, sıfır, iki, dört, sıfır, sıfır, yedi, sekiz, üç, bir.»"""
 
 
 def next_label(label: str) -> str:
