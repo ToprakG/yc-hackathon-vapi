@@ -71,6 +71,7 @@ class VapiChatClient:
                         "provider": self.model_provider,
                         "model": self.model,
                         "temperature": 0.2,
+                        "maxTokens": 2500,
                         "messages": [{"role": "system", "content": system}],
                     },
                 },

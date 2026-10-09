@@ -75,7 +75,13 @@ def accept_scenarios(task: dict[str, Any], payload: dict[str, Any]) -> list[dict
         count = len(scenarios) if isinstance(scenarios, list) else "none"
         raise SchemaError([f"adversary must return 3 to 5 scenarios, got {count}"])
     accepted: list[dict[str, Any]] = []
-    for scenario in scenarios:
+    for index, scenario in enumerate(scenarios, start=1):
+        if isinstance(scenario, dict):
+            scenario = dict(scenario)
+            if not scenario.get("id"):
+                scenario["id"] = f"{task['id']}-{index}"
+            if not scenario.get("task_id"):
+                scenario["task_id"] = task["id"]
         item = validate_scenario(scenario)
         if item["task_id"] != task["id"]:
             raise SchemaError([f"scenario {item['id']} task_id must be {task['id']}"])
