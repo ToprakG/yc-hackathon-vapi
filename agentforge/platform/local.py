@@ -1,4 +1,4 @@
-"""Local platform: the agent runs straight on OpenAI tool calling, tools run in-process. No Vapi, no tunnel.
+"""Local platform: the agent runs straight on OpenAI or Claude tool calling, tools run in-process. No Vapi, no tunnel.
 
 Same simulator and judge as the Vapi adapter, so scores are comparable apart from Vapi's own behaviour
 (e.g. its English filler messages during tool calls).
@@ -19,8 +19,10 @@ from agentforge.platform.vapi import END_TOKEN, MAX_TURNS, SIMULATOR_PROMPT, TRA
 from agentforge.schemas import AgentConfig, Persona, RunResult, ToolCallRecord, Turn, UnitTest, Verdict
 
 MAX_TOOL_ROUNDS = 5
-# gpt-4o-mini per-token prices (USD), for a rough cost figure.
-PRICE_IN, PRICE_OUT = 0.15e-6, 0.60e-6
+# Per-token prices (USD) for a rough cost figure; unknown models count as 0.
+PRICES = {"gpt-4o-mini": (0.15e-6, 0.60e-6), "gpt-4o": (2.5e-6, 10e-6), "claude-haiku-5-5": (0.10e-6, 0.50e-6),
+          "claude-sonnet-5-5": (2e-6, 10e-6)}
+CALL_OPENED = "[Çağrı bağlandı]"  # Claude needs a user turn before the agent's greeting
 
 ToolRunner = Callable[[str, str, dict[str, Any]], Any]
 
@@ -32,14 +34,21 @@ def kasko_tools(session_id: str, name: str, args: dict[str, Any]) -> Any:
 
 
 class LocalPlatform(Platform):
-    def __init__(self, run_tool: ToolRunner = kasko_tools, client=None, add_date: bool = False):
+    def __init__(self, run_tool: ToolRunner = kasko_tools, client=None, add_date: bool = False, agent_model: str | None = None):
         self.run_tool = run_tool
         self._client = client
         self.add_date = add_date  # off by default so results stay comparable with the Vapi runs
+        # The agent model is a platform choice here (AGENT_MODEL), so saved configs run on whatever key we have.
+        self.agent_model = agent_model or settings().agent_model
 
-    @property
-    def client(self):
-        if self._client is None:
+    def client(self, provider: str):
+        if self._client is not None:
+            return self._client
+        if provider == "anthropic":
+            import anthropic
+
+            self._client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
+        else:
             import openai
 
             self._client = openai.OpenAI(api_key=settings().openai_api_key or None)
@@ -89,7 +98,7 @@ class LocalPlatform(Platform):
             tool_calls=tool_calls,
             ended_reason=ended_reason,
             duration_s=round(time.monotonic() - started, 2),
-            cost_usd=round(usage[0] * PRICE_IN + usage[1] * PRICE_OUT, 5),
+            cost_usd=self._cost(usage),
             raw={"session_id": session_id},
         )
 
@@ -121,6 +130,10 @@ class LocalPlatform(Platform):
         )
         return Verdict(check_name=test.name, passed=bool(judged.get("passed")), reason=str(judged.get("reason", "")))
 
+    def _cost(self, usage: list[int]) -> float:
+        price_in, price_out = PRICES.get(split_model(self.agent_model)[1], (0.0, 0.0))
+        return round(usage[0] * price_in + usage[1] * price_out, 5)
+
     def _system(self, cfg: AgentConfig) -> str:
         if not self.add_date:
             return cfg.system_prompt
@@ -128,39 +141,28 @@ class LocalPlatform(Platform):
 
     def _agent_step(self, cfg, messages, transcript, session_id, usage) -> list[ToolCallRecord]:
         """One agent turn: call tools until the model answers in text."""
-        provider, model = split_model(cfg.model)
-        if provider != "openai":
-            raise ValueError(f"LocalPlatform runs OpenAI agents only, got {cfg.model}")
-        tools = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}
-                 for t in cfg.tools]
+        provider, model = split_model(self.agent_model)
+        complete = self._complete_anthropic if provider == "anthropic" else self._complete_openai
         calls: list[ToolCallRecord] = []
         for _ in range(MAX_TOOL_ROUNDS):
-            response = self.client.chat.completions.create(
-                model=model, messages=messages, tools=tools or None, temperature=0.3
-            )
-            if response.usage:
-                usage[0] += response.usage.prompt_tokens
-                usage[1] += response.usage.completion_tokens
-            message = response.choices[0].message
-            if not message.tool_calls:
-                text = (message.content or "").strip()
+            text, requested = complete(model, messages, cfg.tools, usage)
+            if not requested:
                 messages.append({"role": "assistant", "content": text})
                 if text:
                     transcript.append(Turn(role="assistant", text=text, turn_idx=len(transcript)))
                 return calls
             messages.append({
                 "role": "assistant",
-                "content": message.content or "",
-                "tool_calls": [{"id": c.id, "type": "function", "function": {"name": c.function.name, "arguments": c.function.arguments}}
-                               for c in message.tool_calls],
+                "content": text,
+                "tool_calls": [{"id": i, "type": "function", "function": {"name": n, "arguments": json.dumps(a, ensure_ascii=False)}}
+                               for i, n, a in requested],
             })
             records = []
-            for call in message.tool_calls:
-                args = _loads(call.function.arguments)
-                result = self.run_tool(session_id, call.function.name, args)
-                records.append(ToolCallRecord(name=call.function.name, args=args, result=result, turn_idx=len(transcript)))
-                messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result, ensure_ascii=False)})
-            transcript.append(Turn(role="assistant", text=message.content or "", tool_calls=[r.model_dump() for r in records],
+            for call_id, name, args in requested:
+                result = self.run_tool(session_id, name, args)
+                records.append(ToolCallRecord(name=name, args=args, result=result, turn_idx=len(transcript)))
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(result, ensure_ascii=False)})
+            transcript.append(Turn(role="assistant", text=text, tool_calls=[r.model_dump() for r in records],
                                    turn_idx=len(transcript)))
             for record in records:
                 transcript.append(Turn(role="tool", text=json.dumps(record.result, ensure_ascii=False), turn_idx=len(transcript)))
@@ -168,6 +170,58 @@ class LocalPlatform(Platform):
             if any(r.name in TRANSFER_TOOLS for r in records):
                 return calls
         return calls
+
+
+    def _complete_openai(self, model, messages, tools, usage):
+        specs = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}
+                 for t in tools]
+        response = self.client("openai").chat.completions.create(model=model, messages=messages, tools=specs or None, temperature=0.3)
+        if response.usage:
+            usage[0] += response.usage.prompt_tokens
+            usage[1] += response.usage.completion_tokens
+        message = response.choices[0].message
+        requested = [(c.id, c.function.name, _loads(c.function.arguments)) for c in message.tool_calls or []]
+        return (message.content or "").strip(), requested
+
+    def _complete_anthropic(self, model, messages, tools, usage):
+        specs = [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
+        response = self.client("anthropic").messages.create(
+            model=model,
+            system=messages[0]["content"],
+            messages=to_anthropic(messages[1:]),
+            tools=specs,
+            max_tokens=2048,
+            # Short spoken turns don't need thinking, and with it off there are no thinking blocks to preserve
+            # when the history is re-sent in our own format.
+            thinking={"type": "disabled"},
+        )
+        usage[0] += response.usage.input_tokens
+        usage[1] += response.usage.output_tokens
+        text = " ".join(b.text for b in response.content if b.type == "text").strip()
+        requested = [(b.id, b.name, dict(b.input or {})) for b in response.content if b.type == "tool_use"]
+        return text, requested
+
+
+def to_anthropic(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Our OpenAI-style history -> Claude messages (tool_use / tool_result blocks); must start with a user turn."""
+    out: list[dict[str, Any]] = [{"role": "user", "content": CALL_OPENED}]
+    for m in messages:
+        if m["role"] == "tool":
+            block = {"type": "tool_result", "tool_use_id": m["tool_call_id"], "content": m["content"]}
+            last = out[-1]
+            if last["role"] == "user" and isinstance(last["content"], list) and last["content"][0].get("type") == "tool_result":
+                last["content"].append(block)  # all results of one turn go back in one user message
+            else:
+                out.append({"role": "user", "content": [block]})
+        elif m["role"] == "assistant":
+            blocks = [{"type": "text", "text": m["content"]}] if m.get("content") else []
+            blocks += [{"type": "tool_use", "id": c["id"], "name": c["function"]["name"], "input": _loads(c["function"]["arguments"])}
+                       for c in m.get("tool_calls") or []]
+            if blocks:
+                out.append({"role": "assistant", "content": blocks})
+        else:
+            out.append({"role": "user", "content": m["content"] or "..."})
+    return out
 
 
 def prefix_messages(turns: list[Turn]) -> list[dict[str, Any]]:

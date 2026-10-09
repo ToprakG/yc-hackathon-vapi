@@ -33,7 +33,8 @@ def test_conversation_runs_tools_in_process(monkeypatch):
     monkeypatch.setattr(llm, "call_llm", lambda *a, **k: next(lines))
     client = ScriptedClient([reply(calls=[("verify_identity", '{"tckn_last4": "8904"}')]), reply("Doğrulandı.")])
     seen = []
-    platform = LocalPlatform(run_tool=lambda sid, name, args: seen.append((name, args)) or {"verified": True}, client=client)
+    platform = LocalPlatform(run_tool=lambda sid, name, args: seen.append((name, args)) or {"verified": True}, client=client,
+                             agent_model="openai:gpt-4o-mini")
 
     run = platform.run_conversation(CFG, Persona(name="p", prompt="x", successCriteria="y"), 0)
 
@@ -48,8 +49,10 @@ def test_unit_test_checks_tool_assertions(monkeypatch):
     monkeypatch.setattr(llm, "call_llm", lambda *a, **k: {"passed": True, "reason": "ok"})
     test = UnitTest(name="t", prefix_turns=[Turn(role="user", text="Poliçemi söyle", turn_idx=1)],
                     expectation="asks for identity", tool_assertions=[{"tool": "get_policy", "negate": True}])
-    bad = LocalPlatform(run_tool=lambda *a: {}, client=ScriptedClient([reply(calls=[("get_policy", "{}")]), reply("Tamam")]))
-    good = LocalPlatform(run_tool=lambda *a: {}, client=ScriptedClient([reply("Önce kimliğinizi doğrulayalım.")]))
+    bad = LocalPlatform(run_tool=lambda *a: {}, client=ScriptedClient([reply(calls=[("get_policy", "{}")]), reply("Tamam")]),
+                        agent_model="openai:gpt-4o-mini")
+    good = LocalPlatform(run_tool=lambda *a: {}, client=ScriptedClient([reply("Önce kimliğinizi doğrulayalım.")]),
+                         agent_model="openai:gpt-4o-mini")
     assert bad.run_unit_test(CFG, test).passed is False
     assert good.run_unit_test(CFG, test).passed is True
 
@@ -59,3 +62,21 @@ def test_prefix_messages_pairs_tool_results():
              Turn(role="tool", text='{"ok": true}', turn_idx=3)]
     msgs = prefix_messages(turns)
     assert msgs[1]["tool_call_id"] == msgs[0]["tool_calls"][0]["id"]
+
+
+def test_to_anthropic_blocks():
+    from agentforge.platform.local import to_anthropic
+
+    history = [
+        {"role": "assistant", "content": "Merhaba"},
+        {"role": "user", "content": "Doğrula"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "a", "type": "function", "function": {"name": "x", "arguments": "{}"}},
+            {"id": "b", "type": "function", "function": {"name": "y", "arguments": '{"k": 1}'}}]},
+        {"role": "tool", "tool_call_id": "a", "content": "1"},
+        {"role": "tool", "tool_call_id": "b", "content": "2"},
+    ]
+    out = to_anthropic(history)
+    assert out[0]["role"] == "user"
+    assert [b["type"] for b in out[3]["content"]] == ["tool_use", "tool_use"]
+    assert [b["tool_use_id"] for b in out[4]["content"]] == ["a", "b"]
