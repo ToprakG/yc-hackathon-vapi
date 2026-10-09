@@ -226,7 +226,7 @@ class FreyaPlatform(Platform):
 
     # --- Promotion (gate decisions) -----------------------------------------------------------
 
-    def promote(self, cfg: AgentConfig, publish: bool = True) -> dict[str, Any]:
+    def promote(self, cfg: AgentConfig, publish: bool = True) -> dict[str, Any]:  # type: ignore[override]
         """COMMIT: merge the candidate's branch onto mainline (POST /branches/{id}/rebase)."""
         branch_id = self.branch_ids[cfg.version_label]
         result = self._request("POST", f"/branches/{branch_id}/rebase", {"publish": publish})
@@ -236,7 +236,7 @@ class FreyaPlatform(Platform):
             self.version_ids[cfg.version_label] = result["newVersionId"]
         return result
 
-    def discard(self, cfg: AgentConfig) -> dict[str, Any]:
+    def discard(self, cfg: AgentConfig) -> dict[str, Any]:  # type: ignore[override]
         """DISCARD: mark the candidate's branch discarded."""
         return self._request("POST", f"/branches/{self.branch_ids[cfg.version_label]}/discard", {})
 

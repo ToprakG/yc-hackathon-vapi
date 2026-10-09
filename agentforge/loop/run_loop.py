@@ -95,12 +95,14 @@ def run_pipeline(
         verdict = "COMMIT" if decision.commit else "DISCARD"
         log_iteration(iteration, best, candidate, train_metrics, decision, verdict, decision.reasons, iter_started, train_scored)
         if decision.commit:
+            platform.promote(candidate)
             best, best_heldout = candidate, decision.candidate_scored
             # Adversary personas target the old prompt; regenerate them against the new best.
             fresh = adversary.generate_adversary(context, tools, best)
             personas = split.split_personas(cover + fresh)
             best_heldout = None  # heldout set changed, so the cached best score no longer applies
         else:
+            platform.discard(candidate)
             best_heldout = decision.best_scored
 
     save_json(RUNS_DIR / "best" / f"{run_tag or patch_mode}.json", best)

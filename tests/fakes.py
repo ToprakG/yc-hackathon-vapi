@@ -11,6 +11,8 @@ from agentforge.schemas import AgentConfig, Persona, RunResult, Turn, UnitTest, 
 class FakePlatform(Platform):
     def __init__(self, unit_test_passes: Callable[[AgentConfig, UnitTest], bool] | None = None):
         self.upserts: list[str] = []
+        self.promoted: list[str] = []
+        self.discarded: list[str] = []
         self.unit_test_passes = unit_test_passes or (lambda cfg, test: True)
 
     def upsert_agent(self, cfg: AgentConfig) -> str:
@@ -31,3 +33,9 @@ class FakePlatform(Platform):
 
     def run_unit_test(self, cfg: AgentConfig, test: UnitTest) -> Verdict:
         return Verdict(check_name=test.name, passed=self.unit_test_passes(cfg, test))
+
+    def promote(self, cfg: AgentConfig) -> None:
+        self.promoted.append(cfg.version_label)
+
+    def discard(self, cfg: AgentConfig) -> None:
+        self.discarded.append(cfg.version_label)

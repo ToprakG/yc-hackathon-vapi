@@ -19,3 +19,9 @@ class Platform(ABC):
     @abstractmethod
     def run_unit_test(self, cfg: AgentConfig, test: UnitTest) -> Verdict:
         """Replay test.prefix_turns and judge the agent's next move."""
+
+    def promote(self, cfg: AgentConfig) -> None:
+        """Gate said COMMIT. Platforms with versioning (Freya branches) merge cfg here."""
+
+    def discard(self, cfg: AgentConfig) -> None:
+        """Gate said DISCARD. Platforms with versioning drop cfg's branch here."""

@@ -86,6 +86,7 @@ def test_loop_commits_patch_and_logs(loop_env):
 
     assert best.version_label == "v2"
     assert best.parent_version == "v1"
+    assert platform.promoted == ["v2"]
     assert RULE in best.system_prompt
     log = [json.loads(line) for line in run_loop.LOOP_LOG.read_text().splitlines()]
     assert [entry["decision"] for entry in log] == ["COMMIT", "STOP"]
