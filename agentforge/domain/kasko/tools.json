@@ -1,0 +1,69 @@
+[
+  {
+    "name": "verify_identity",
+    "description": "Arayanın kimliğini T.C. kimlik numarasının son 4 hanesi ve doğum tarihi ile doğrular. Başarılıysa müşterinin adını ve poliçe numarasını döner.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "tckn_last4": {"type": "string", "description": "T.C. kimlik numarasının son 4 hanesi, sadece rakam, örn. \"8904\"."},
+        "birth_date": {"type": "string", "description": "Doğum tarihi, YYYY-MM-DD biçiminde."}
+      },
+      "required": ["tckn_last4", "birth_date"]
+    },
+    "extraction_schema": [],
+    "preconditions": ["Görüşmenin başında yapay zeka bildirimi yapılmış olmalı."]
+  },
+  {
+    "name": "get_policy",
+    "description": "Poliçe numarasıyla kasko poliçesinin teminatlarını, muafiyetlerini ve durumunu getirir.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "policy_number": {"type": "string", "description": "Poliçe numarası, örn. \"KSK-2024-004512\"."}
+      },
+      "required": ["policy_number"]
+    },
+    "extraction_schema": [],
+    "preconditions": ["verify_identity aynı görüşmede başarılı olmalı."]
+  },
+  {
+    "name": "create_claim",
+    "description": "Kasko hasar dosyası açar ve dosya numarasını döner.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "policy_number": {"type": "string", "description": "Poliçe numarası, örn. \"KSK-2024-004512\"."},
+        "date": {"type": "string", "description": "Kaza tarihi, YYYY-MM-DD."},
+        "location": {"type": "string", "description": "Kaza yeri: il, ilçe, mümkünse cadde."},
+        "description": {"type": "string", "description": "Olayın kısa açıklaması."},
+        "injury": {"type": "boolean", "description": "Kazada yaralanan var mı."},
+        "other_plate": {"type": "string", "description": "Karşı tarafın plakası; karşı taraf yoksa boş string."}
+      },
+      "required": ["policy_number", "date", "location", "description", "injury"]
+    },
+    "extraction_schema": [
+      {"name": "date", "type": "string", "description": "Kaza tarihi (YYYY-MM-DD).", "required": true},
+      {"name": "location", "type": "string", "description": "Kaza yeri.", "required": true},
+      {"name": "injury", "type": "boolean", "description": "Yaralanan var mı.", "required": true},
+      {"name": "other_plate", "type": "string", "description": "Karşı tarafın plakası.", "required": false}
+    ],
+    "preconditions": [
+      "verify_identity aynı görüşmede başarılı olmalı.",
+      "Yaralanma sorusu sorulmuş olmalı.",
+      "Bilgiler arayana özetlenip onay alınmış olmalı."
+    ]
+  },
+  {
+    "name": "transfer_to_human",
+    "description": "Görüşmeyi canlı müşteri temsilcisine aktarır.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {"type": "string", "description": "Aktarma nedeni, örn. \"yaralanmalı hasar\" veya \"müşteri iki kez temsilci istedi\"."}
+      },
+      "required": ["reason"]
+    },
+    "extraction_schema": [],
+    "preconditions": ["Yaralanmalı hasarda dosya açıldıktan sonra, ya da arayan iki kez insan temsilci istediğinde kullanılır."]
+  }
+]

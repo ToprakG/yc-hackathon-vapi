@@ -1,0 +1,74 @@
+[
+  {
+    "customer_name": "Ayşe Yılmaz",
+    "tckn": "12345678904",
+    "birth_date": "1985-03-14",
+    "phone": "05321112233",
+    "policy_number": "KSK-2024-004512",
+    "vehicle": {"plate": "34 ABC 123", "make": "Renault Clio", "year": 2019},
+    "coverages": ["çarpışma", "çarpma", "yangın", "hırsızlık", "cam kırılması", "ferdi kaza"],
+    "exclusions": ["deprem", "sel"],
+    "ferdi_kaza_limit_tl": 100000,
+    "status": "active"
+  },
+  {
+    "customer_name": "Mehmet Demir",
+    "tckn": "23456789018",
+    "birth_date": "1972-11-02",
+    "phone": "05334445566",
+    "policy_number": "KSK-2024-007831",
+    "vehicle": {"plate": "06 DEF 456", "make": "Toyota Corolla", "year": 2021},
+    "coverages": ["çarpışma", "çarpma", "yangın", "hırsızlık", "deprem", "sel", "mini onarım"],
+    "exclusions": ["yarış", "alkollü sürüş"],
+    "ferdi_kaza_limit_tl": 0,
+    "status": "active"
+  },
+  {
+    "customer_name": "Fatma Kaya",
+    "tckn": "34567890126",
+    "birth_date": "1948-06-21",
+    "phone": "05367778899",
+    "policy_number": "KSK-2023-001207",
+    "vehicle": {"plate": "35 GHJ 789", "make": "Fiat Egea", "year": 2016},
+    "coverages": ["çarpışma", "çarpma", "cam kırılması"],
+    "exclusions": ["deprem", "sel", "hırsızlık"],
+    "ferdi_kaza_limit_tl": 0,
+    "status": "active"
+  },
+  {
+    "customer_name": "Can Öztürk",
+    "tckn": "45678901234",
+    "birth_date": "1995-09-30",
+    "phone": "05051234567",
+    "policy_number": "KSK-2024-010044",
+    "vehicle": {"plate": "16 KLM 321", "make": "Volkswagen Golf", "year": 2022},
+    "coverages": ["çarpışma", "çarpma", "yangın", "hırsızlık", "ferdi kaza", "ikame araç"],
+    "exclusions": ["deprem"],
+    "ferdi_kaza_limit_tl": 250000,
+    "status": "active"
+  },
+  {
+    "customer_name": "Zeynep Arslan",
+    "tckn": "56789012342",
+    "birth_date": "1990-01-08",
+    "phone": "05429876543",
+    "policy_number": "KSK-2024-003390",
+    "vehicle": {"plate": "41 NPR 654", "make": "Hyundai i20", "year": 2020},
+    "coverages": ["çarpışma", "çarpma", "yangın", "deprem", "cam kırılması"],
+    "exclusions": ["sel", "yarış"],
+    "ferdi_kaza_limit_tl": 0,
+    "status": "active"
+  },
+  {
+    "customer_name": "Hasan Çelik",
+    "tckn": "67890123450",
+    "birth_date": "1966-12-25",
+    "phone": "05557654321",
+    "policy_number": "KSK-2022-008876",
+    "vehicle": {"plate": "07 STU 987", "make": "Ford Focus", "year": 2014},
+    "coverages": ["çarpışma", "çarpma"],
+    "exclusions": ["deprem", "sel", "yangın", "hırsızlık"],
+    "ferdi_kaza_limit_tl": 0,
+    "status": "expired"
+  }
+]
