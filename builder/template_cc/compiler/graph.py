@@ -17,6 +17,8 @@ from builder.template_cc.policy_check import CANONICAL_NOTES
 from builder.template_cc.zones import ZoneBook, esc
 
 MIN_CONF = 0.6
+ROUTE_INTENTS = ["none", "asks_robot", "asks_scam", "wants_human", "goodbye", "finished"]
+DEFAULT_PRECEDENCE = ["wants_human", "asks_scam", "asks_robot", "finished", "goodbye"]
 CLOSING_PREFIX = {"promise": "promise_confirmation", "paid": "paid_reply", "nv_failed": "failed_id",
                   "nr_deceased": "condolence"}
 GENERIC_PREFIX = {"np_service_error": "I am sorry, I could not complete that because of a system problem.",
@@ -261,6 +263,8 @@ class Graph:
         self._wrap_and_close()
         self._globals()
         self._finish_routes()
+        if "f7_router" in self.f:
+            self._router()
         wf = {"initial_node": "start", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
               "test_variables": self._test_variables()}
         if self.close_form == "lifecycle":
@@ -278,7 +282,7 @@ class Graph:
         b = self.book
         parts = [{"zone": b.add("system/core", P.system_core(self.p), True, purpose="identity, language, tone")},
                  {"zone": b.add("system/forbidden", P.system_forbidden(self.p), True, purpose="words forbidden before verification")},
-                 {"zone": b.add("system/honesty", P.system_honesty(self.p), True, purpose="honesty and tool discipline")},
+                 {"zone": b.add("system/honesty", P.system_honesty(self.p, "f7_router" in self.f), True, purpose="honesty and tool discipline")},
                  {"zone": b.add("system/brief_rules", P.brief_rules(self.p, "global"), True, purpose="global brief rules"),
                   "title": "Brief rules"},
                  {"zone": b.add("system/global_rules", "", False, P.BUDGET["global_rules"], "extra global rules"),
@@ -964,6 +968,9 @@ ID_INIT        vars['cb_state'] = 'none'
             k = len(out)
             desc = (f"Product {i} of the facts: its persuasion attempts are used up and the customer still refuses, "
                     "or refused its last offer")
+            if "f7_router" in self.f:  # a value of the side enum, not a model-called tool
+                out.append(eq(f"refused_{i}", desc, "side", f"refused_{i}"))
+                continue
             out.append({"target_node": f"refused_{i}", "description": desc, "is_tool_call": True,
                         "condition": {"operator": "matches_intent", "description": desc}})
             self.intent(f"transition:refused_{i}/intent",
@@ -1057,7 +1064,8 @@ ID_INIT        vars['cb_state'] = 'none'
         self.conv("promise_confirm", on_enter=self.tts("promise_confirm", text),
                   extraction=self.extraction("promise_confirm", "promise_confirm",
                                              [("rb_answer", ["yes", "no", "change", "other"])] + fields,
-                                             descs={"side": P.side_desc()} if f4 else None),
+                                             descs={"side": P.side_desc(f4, self.nmax if "f7_router" in self.f else 0)}
+                                             if (f4 or "f7_router" in self.f) else None),
                   transitions=[eq("promise_write", "a clear yes", "rb_answer", "yes"),
                                eq("promise_check", "a different amount or date", "rb_answer", "change"),
                                eq("negotiate_resume", "no", "rb_answer", "no")],
@@ -1124,6 +1132,77 @@ ID_INIT        vars['cb_state'] = 'none'
         """, [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")],
                   uses=("neg_flag", "refresh_close"))
 
+    def _reindex(self, nid: str, mapping: dict):
+        """Zone targets point at transitions by index; keep them right after transitions were dropped or inserted."""
+        pat = re.compile("^/nodes/" + re.escape(esc(nid)) + r"/transitions/(\d+)(/.*)$")
+        out = []
+        for t in self.book.targets:
+            m = pat.match(t["pointer"])
+            if m:
+                old = int(m.group(1))
+                new = mapping.get(old, old)
+                if new is None:
+                    continue
+                t = dict(t, pointer=f"/nodes/{esc(nid)}/transitions/{new}{m.group(2)}")
+            out.append(t)
+        self.book.targets = out
+
+    def _router(self):
+        """F7: routing that was a model decision (matches_intent: finish, goodbye, robot, scam, human) becomes one extracted
+        enum per node and a code router with a precedence table. The model only extracts and speaks."""
+        ai, scam = P.line(self.p, "ai"), P.line(self.p, "scam")
+        human_ok = "human" in self.queues
+        self.cfg["precedence"] = list(self.p.get("precedence") or DEFAULT_PRECEDENCE)
+        self.cfg["route_human"] = human_ok
+        body = """
+        it = str(vars.get('turn_intent') or 'none')
+        cand = [it]
+        if str(vars.get('side')) == 'human':
+            cand.append('wants_human')
+        pick = 'none'
+        for k in CFG['precedence']:
+            if k in cand and (k != 'wants_human' or CFG['route_human']):
+                pick = k
+                break
+        vars['turn_intent'] = 'none'
+        vars['route_to'] = pick
+        """
+        routed = [n for n in self.FINISH_NODES + ("promise_confirm",) if n in self.nodes]
+        for nid in routed:
+            node = self.nodes[nid]
+            back = "negotiate_resume" if nid == "negotiate" else nid
+            trs = []
+            if human_ok and nid != "human_offer":
+                trs.append(eq("human_offer", "asks for a person", "route_to", "wants_human"))
+            if ai:
+                trs.append(eq(f"ai_{nid}", "asks whether this is a robot", "route_to", "asks_robot"))
+                self.conv(f"ai_{nid}", on_enter=self.tts(f"ai_{nid}", ai), passthrough_to=back, transitions=[always(back)])
+                self.non_conv.append(f"ai_{nid}")
+            if scam:
+                trs.append(eq(f"scam_{nid}", "asks whether this is a scam", "route_to", "asks_scam"))
+                self.conv(f"scam_{nid}", on_enter=self.tts(f"scam_{nid}", scam), passthrough_to=back, transitions=[always(back)])
+                self.non_conv.append(f"scam_{nid}")
+            trs += [eq("wrap", "the conversation is finished", "route_to", "finished", "goodbye"), always(back)]
+            self.code(f"route_{nid}", body, trs, fallback="vars['route_to'] = 'none'")
+            # the router comes first; the model-called finish transitions go away
+            old = node["transitions"]
+            kept = [i for i, t in enumerate(old) if not (t.get("is_tool_call") and t.get("target_node") == "wrap")]
+            first = any_of(f"route_{nid}", "the customer said something the router handles", [
+                leaf("turn_intent", "equals", v) for v in ROUTE_INTENTS if v != "none"])
+            node["transitions"] = [first] + [old[i] for i in kept]
+            self._reindex(nid, {i: (1 + kept.index(i) if i in kept else None) for i in range(len(old))})
+            schema = node.setdefault("extraction_schema", [])
+            z = self.book.add("extract:router/turn_intent/description", P.EXTRACT["turn_intent"], False, 1000,
+                              "extraction field description (enum values locked)")
+            self.book.target(f"/nodes/{esc(nid)}/extraction_schema/{len(schema)}/description", "text", [{"zone": z}])
+            schema.append({"name": "turn_intent", "type": "string", "enum_values": list(ROUTE_INTENTS),
+                           "description": P.EXTRACT["turn_intent"], "min_confidence": MIN_CONF})
+        for g in self.globals.values():
+            g["excluded_nodes"] = sorted(set(g.get("excluded_nodes") or []) | set(routed) | set(self.non_conv))
+        used = {part["zone"] for t in self.book.targets for part in t["parts"]}
+        if "transition:finish/intent" not in used:
+            self.book.zones.pop("transition:finish/intent", None)
+
     def _restructuring_notes(self) -> bool:
         return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]
                     and (self.p.get("note_map") or {}).get(self.p["notes_on_restructuring"]))
@@ -1135,8 +1214,10 @@ ID_INIT        vars['cb_state'] = 'none'
         f8 = "f8_fixed_lines" in self.f
         sl = f4 or f11 or f8
         said_hs = f8 and bool(P.line(self.p, "hardship_sympathy"))
+        f7 = "f7_router" in self.f
         fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
-                   + (["discount"] if f4 else []))]
+                   + (["discount"] if f4 else []) + ([f"refused_{i}" for i in range(1, self.nmax + 1)] if f7 else []))]
+        side_descs = {"side": P.side_desc(f4, self.nmax if f7 else 0)} if (f4 or f7) else None
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]
                            + (["none"] if "f11_promise_typed" in self.f else [])))
@@ -1147,19 +1228,19 @@ ID_INIT        vars['cb_state'] = 'none'
         refusal = ("When a product's persuasion attempts are used up and the customer still refuses, CALL "
                    + " / ".join(f"transition_to_refused_{i}" for i in range(1, self.nmax + 1))
                    + " (the number is the product's position in the facts).")
-        task = P.negotiate_task(self.p, self.multi, typed=f11) + "\n" + refusal
+        task = P.negotiate_task(self.p, self.multi, typed=f11, routed=f7) + ("" if f7 else "\n" + refusal)
         if not f11:
             task += "\n" + P.negotiate_tool_hint(self.p, cents)
         for nid, entry in (("negotiate", self.tts("negotiate", "{{debt_statement}} {{first_ask_line}}")),
-                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, sl)})):
+                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, sl, f7)})):
             self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[] if f11 else [tool],
-                      extraction=self.extraction("negotiate", nid, fields, descs={"side": P.side_desc()} if f4 else None),
+                      extraction=self.extraction("negotiate", nid, fields, descs=side_descs),
                       transitions=self._side_transitions(nid),
                       max_turns=40, turn_target="wrap")
             if not f11:
                 self.tool_zones(nid, 0, tool, msgs)
             self.task_zones("negotiate", nid, task, facts="{{facts_text}}", brief_stage=("debt", "negotiate"))
-        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, sl), True, purpose="entry line on re-entry")
+        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, sl, f7), True, purpose="entry line on re-entry")
         self.book.target("/nodes/negotiate_resume/on_enter/prompt", "text", [{"zone": "node:negotiate/resume_entry"}])
         reset = """
         vars['side'] = 'none'

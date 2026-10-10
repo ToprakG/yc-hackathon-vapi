@@ -140,6 +140,7 @@
   },
   "retries": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
   "ask_limits": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+  "precedence": {"type": "array", "items": {"type": "string", "enum": ["wants_human", "asks_scam", "asks_robot", "finished", "goodbye"]}},
   "vague_date_offer": {"type": "string", "enum": ["deadline", "attempt1", "other"]},
   "routes": {"type": "object", "properties": {"human_before_verify": {"type": "boolean"}}, "additionalProperties": {"type": "object"}},
   "extra_rules": {

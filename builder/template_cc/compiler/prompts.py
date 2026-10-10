@@ -70,14 +70,15 @@ def system_forbidden(policy: dict) -> str:
     return base + (f" Never say these words before that: {words}." if words else "")
 
 
-def system_honesty(policy: dict) -> str:
+def system_honesty(policy: dict, routed: bool = False) -> str:
+    end = ("When the conversation is finished, say goodbye once; never keep repeating goodbye." if routed else
+           "When the conversation is finished, CALL transition_to_wrap if you have it; never keep repeating goodbye.")
     return ("Tell the truth. Say that something was recorded, booked or transferred only after the tool result says "
             "so. Never invent figures, dates, terms, discounts, plans or reasons. If a question cannot be answered from "
             f"your facts, {quoted(policy, 'no_info') or 'say you do not have that information'}. After every tool "
             "result, speak to the customer or call the next tool; never end a turn with nothing. Call one tool per "
             "message. Follow what_to_do_next in a tool result. Never offer or advertise any product, account, service, plan "
-            "or discount that is not in your facts. When the conversation is finished, CALL transition_to_wrap if you "
-            "have it; never keep repeating goodbye.")
+            "or discount that is not in your facts. " + end)
 
 
 # --- nodes -----------------------------------------------------------------------------------------------------------
@@ -157,7 +158,7 @@ def id_intent_desc(f2: bool, f3: bool) -> str:
             "asks what the call is about instead of answering;" + human + " other = anything else.")
 
 
-def negotiate_task(policy: dict, multi: bool, typed: bool = False) -> str:
+def negotiate_task(policy: dict, multi: bool, typed: bool = False, routed: bool = False) -> str:
     parts = [
         "You stated the debt and asked the first question. Get a payment promise where you can, within these rules:",
         "- Start by asking for the whole past-due amount. Never ask how much the customer can pay: you propose every amount.",
@@ -173,8 +174,9 @@ def negotiate_task(policy: dict, multi: bool, typed: bool = False) -> str:
         "cannot be recorded and offer the minimum amount once.",
         "- Each flat refusal or non-answer counts as one persuasion attempt. Use the attempt proposals from the facts, in "
         "order. Refusing the latest date or the minimum amount is a refusal. When the attempts of a product are used up "
-        "and the customer still refuses, stop: never repeat an offer the customer refused, and CALL the refusal "
-        "transition for that product.",
+        + ("and the customer still refuses, stop: never repeat an offer the customer refused." if routed else
+           "and the customer still refuses, stop: never repeat an offer the customer refused, and CALL the refusal "
+           "transition for that product."),
         ("- The system checks every amount and date the customer names and reads it back by itself. Never read back, "
          "record or confirm anything yourself; when a line tells you what to say, say it.") if typed else
         f"- Before recording, read back the product, the amount and the date and ask: {quoted(policy, 'confirm_question')}. "
@@ -233,21 +235,29 @@ def human_task(policy: dict) -> str:
 NO_DISCOUNT = "I am not able to reduce the amount."
 
 
-def side_desc() -> str:
-    """The side description with the discount value (F4): a request to knock something off is not restructuring."""
+def side_desc(f4: bool = True, refused: int = 0) -> str:
+    """The side description with the discount value (F4: asking to knock something off is not restructuring) and, for the
+    router (F7), the refused_N values that replace the refusal tool transitions."""
     d = EXTRACT["side"]
     key = "human = asks to speak"
-    return d.replace(key, "discount = asks to reduce, waive or knock something off the amount (this is NOT restructuring; if the message also "
-        "mentions illness, a death in the family or job loss, it is hardship); " + key, 1)
+    if f4:
+        d = d.replace(key, "discount = asks to reduce, waive or knock something off the amount (this is NOT restructuring; if the message also "
+                      "mentions illness, a death in the family or job loss, it is hardship); " + key, 1)
+    if refused:
+        d = d.replace("stop_talking = does not want to talk;", f"refused_1 .. refused_{refused} = the product at that position in the facts has "
+                      "its persuasion attempts used up and the customer still refuses, or refused its last offer (a first flat "
+                      "refusal is none); stop_talking = does not want to talk;", 1)
+    return d
 
 
-def resume_entry(policy: dict, f4: bool = False) -> str:
+def resume_entry(policy: dict, f4: bool = False, routed: bool = False) -> str:
     extra = (" If this line is not empty and you have not said it yet in this conversation, say it first, word for word, "
              "once: {{say_line}}") if f4 else ""
     return ("Continue the conversation from where it is, in one or two short sentences: briefly acknowledge what the "
             "customer just said and go on with the next open product from your facts. If the customer said they already "
             f"paid, {quoted(policy, 'paid_reply')}. Never offer anything that is not in your facts: no other product, "
-            "account, service, plan or discount. If nothing is left to discuss, CALL transition_to_wrap." + extra)
+            "account, service, plan or discount. If nothing is left to discuss, "
+            + ("say goodbye." if routed else "CALL transition_to_wrap.") + extra)
 
 
 FINISH = ("The conversation is finished: everything is settled or cannot go on (for example a technical problem), and "
@@ -269,6 +279,11 @@ EXTRACT = {
                 "none = anything else.",
     "id_refusal": "declines = the customer refuses to answer a security question; asks_purpose = asks what the call is "
                   "about instead of answering; answering = anything else.",
+    "turn_intent": "asks_robot = asks whether you are a robot, a computer or an AI; asks_scam = asks whether the call is a scam or "
+                   "doubts that it is really from the bank; wants_human = asks to speak to a human, a person, an agent or a "
+                   "manager; goodbye = says goodbye or thanks you to end the call, after you have said goodbye or said the call "
+                   "is over; finished = everything is settled or cannot go on and the customer has nothing more to discuss "
+                   "(never while an agreed promise is still waiting to be recorded); none = anything else.",
     "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
                        "is NOT that); no = anything else.",
     "offer_intent": "proposes = the customer names an amount or a date for paying; accepts_offer = the customer agrees to your "
