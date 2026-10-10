@@ -5,6 +5,8 @@
 # running"), and log one line. Never runs two evals at once.
 cd "$(dirname "$0")/.." || exit 2
 set -a; [ -f .env ] && . ./.env; set +a
+# a fresh workspace (a rotated Freya key) must not reuse the saved agent/slot ids or personas of the old one
+export FREYA_STATE_FILE=${FREYA_STATE_FILE:-.freya-agents.newkey.json}
 OUT=out/template_cc/eval; LOG=$OUT/night_queue.log
 BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
 QUEUE="f149b:f149br p2:p2r p3:p3r p4:p4r"
