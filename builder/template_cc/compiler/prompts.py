@@ -126,6 +126,34 @@ def identity_explain_task(policy: dict) -> str:
             "verify_identity as before and follow what_to_do_next.")
 
 
+def identity_task_f1(policy: dict, f2: bool) -> str:
+    """F1: no model-facing check tool; the system verifies and a code step hands over the next line to say."""
+    extra = (" If the customer asks a question instead of answering, the line tells you to answer it briefly; never "
+             "give the reason for the call.") if f2 else ""
+    return ("You are speaking with the customer. Check identity first. Say exactly what this line asks, nothing more: "
+            "{{id_say}}\n"
+            "You do not check answers yourself: the system does, and it gives you the next line each time. Do not say "
+            "whether an answer was right. Say nothing about the account or the reason for the call until the checks have "
+            "passed." + extra)
+
+
+def identity_explain_task_f1(policy: dict) -> str:
+    return (f"The customer did not want to answer or asked what this is about. Explain once: {quoted(policy, 'id_reason')}. "
+            "Never mention the reason for the call. Then ask the pending question again, saying exactly what this line "
+            "asks: {{id_say}}")
+
+
+def id_intent_desc(f2: bool, f3: bool) -> str:
+    """The id_intent extraction description for the active flags (it must name exactly the enum values in use)."""
+    human = " wants_human = asks for a person, an agent or a human." if f3 else ""
+    if f2:
+        return ("answer = gives an answer or part of one, even after a question; asks_question = asks something instead "
+                "of answering (why, which account, who is calling); refuses = says they will not answer or do not want to "
+                "talk;" + human + " other = anything else.")
+    return ("answer = gives an answer or part of one; declines = refuses to answer a security question; asks_purpose = "
+            "asks what the call is about instead of answering;" + human + " other = anything else.")
+
+
 def negotiate_task(policy: dict, multi: bool) -> str:
     parts = [
         "You stated the debt and asked the first question. Get a payment promise where you can, within these rules:",
@@ -215,6 +243,8 @@ EXTRACT = {
                 "none = anything else.",
     "id_refusal": "declines = the customer refuses to answer a security question; asks_purpose = asks what the call is "
                   "about instead of answering; answering = anything else.",
+    "id_answer_text": "The customer's answer to the security question just asked, copied exactly as said (words or digits). "
+                      "If they gave it over several messages, join the parts. Empty if no answer.",
     "side": "What the customer's last message is about: hardship = illness, a death in the family or job loss; "
             "dispute = the debt or product is not theirs, or was closed or paid off in the past; paid_already = they "
             "already paid this past-due amount; restructuring = explicitly asks for a new payment plan, a restructuring or lower instalments (saying the amount "

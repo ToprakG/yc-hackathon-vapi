@@ -6,7 +6,10 @@ ZoneBook so patches can only touch unlocked zones. Code and hooks come from comp
 
 from __future__ import annotations
 
+import re
+
 from builder.template_cc.compiler import prompts as P
+from builder.template_cc.compiler import runtime as RT
 from builder.template_cc.compiler import snippets as S
 from builder.template_cc.compiler import tools as T
 from builder.template_cc.policy_check import CANONICAL_NOTES
@@ -20,6 +23,15 @@ GENERIC_PREFIX = {"np_service_error": "I am sorry, I could not complete that bec
                   "tr_restructuring": "I am connecting you with a colleague now.", "tr_human": "I am connecting you with a colleague now.",
                   "tr_support": "I am connecting you with our support team now.",
                   "nr_wrong_number": "Sorry for the trouble."}
+
+
+def field_kind(api, tool: str, answer_field: str, field: str, fallback: str) -> str:
+    """F1: the kind of a security field, read from the tool API's own words for that field (in the answer's description)."""
+    desc = api.field_desc(tool, answer_field) or ""
+    parts = re.split(r"(?=\bFor [A-Za-z_]\w*\s*:)", desc)
+    mine = [x for x in parts if x.lower().startswith("for " + field.lower())]
+    kind = RT.kind_from_description(field + " " + (mine[0] if mine else ""))  # a shared, unstructured text says nothing per field
+    return kind if kind != "text" else fallback
 
 
 # --- condition helpers -----------------------------------------------------------------------------------------------
@@ -84,6 +96,11 @@ class Graph:
         self.p, self.api, self.close_form = policy, api, close_form
         self.f = frozenset(features)
         self.cfg = runtime_cfg(policy, api)
+        if "f1_id_complete" in self.f:
+            ident = self.cfg["identity"]
+            ans = policy["tools"]["verify_identity"]["answer"]
+            ident["kinds"] = {q: field_kind(api, "verify_identity", ans, q, ident["kinds"].get(q, "text"))
+                              for q in ident["questions"]}
         self.book = ZoneBook()
         self.nodes: dict[str, dict] = {}
         self.globals: dict[str, dict] = {}
@@ -117,14 +134,18 @@ class Graph:
         self.book.target(self._ptr(nid, is_global) + "/on_enter/text", "text", [{"zone": f"tts:{nid}"}])
         return {"type": "tts", "text": text}
 
-    def extraction(self, stage: str, nid: str, fields: list[tuple[str, list[str]]], is_global: bool = False) -> list:
+    def extraction(self, stage: str, nid: str, fields: list[tuple[str, list[str]]], is_global: bool = False,
+                   descs: dict | None = None) -> list:
         out = []
         for i, (name, values) in enumerate(fields):
-            z = self.book.add(f"extract:{stage}/{name}/description", P.EXTRACT[name], False, P.BUDGET["extract"],
+            text = (descs or {}).get(name) or P.EXTRACT[name]
+            z = self.book.add(f"extract:{stage}/{name}/description", text, False, P.BUDGET["extract"],
                               "extraction field description (enum values locked)")
             self.book.target(self._ptr(nid, is_global) + f"/extraction_schema/{i}/description", "text", [{"zone": z}])
-            out.append({"name": name, "type": "string", "enum_values": values, "description": P.EXTRACT[name],
-                        "min_confidence": MIN_CONF})
+            item = {"name": name, "type": "string"}
+            if values is not None:  # None = free text (a spoken answer)
+                item["enum_values"] = values
+            out.append({**item, "description": text, "min_confidence": MIN_CONF})
         return out
 
     def intent(self, zid: str, ptrs: list[str], text: str):
@@ -281,7 +302,7 @@ class Graph:
         jput(vars, 'id_passed', [])
         vars['id_state'] = 'pending'
         vars['id_wrong'] = '0'
-        vars['cb_state'] = 'none'
+ID_INIT        vars['cb_state'] = 'none'
         vars['neg_state'] = 'open'
         vars['facts_state'] = 'pending'
         vars['stop_n'] = '0'
@@ -319,6 +340,25 @@ class Graph:
         # The opening is spoken first (call variables only, no code): a code step before the first line makes the
         # first chat turn wait on the code sandbox (seen at 37-41 s, and 504s from the chat gateway). setup runs
         # after the customer's first reply and routes on who answered.
+        if "f1_id_complete" in self.f:
+            body = body.replace("ID_INIT", """        vars['id_q'] = CFG['identity']['questions'][0]
+        vars['id_say'] = CFG['identity']['prompts'].get(vars['id_q'], vars['id_q'])
+        vars['id_partial'] = ''
+        vars['id_answer_text'] = ''
+        vars['id_send_field'] = ''
+        vars['id_send_value'] = ''
+        vars['id_route'] = ''
+        vars['id_intent'] = 'none'
+        vars['id_declines'] = '0'
+        vars['id_q_pending'] = '0'
+""")
+        elif "f2_question_not_refusal" in self.f:
+            body = body.replace("ID_INIT", """        vars['id_intent'] = 'none'
+        vars['id_declines'] = '0'
+        vars['id_q_pending'] = '0'
+""")
+        else:
+            body = body.replace("ID_INIT", "")
         second = int(self.limits.get("right_party", 2)) >= 2
         routes = self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear")
         self.code("setup", body, routes + [always("mark_nr_unclear", "nobody confirmed")],
@@ -449,7 +489,7 @@ class Graph:
                 "failed": "Too many wrong answers. The checks have failed. Do not ask any more questions and say nothing about the account.",
                 "service_retry": "The check did not go through. Ask the customer for the same answer again.",
                 "service_failed": "The check is not available. Apologise briefly."}
-        post = self.hook("""
+        post_body = """
         result.pop('header', None)
         d = result.get('data') if isinstance(result.get('data'), dict) else dict()
         R = CFG['id_roles']
@@ -504,24 +544,147 @@ class Graph:
                 d['what_to_do_next'] = MSG['retry']
         result['data'] = d
         refresh_close(vars, CFG)
-        """, uses=("truthy", "num", "jget", "jput", "refresh_close"), msgs=msgs)
+        """
+        if "f1_id_complete" in self.f:  # the next line to say and the next question go to variables (no model-facing tool)
+            post_body = post_body.replace("                vars['id_state'] = 'next'\n",
+                                          "                vars['id_state'] = 'next'\n                vars['id_q'] = nxt\n")
+            post_body = post_body.replace("        result['data'] = d\n",
+                                          "        vars['id_say'] = re.sub(r' \\(field: [^)]*\\)', '', str(d.get('what_to_do_next') or ''))\n"
+                                          "        result['data'] = d\n")
+        post = self.hook(post_body, uses=("truthy", "num", "jget", "jput", "refresh_close"), msgs=msgs)
+        if "f1_id_complete" in self.f:  # run by the engine from id_verify with the complete answer id_check hands over
+            body = {**T.customer_leaf(self.api, "verify_identity"),
+                    f["field"]: {"type": "string", "default": "{{id_send_field}}"},
+                    f["answer"]: {"type": "string", "default": "{{id_send_value}}"}}
+            pre = None
         tool = T.api_tool(self.api, "verify_identity", body, retries=0,
                           description="Check one security answer. CALL it every time the customer answers a security question, with that question's field.",
                           pre=pre, post=post)
         return tool, msgs
 
-    def _identity_transitions(self, refusal_var: str, refusal_target: str) -> list:
+    def _id_state_transitions(self) -> list:
         roles = self.api.identity_roles()
         passed = [leaf("id_state", "equals", "passed")]
         if roles.get("all"):
             passed += bool_true(f"verify_identity_response.data.{roles['all']}")
         return [any_of("fetch_account", "the identity checks passed", passed),
                 eq("mark_nv_failed", "the identity checks failed", "id_state", "failed"),
-                eq("mark_np_service_error", "the identity service is not available", "id_state", "error"),
-                eq(refusal_target, "the customer declines the questions", refusal_var, "declines", "asks_purpose")]
+                eq("mark_np_service_error", "the identity service is not available", "id_state", "error")]
+
+    def _identity_transitions(self, refusal_var: str, refusal_target: str) -> list:
+        return self._id_state_transitions() + [
+            eq(refusal_target, "the customer declines the questions", refusal_var, "declines", "asks_purpose")]
+
+    def _id_refusal_count(self):
+        """F1/F2: count refusals in code. A question back is answered once; only a repeat counts (F2)."""
+        f1, f2 = "f1_id_complete" in self.f, "f2_question_not_refusal" in self.f
+        limit = int(self.limits.get("id_decline", 1))
+        say_ask = "vars['id_say'] = 'Answer the customer question briefly without saying why you are calling, then ask again: ' + prompt\n" if f1 else ""
+        say_explain = "vars['id_say'] = prompt\n" if f1 else ""
+        pend = "intent == 'asks_question' and not pending" if f2 else "False"
+        body = """
+        intent = str(vars.get('id_intent') or '')
+        pending = str(vars.get('id_q_pending')) == '1'
+        q = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
+        prompt = str(CFG['identity']['prompts'].get(q, q))
+        vars['id_intent'] = 'none'
+        vars['id_route'] = 'ask'
+        if PEND:
+            vars['id_q_pending'] = '1'
+            SAY_ASK
+        else:
+            n = int(num(vars.get('id_declines'))) + 1
+            vars['id_declines'] = str(n)
+            vars['id_q_pending'] = '0'
+            if n <= LIMIT:
+                vars['id_route'] = 'explain'
+                SAY_EXPLAIN
+            else:
+                vars['id_route'] = 'decline'
+        """.replace("PEND", pend).replace("LIMIT", str(limit)).replace("SAY_ASK\n", say_ask or "pass\n") \
+           .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
+        body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
+        trs = ([eq("identity_explain", "explain once", "id_route", "explain")] if limit >= 1 else []) + [
+            eq("mark_nv_declined", "the customer keeps declining", "id_route", "decline"), always("identity")]
+        self.code("id_refusal_count", body, trs, uses=("num",), fallback="vars['id_route'] = 'decline'")
+
+    def _identity_f1_f2(self, tool, msgs):
+        """The identity step when F1 (complete answers verified by the engine) and/or F2 (a question is not a refusal) is on."""
+        f1, f2, f3 = ("f1_id_complete" in self.f, "f2_question_not_refusal" in self.f, False)
+        explain = int(self.limits.get("id_decline", 1)) >= 1
+        vals = ["answer"] + (["asks_question", "refuses"] if f2 else ["declines", "asks_purpose"]) + ["other"]
+        descs = {"id_intent": P.id_intent_desc(f2, f3)}
+        fields = [("id_intent", vals)] + ([("id_answer_text", None)] if f1 else [])
+        refusal = ("refuses", "asks_question") if f2 else ("declines", "asks_purpose")
+        trs = ([eq("id_check", "the customer gave an answer", "id_intent", "answer")] if f1 else self._id_state_transitions())
+        trs = trs + [eq("id_refusal_count", "the customer declines or does not answer", "id_intent", *refusal)]
+        tools = [] if f1 else [tool]
+        self.conv("identity", on_enter={"type": "llm"}, tools=tools,
+                  extraction=self.extraction("identity", "identity", fields, descs=descs), transitions=trs,
+                  max_turns=16, turn_target="mark_nv_declined")
+        if not f1:
+            self.tool_zones("identity", 0, tool, msgs)
+        self.task_zones("identity", "identity", P.identity_task_f1(self.p, f2) if f1 else P.identity_task(self.p) + (
+            " If the customer asks a question instead of answering, answer it briefly without the reason for the call, "
+            "then ask the pending question again." if f2 else ""))
+        if explain:
+            ext = [{"name": n, "type": "string", **({"enum_values": v} if v is not None else {}),
+                    "description": descs.get(n) or P.EXTRACT[n], "min_confidence": MIN_CONF} for n, v in fields]
+            self.conv("identity_explain", on_enter={"type": "llm"}, tools=tools, extraction=ext,
+                      transitions=list(trs), max_turns=12, turn_target="mark_nv_declined")
+            for i, (n, _) in enumerate(fields):
+                self.book.target(f"/nodes/identity_explain/extraction_schema/{i}/description", "text",
+                                 [{"zone": f"extract:identity/{n}/description"}])
+            if not f1:
+                self.tool_zones("identity_explain", 0, tool, msgs)
+            self.task_zones("identity_explain", "identity_explain",
+                            P.identity_explain_task_f1(self.p) if f1 else P.identity_explain_task(self.p), brief_stage="identity")
+        self._id_refusal_count()
+        if f1:
+            self._id_check_and_verify(tool, msgs)
+
+    def _id_check_and_verify(self, tool, msgs):
+        body = """
+        field = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
+        kind = str(CFG['identity']['kinds'].get(field, 'text'))
+        text = (str(vars.get('id_partial') or '') + ' ' + str(vars.get('id_answer_text') or '')).strip()
+        vars['id_intent'] = 'none'
+        vars['id_answer_text'] = ''
+        vars['id_q_pending'] = '0'
+        if kind == 'digits':
+            value = digit_string(text)
+            complete = bool(value)
+        else:
+            value, complete = answer_from_speech(kind, text)
+            if complete and not (kind in ('date', 'year', 'alnum_code') or kind.startswith('digits:')):
+                value = norm_answer(kind, value, parse_now(vars.get('now')).date())
+        if complete:
+            vars['id_send_field'] = field
+            vars['id_send_value'] = str(value)
+            vars['id_last_field'] = field
+            vars['id_partial'] = ''
+            vars['id_route'] = 'send'
+        else:
+            vars['id_partial'] = text
+            vars['id_route'] = 'ask'
+            if text:
+                vars['id_say'] = 'Thank you. Could you give me the rest of that, please?'
+            else:
+                vars['id_say'] = str(CFG['identity']['prompts'].get(field, field))
+        """
+        self.code("id_check", body, [eq("id_verify", "a complete answer to send", "id_route", "send"), always("identity")],
+                  uses=("parse_now", "digit_string", "answer_from_speech", "norm_answer"),
+                  fallback="vars['id_route'] = 'ask'")
+        self.api_node("id_verify", tool, self._id_state_transitions() + [always("identity")],
+                      response_mapping=[{"path": "data.ok", "variable": "id_ok"}])
+        parts = [{"zone": self.book.add(f"hook:verify_identity/msg/{k}", v, False, P.BUDGET["hook"], "what_to_do_next text"),
+                  "key": k} for k, v in msgs.items()]
+        self.book.target("/nodes/id_verify/pre_actions/0/post_process_code", "hook_msgs", parts)
 
     def _identity(self):
         tool, msgs = self._identity_tool()
+        if self.f & {"f1_id_complete", "f2_question_not_refusal"}:
+            return self._identity_f1_f2(tool, msgs)
         explain = int(self.limits.get("id_decline", 1)) >= 1
         values = ["declines", "asks_purpose", "answering"]
         self.conv("identity", on_enter={"type": "llm"}, tools=[tool],

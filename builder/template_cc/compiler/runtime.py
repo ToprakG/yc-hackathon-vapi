@@ -468,3 +468,239 @@ def weekday_words(cfg, today):
             nxt = today + datetime.timedelta(days=(i - today.weekday()) % 7 or 7)
         out.append('"this ' + name + '" = ' + spoken_full(this_d) + '; "next ' + name + '" = ' + spoken_full(nxt))
     return '\n'.join(out)
+
+
+# --- F1: complete security answers from speech (generic: the field's KIND comes from the tool API) -------------
+ID_UNITS = {"zero": 0, "oh": 0, "o": 0, "nought": 0, "nil": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+         "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+         "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19}
+ID_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+ID_ORD = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
+       "ninth": 9, "tenth": 10, "eleventh": 11, "twelfth": 12, "thirteenth": 13, "fourteenth": 14, "fifteenth": 15,
+       "sixteenth": 16, "seventeenth": 17, "eighteenth": 18, "nineteenth": 19, "twentieth": 20, "thirtieth": 30}
+ID_MONTHS = {'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6, 'july': 7, 'august': 8,
+    'september': 9, 'october': 10, 'november': 11, 'december': 12, 'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12, 'sept': 9}
+
+
+def kind_from_description(text):
+    t = (text or "").lower()
+    if "yyyy-mm-dd" in t or "date" in t and "birth" in t:
+        return "date"
+    if re.search(r"\b[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}\b", text or ""):  # an example such as AB1 2CD: letters and digits, spaced
+        return "alnum_code"
+    m = re.search(r"(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+digits", t)
+    if "year" in t and ("four digits" in t or "yyyy" in t):
+        return "year"
+    if m:
+        w = m.group(1)
+        n = int(w) if w.isdigit() else ID_UNITS.get(w, 0) or {"ten": 10}.get(w, 0)
+        return "digits:%d" % n
+    if "year" in t:
+        return "year"
+    return "text"
+
+
+def _id_tokens(text):
+    t = (text or "").lower().replace("-", " ")
+    t = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", t)
+    return re.findall(r"[a-z]+|\d+", t)
+
+
+def digit_string(text):
+    """Spoken digits -> '0077'. Handles 'double', 'triple', 'oh', and spoken pairs like 'fifty twenty-three'."""
+    out, toks, i = [], _id_tokens(text), 0
+    while i < len(toks):
+        w = toks[i]
+        rep = {"double": 2, "triple": 3}.get(w)
+        if rep and i + 1 < len(toks) and (toks[i + 1] in ID_UNITS or toks[i + 1].isdigit()):
+            nxt = toks[i + 1]
+            d = nxt if nxt.isdigit() else str(ID_UNITS[nxt])
+            out.append(d * rep)
+            i += 2
+            continue
+        if w.isdigit():
+            out.append(w)
+        elif w in ID_TENS:
+            v = ID_TENS[w]
+            if i + 1 < len(toks) and toks[i + 1] in ID_UNITS and 0 < ID_UNITS[toks[i + 1]] < 10:
+                v += ID_UNITS[toks[i + 1]]
+                i += 1
+            out.append(str(v))
+        elif w in ID_UNITS:
+            out.append(str(ID_UNITS[w]))
+        elif w == "hundred" and out:
+            out[-1] = out[-1] + "00"
+        i += 1
+    return "".join(out)
+
+
+def spoken_year(toks):
+    """['nineteen','sixty','eight'] -> 1968; ['two','thousand','and','three'] -> 2003; ['1968'] -> 1968."""
+    s = " ".join(toks)
+    m = re.search(r"\b(1[89]\d\d|20\d\d)\b", s)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"two thousand(?: and)?(?: (\w+))?(?: (\w+))?", s)
+    if m:
+        rest = [x for x in (m.group(1), m.group(2)) if x]
+        v = 0
+        for x in rest:
+            v += ID_TENS.get(x, 0) + ID_UNITS.get(x, 0)
+        return 2000 + v
+    # "nineteen sixty eight", "twenty twelve", "nineteen oh five"
+    vals = []
+    j = 0
+    while j < len(toks):
+        x = toks[j]
+        if x in ID_TENS:
+            v = ID_TENS[x]
+            if j + 1 < len(toks) and toks[j + 1] in ID_UNITS and 0 < ID_UNITS[toks[j + 1]] < 10:
+                v += ID_UNITS[toks[j + 1]]
+                j += 1
+            vals.append(v)
+        elif x in ID_UNITS:
+            vals.append(ID_UNITS[x])
+        j += 1
+    for k in range(len(vals) - 1):
+        hi, lo = vals[k], vals[k + 1]
+        if hi in (19, 20) and 0 <= lo <= 99:
+            if lo < 10 and k + 2 < len(vals) and lo == 0:
+                lo = vals[k + 2]
+            return hi * 100 + lo
+    return None
+
+
+def parse_date(text):
+    """Day-month-year in words or digits -> 'YYYY-MM-DD', or '' if any part is missing. Numeric = day, month, year."""
+    raw = (text or "").lower()
+    m = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", raw)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return _id_iso(y, mo, d)
+    m = re.search(r"\b(\d{1,2})[./ -](\d{1,2})[./ -](\d{2,4})\b", raw)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 1900 if y > 30 else 2000
+        return _id_iso(y, mo, d)
+    toks = _id_tokens(raw)
+    month = next((ID_MONTHS[t] for t in toks if t in ID_MONTHS), None)
+    if month is None:
+        return ""
+    mi = next(i for i, t in enumerate(toks) if t in ID_MONTHS)
+    day = None
+    before, after = toks[:mi], toks[mi + 1:]
+    for seq in (before, after[:3]):
+        for i, t in enumerate(seq):
+            if t.isdigit() and 1 <= int(t) <= 31 and len(t) <= 2:
+                day = int(t)
+            elif t in ID_ORD:
+                v = ID_ORD[t]
+                if t in ("twentieth", "thirtieth") and i + 1 < len(seq) and seq[i + 1] in ID_ORD and ID_ORD[seq[i + 1]] < 10:
+                    v += ID_ORD[seq[i + 1]]
+                day = v if day is None else day
+            elif t in ID_TENS and i + 1 < len(seq) and seq[i + 1] in ID_ORD:
+                day = ID_TENS[t] + ID_ORD[seq[i + 1]]
+                break
+            elif seq is before and i == len(seq) - 1 and (t in ID_UNITS or t in ID_TENS):
+                v = ID_UNITS.get(t, 0) or ID_TENS.get(t, 0)
+                if i > 0 and seq[i - 1] in ID_TENS and t in ID_UNITS:
+                    v += ID_TENS[seq[i - 1]]
+                if 1 <= v <= 31:
+                    day = v
+        if day:
+            break
+    year_toks = after
+    if day is not None and after and (after[0].isdigit() and len(after[0]) <= 2 or after[0] in ID_ORD):
+        year_toks = after[1:]
+    year = spoken_year(year_toks)
+    if day is None or year is None:
+        return ""
+    return _id_iso(year, month, day)
+
+
+def _id_iso(y, mo, d):
+    try:
+        return datetime.date(y, mo, d).isoformat()
+    except ValueError:
+        return ""
+
+
+def parse_postcode(text):
+    """Letters and digits said one by one or written -> 'AB12 3CD' when it has a full outward + inward part."""
+    toks = _id_tokens(text)
+    chars = []
+    for t in toks:
+        if t.isdigit():
+            chars.append(t)
+        elif t in ID_UNITS:
+            chars.append(str(ID_UNITS[t]))
+        elif t in ID_TENS:
+            chars.append(str(ID_TENS[t]))
+        elif t in ("double", "triple"):
+            chars.append("*" + t)
+        elif len(t) == 1:
+            chars.append(t.upper())
+        elif len(t) <= 4 and re.fullmatch(r"[a-z]{1,2}\d*[a-z]{0,2}", t):
+            chars.append(t.upper())
+        elif re.fullmatch(r"[a-z]+\d+[a-z]*|\d+[a-z]+", t):
+            chars.append(t.upper())
+    s, i = "", 0
+    while i < len(chars):
+        c = chars[i]
+        if c.startswith("*") and i + 1 < len(chars):
+            s += chars[i + 1] * (2 if c == "*double" else 3)
+            i += 2
+            continue
+        s += c
+        i += 1
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    m = re.fullmatch(r"([A-Z]{1,2}\d[A-Z\d]?)(\d[A-Z]{2})", s)
+    return (m.group(1) + " " + m.group(2)) if m else ""
+
+
+ID_CORRECTION = r"\b(?:sorry|i mean|no wait|wait|actually|correction|rather|no,)\b"
+
+
+def after_correction(text):
+    """'1636, sorry, I mean 5023' -> ' 5023': the caller's last version counts."""
+    parts = [p for p in re.split(ID_CORRECTION, (text or "").lower()) if re.search(r"\d|[a-z]", p or "")]
+    return parts[-1] if parts else (text or "")
+
+
+def answer_from_speech(kind, text):
+    """Return (value, complete). Never send an incomplete value to the bank: it may count as a wrong answer."""
+    v, ok = _id_answer(kind, after_correction(text))
+    if not ok:
+        v2, ok2 = _id_answer(kind, text)
+        if ok2:
+            return v2, ok2
+    return v, ok
+
+
+def _id_answer(kind, text):
+    if kind == "date":
+        v = parse_date(text)
+        return v, bool(v)
+    if kind == "alnum_code":
+        v = parse_postcode(text)
+        return v, bool(v)
+    if kind == "year":
+        y = spoken_year(_id_tokens(text))
+        if y is None:
+            ds = digit_string(text)
+            y = int(ds) if len(ds) == 4 else None
+        return (str(y), True) if y and 1880 <= y <= 2100 else ("", False)
+    if kind.startswith("digits:"):
+        n = int(kind.split(":")[1])
+        ds = digit_string(text)
+        if len(ds) == n:
+            return ds, True
+        # chatter with other numbers: take the last sentence or clause that holds exactly n digits
+        for seg in reversed(re.split(r"[.!?;,]| it is | it's | its | is ", " " + (text or "").lower() + " ")):
+            d2 = digit_string(seg)
+            if len(d2) == n:
+                return d2, True
+        return ds, False
+    return (text or "").strip(), bool((text or "").strip())
