@@ -1,13 +1,12 @@
-"""Raw-material preprocessing for the extractor (generic, no brief values).
+"""Generic preprocessing of raw brief material before extraction. No brief values, only structure.
 
-Some briefs are email threads, memos over a policy or code lists. `prepare(text)` makes the order and the overrides
-explicit before the model reads it:
-- an email thread (From:/Sent:/Date:/Subject: headers, "-----Original Message-----", "On ... wrote:") is split into messages,
-  put in time order, oldest first, each prefixed `[Message k of n - later messages override earlier ones]`; quoted `>` lines
-  that repeat text already in the thread are removed;
-- a memo or amendment section gets an `[Override]` line before it;
-- a text with none of these markers is returned unchanged (byte for byte).
-The extractor keeps the original text for its quote checks: quotes must match the brief as written.
+`prepare(text)` returns the text unchanged when it has no email-thread or memo markers. Otherwise:
+- an email chain (`-----Original Message-----`, `On ... wrote:`, `>` quote lines) is split into messages, quoted repeats
+  are removed, the messages are ordered oldest -> newest (by their Sent/Date header, else reversed from the top-down
+  reply order) and each is prefixed `[Message k of n — later messages override earlier ones]`;
+- a memo or amendment heading, or a line that starts with Memo / Amendment / Effective / Supersedes / Replaces, is
+  prefixed `[Override]`.
+The original text stays the reference for quote checks: a quote must match the brief, not this view of it.
 """
 
 from __future__ import annotations
@@ -15,93 +14,77 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-HEADER = re.compile(r"^(From|Sent|Date|To|Cc|Subject):", re.I)
-SPLIT = re.compile(r"^(-{3,}\s*Original Message\s*-{3,}|On .{5,120} wrote:)\s*$", re.I)
-QUOTED = re.compile(r"^\s*>+ ?(.*)$")
-OVERRIDE_HEADING = re.compile(r"^\s*(#{1,6}\s*)?[^\n]*\b(memo|amendments?)\b", re.I)
-SUPERSEDES = re.compile(r"\b(supersedes|superseded by|supersede)\b", re.I)
-DATE_FORMATS = ("%d %B %Y %H:%M", "%d %B %Y", "%B %d, %Y %H:%M", "%B %d, %Y", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m/%Y %H:%M",
-                "%d/%m/%Y", "%a, %d %b %Y %H:%M", "%d %b %Y %H:%M", "%d %b %Y")
+SEP = re.compile(r"^\s*(-{3,}\s*Original Message\s*-{3,}|On .{5,200}\bwrote:\s*|_{5,})\s*$", re.I | re.M)
+HEADER = re.compile(r"^(From|Sent|Date|To|Subject|Cc):", re.I | re.M)
+QUOTE = re.compile(r"^\s*>", re.M)
+OVERRIDE_HEADING = re.compile(r"^(#+\s*.*\b(memo|amendments?|supersed\w*|replac\w+)\b.*)$", re.I)
+OVERRIDE_START = re.compile(r"^\s*(memo\b|amendments?\b|effective\b|supersedes\b|replaces\b)", re.I)
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 
 
-def _is_thread(lines: list[str]) -> bool:
-    headers = sum(1 for l in lines if re.match(r"^(From|Sent):", l, re.I))
-    return headers >= 2 or any(SPLIT.match(l.strip()) for l in lines) or sum(1 for l in lines if QUOTED.match(l)) >= 2
+def _norm(line: str) -> str:
+    return " ".join(re.sub(r"[*_`#|]", " ", line).lower().split())
 
 
-def _parse_date(block: list[str]):
-    for l in block[:8]:
-        m = re.match(r"^(Sent|Date):\s*(.+?)\s*$", l, re.I)
-        if not m:
-            continue
-        raw = re.sub(r"\s*\(.*?\)\s*$", "", m.group(2))
-        for f in DATE_FORMATS:
-            try:
-                return dt.datetime.strptime(raw, f)
-            except ValueError:
-                pass
+def _date(chunk: str):
+    head = "\n".join(chunk.splitlines()[:8])
+    m = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", head)
+    if m:
+        return dt.date(int(m[1]), int(m[2]), int(m[3]))
+    m = re.search(r"\b(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})\b", head)
+    if m and m[2].lower() in MONTHS:
+        return dt.date(int(m[3]), MONTHS[m[2].lower()], int(m[1]))
     return None
 
 
-def _messages(lines: list[str]) -> list[list[str]]:
-    """Split at a From: header that starts a header block, at an Original Message line and at an 'On ... wrote:' line."""
-    msgs: list[list[str]] = [[]]
-    for i, l in enumerate(lines):
-        starts = bool(SPLIT.match(l.strip()))
-        if re.match(r"^From:", l, re.I) and (i == 0 or not re.match(r"^(From|Sent|Date|To|Cc|Subject):", lines[i - 1], re.I)):
-            starts = True
-            if i > 0 and SPLIT.match(lines[i - 1].strip()):
-                starts = False  # the separator line already opened this message
-        if starts and any(x.strip() for x in msgs[-1]):
-            msgs.append([])
-        if not SPLIT.match(l.strip()):
-            msgs[-1].append(l)
-    return [m for m in msgs if any(x.strip() for x in m)]
+def is_thread(text: str) -> bool:
+    return bool(SEP.search(text) or (QUOTE.search(text) and HEADER.search(text)))
 
 
-def _drop_quoted_repeats(text: str) -> str:
-    plain = {" ".join(l.lower().split()) for l in text.splitlines() if not QUOTED.match(l) and l.strip()}
-    keep = []
-    for l in text.splitlines():
-        m = QUOTED.match(l)
-        if m and " ".join(m.group(1).lower().split()) in plain | {""}:
-            continue
-        keep.append(l)
-    return "\n".join(keep)
+def _split_messages(text: str) -> list[str]:
+    parts = [p for p in SEP.split(text)[0::2]] if SEP.search(text) else [text]
+    # re.split with one group returns [chunk, sep, chunk, ...]; the "On ... wrote:" separator carries no header, keep chunks
+    return [p.strip("\n") for p in parts if p.strip()]
 
 
 def _thread(text: str) -> str:
-    lines = _drop_quoted_repeats(text).splitlines()
-    msgs = _messages(lines)
-    if len(msgs) < 2:
-        return text
-    dates = [_parse_date(m) for m in msgs]
-    if all(d is not None for d in dates):
-        order = sorted(range(len(msgs)), key=lambda i: dates[i])
+    chunks = _split_messages(text)
+    if len(chunks) < 2:
+        chunks = [text]
+    dates = [_date(c) for c in chunks]
+    order = list(range(len(chunks)))
+    if all(dates):
+        order.sort(key=lambda i: (dates[i], -i))  # equal dates: the one lower in the chain is older
     else:
-        order = list(range(len(msgs)))[::-1]  # a reply chain lists the newest message first
-    n = len(msgs)
+        order.reverse()  # replies are written above the quoted history
+    seen: set[str] = set()
     out = []
     for k, i in enumerate(order, 1):
-        out.append(f"[Message {k} of {n} - later messages override earlier ones]")
-        out.append("\n".join(msgs[i]).strip("\n"))
-        out.append("")
-    return "\n".join(out).rstrip("\n") + "\n"
+        lines = []
+        for line in chunks[i].splitlines():
+            line = re.sub(r"^(\s*>)+ ?", "", line)  # a quote line is a repeat of an earlier message or a plain line
+            key = _norm(line)
+            if len(key) >= 20 and key in seen:
+                continue
+            if len(key) >= 20:
+                seen.add(key)
+            lines.append(line)
+        body = "\n".join(lines).strip("\n")
+        out.append(f"[Message {k} of {len(order)} — later messages override earlier ones]\n{body}")
+    return "\n\n".join(out)
 
 
 def _overrides(text: str) -> str:
-    out, changed = [], False
-    for l in text.splitlines():
-        if (re.match(r"^\s*(#{1,6}\s+|[A-Z][A-Z \-:]{6,}$)", l) and OVERRIDE_HEADING.match(l)) or SUPERSEDES.search(l):
-            out.append("[Override] The memo or amendment below replaces earlier statements where they differ.")
-            changed = True
-        out.append(l)
-    return "\n".join(out) + ("\n" if text.endswith("\n") else "") if changed else text
+    out = []
+    for line in text.split("\n"):
+        if (OVERRIDE_HEADING.match(line) or OVERRIDE_START.match(line)) and not line.lstrip().startswith("[Override]"):
+            line = "[Override] " + line.lstrip() if not line.lstrip().startswith("#") else re.sub(r"^(#+\s*)", r"\1[Override] ", line)
+        out.append(line)
+    return "\n".join(out)
 
 
 def prepare(text: str) -> str:
-    lines = text.splitlines()
-    out = text
-    if _is_thread(lines):
-        out = _thread(text)
-    return _overrides(out)
+    """The brief as the extractor reads it; byte-identical to `text` when no marker is found."""
+    new = _thread(text) if is_thread(text) else text
+    new = _overrides(new)
+    return new if new != text else text
