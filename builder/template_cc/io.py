@@ -117,6 +117,9 @@ def parse_args(argv):
     ap.add_argument("--out")
     ap.add_argument("--close-form", choices=("lifecycle", "node"), default="lifecycle")
     ap.add_argument("--keep-workspace", action="store_true")
+    ap.add_argument("--self-test-cases", type=int, default=24, help="cases testgen makes for the self-test loop")
+    ap.add_argument("--self-test-reps", type=int, default=1, help="runs per case in the self-test loop")
+    ap.add_argument("--gate-p", type=float, default=0.1, help="sign-test p threshold of the gate")
     ap.add_argument("--policy", help="skip extraction: compile from this policy.json (checked deterministically)")
     return ap.parse_args(argv)
 

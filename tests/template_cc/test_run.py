@@ -111,8 +111,14 @@ def test_exit_codes(tmp_path):
 
     rc, out, _, txt = run(tmp_path / "a", ["--save", "none", "--audit", "off"], call_llm=broken)
     assert rc == 1 and json.loads((out / "build_report.json").read_text())["status"] == "failed" and "model down" in txt
-    rc, out, _, txt = run(tmp_path / "b", ["--save", "none", "--self-test", "local"])
-    assert rc == 2 and "not connected" in txt and not (out / "policy.raw.json").exists()
+    import builder.template_cc.vendor_runner as VR
+    orig = VR.availability
+    VR.availability = lambda vendor=None: (False, "cloudflared is not installed")
+    try:
+        rc, out, _, txt = run(tmp_path / "b", ["--save", "none", "--self-test", "local"])
+    finally:
+        VR.availability = orig
+    assert rc == 2 and "needs the local tester" in txt and not (out / "policy.raw.json").exists()
     assert R.main([str(FIX / "invented.brief.md"), "--out", str(tmp_path / "c")], call_llm=broken, trace_root=tmp_path) == 2
 
 

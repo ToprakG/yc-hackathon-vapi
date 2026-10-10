@@ -258,3 +258,13 @@ def test_patcher_receives_no_testbed_or_expected_data(fx_api, fx_policy, fx_brie
     run(fx_api, fx_policy, fx_brief, tmp_path, lambda wf, c, r: False, patcher_fn=spy)
     blob = json.dumps(seen["failures"])
     assert seen["failures"] and "oracle" not in blob and '"expected"' not in blob and "testbed" not in seen["api_path"]
+
+
+def test_empty_product_id_format_gets_the_bank_default(fx_policy):
+    p = json.loads(json.dumps(fx_policy))
+    p["product_id_format"] = ""
+    cases, gaps = testgen.generate(p, 20)
+    ids = {pr["product_id"] for c in cases for pr in c["expected"]["promises"]}
+    assert ids and all(i.startswith("p") and i[1:].isdigit() for i in ids)
+    from builder.template_cc import vendor_runner
+    assert vendor_runner.bank_config(p)["product_id_format"] == "p{n}"

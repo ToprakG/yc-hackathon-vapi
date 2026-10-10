@@ -75,12 +75,18 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
     report: dict = {"slot": slot, "status": "failed", "out": str(out), "trace": str(trace.dir)}
     exit_code = 1
     try:
+        own_runner = None
         if args.self_test == "local" and runner is None:
-            msg = "--self-test local needs the local tester (a TestRunner); it is not connected. No Freya simulation is used instead."
-            trace.warn(msg)
-            print(msg, file=sys.stderr)
-            report["message"] = msg
-            return 2
+            from builder.template_cc import vendor_runner  # noqa: PLC0415
+            ok, why = vendor_runner.availability()
+            if not ok:
+                msg = (f"--self-test local needs the local tester: {why}. "
+                       "No Freya simulation is used instead.")
+                trace.warn(msg)
+                print(msg, file=sys.stderr)
+                report["message"] = msg
+                return 2
+            trace.line("self-test runner: vendor chat driver + mock bank + decision-model judge (build-the-builder)")
         api = ApiModel.load(api_path)
         tool_api = json.loads(Path(api_path).read_text(encoding="utf-8"))
         briefs = io.read_briefs(briefs_paths)
@@ -135,17 +141,23 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
         # SELF-TEST LOOP
         if args.self_test == "local":
             try:
+                if runner is None:
+                    own_runner = runner = vendor_runner.VendorRunner(slot, policy, api, trace, freya_mod or _import_freya())
                 d = loop.LoopDeps(runner=runner, judge=the_judge, call_llm=call_llm, models=models, trace=trace, briefs=briefs,
                                   brief_text=brief_text, api_path=Path(api_path), api=api, tool_api=tool_api, policy=policy,
                                   out_dir=out, deadline=deadline, keep_workspace=args.keep_workspace, query_fn=query_fn,
                                   server=sdk_server)
-                res = loop.run_loop(best, best_book, d, max_iters=args.max_iters)
+                res = loop.run_loop(best, best_book, d, max_iters=args.max_iters, reps=args.self_test_reps,
+                                    n_cases=args.self_test_cases, p_threshold=args.gate_p)
                 report["self_test"] = {"iterations": len(res.iterations), "committed": res.committed,
                                        "stop_reason": res.stop_reason, "cases": res.cases, "gaps": res.gaps}
                 best, best_book = res.workflow, res.book
             except Exception as e:  # noqa: BLE001 - keep the baseline
                 trace.warn(f"self-test loop failed: {e!r}; keeping the baseline")
                 report["self_test"] = {"error": repr(e)}
+            finally:
+                if own_runner is not None:
+                    own_runner.close()
         else:
             trace.selftest("no self-test (none)")
             report["self_test"] = "none"

@@ -103,6 +103,9 @@ def policy_to_cfg(policy: dict, seed: int = 7) -> tuple[dict, list[str]]:
     gaps = []
     cfg = {k: copy.deepcopy(policy.get(k)) for k in CANON_CFG_KEYS}
     cfg["id"] = "tcc"
+    if "{n}" not in str(cfg.get("product_id_format") or ""):
+        cfg["product_id_format"] = "p{n}"  # the same default as the self-test bank (vendor_runner.bank_config)
+        gaps.append("product_id_format has no {n}: cases use p{n}")
     cfg["now_dates"] = synth_now_dates(policy, seed)
     rng = random.Random(f"tcc-floor-{seed}")
     for t in (cfg.get("product_types") or {}).values():
