@@ -23,3 +23,9 @@ def kit_api():
 @pytest.fixture
 def base_agent():
     return json.loads((REPO / "examples" / "base-agent.json").read_text())
+
+
+@pytest.fixture(autouse=True)
+def no_real_local_sims(monkeypatch):
+    """Offline tests never play real local simulations (they would call OpenRouter)."""
+    monkeypatch.setenv("LOCALSIM_OFF", "1")

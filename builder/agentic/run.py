@@ -42,6 +42,9 @@ class BuildOptions:
     review_minutes: float = 5.0
     fix_minutes: float = 6.0
     unit: bool = True  # run the builder's own unit tests on Freya; failures join the fix round
+    localsim: bool = True  # local hard simulations from the builder's own policy; failures join the fix round
+    localsim_cases: int = 10
+    localsim_seed: int = 11  # not the seed the builder's own run_local_sims uses by default (7)
     model: str = "claude-opus-5-5"
     max_usd: float | None = None
     keep_workspace: bool = False
@@ -213,6 +216,54 @@ def unit_phase(ws: Path, opts: BuildOptions, trace: Trace, workflow_path: Path, 
     return out
 
 
+def localsim_phase(ws: Path, opts: BuildOptions, trace: Trace, workflow_path: Path, label="local sims") -> dict:
+    """Hard local simulations (no Freya) of a workflow, on cases generated from the builder's own policy.json."""
+    out = {"ran": False}
+    try:
+        from builder.agentic.localsim import sim  # noqa: PLC0415
+        from builder.template_cc.vendor_runner import bank_config  # noqa: PLC0415
+
+        ok, why = sim.available()
+        if os.environ.get("LOCALSIM_OFF"):
+            ok, why = False, "LOCALSIM_OFF is set"
+        if not ok:
+            out["skipped"] = why
+            return out
+        policy = json.loads((ws / "out" / "policy.json").read_text(encoding="utf-8"))
+        wf = json.loads(workflow_path.read_text(encoding="utf-8"))
+        cases = sim.cases_from_policy(policy, opts.localsim_cases, opts.localsim_seed)[: opts.localsim_cases]
+        results = sim.run_cases(wf, cases, bank_config(policy), parallel=6)
+        out.update(ran=True, results=results, summary=sim.summary(results), cases=[c["id"] for c in cases])
+        trace.event(label, out["summary"])
+    except Exception as e:  # noqa: BLE001  (a broken simulator never stops the build)
+        out["error"] = repr(e)[:300]
+        trace.event("error", f"{label}: {out['error']}")
+    return out
+
+
+def localsim_findings(local: dict) -> list[dict]:
+    found = []
+    for r in local.get("results") or []:
+        if r.get("pass"):
+            continue
+        tail = " | ".join(f"{role}: {text[:120]}" for role, text in (r.get("transcript") or [])[-6:])
+        found.append({"kind": "local_sim_failed", "review_id": r["id"], "quote": "",
+                      "rule": f"local simulated call {r['id']} ({r.get('family')}, customer style {r.get('style')})",
+                      "verdict": "wrong", "node_ids": list(dict.fromkeys((r.get("nodes") or [])[-4:])),
+                      "defect": ("; ".join([*(r.get("ledger_failed") or []), *(r.get("failed_checks") or [])]) or (r.get("error") or ""))[:500]
+                                + f" Nodes: {' > '.join(r.get('nodes') or [])[:300]}. End of the call: {tail}"[:900],
+                      "fix": "find why the call went this way in your workflow and fix the cause (a route, a write, a counter, a stuck node)"})
+    return found
+
+
+def _passed_common(before: dict, after: dict) -> tuple[int, int]:
+    """Passed counts over the unit tests both runs have (derived tests can be added in between)."""
+    b = {r["name"]: r["outcome"] == "pass" for r in before.get("results") or []}
+    a = {r["name"]: r["outcome"] == "pass" for r in after.get("results") or []}
+    common = set(b) & set(a)
+    return sum(b[n] for n in common), sum(a[n] for n in common)
+
+
 def unit_findings(ws: Path, unit: dict) -> list[dict]:
     """A failed unit test is a finding with its start node, the failed checks and the judge's reason."""
     suite = {}
@@ -243,13 +294,15 @@ def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_st
     if target is None:
         info["skipped"] = "no lint-clean workflow to review"
         return info
-    unit_before = {}
-    unit_thread = None
+    unit_before, local_before, threads = {}, {}, []
+    snapshot = ws / "out" / "prefix.workflow.json"
+    shutil.copyfile(target, snapshot)
     if opts.unit:
-        snapshot = ws / "out" / "prefix.workflow.json"
-        shutil.copyfile(target, snapshot)
-        unit_thread = threading.Thread(target=lambda: unit_before.update(unit_phase(ws, opts, trace, snapshot, freya_mod, "unit (before fix)")))
-        unit_thread.start()
+        threads.append(threading.Thread(target=lambda: unit_before.update(unit_phase(ws, opts, trace, snapshot, freya_mod, "unit (before fix)"))))
+    if opts.localsim:
+        threads.append(threading.Thread(target=lambda: local_before.update(localsim_phase(ws, opts, trace, snapshot, "local sims (before fix)"))))
+    for t in threads:
+        t.start()
     rws = Path(tempfile.mkdtemp(prefix="fb-review-", dir=workspace_root))
     parsed = {"rules": [], "error": "review did not run"}
     try:
@@ -268,12 +321,17 @@ def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_st
     except (OSError, json.JSONDecodeError):
         rules = []
     findings = review.compare(parsed, rules)
-    if unit_thread is not None:
-        unit_thread.join()
+    for t in threads:
+        t.join()
+    if opts.unit:
         info["unit_before"] = {k: unit_before.get(k) for k in ("ran", "summary", "skipped", "error", "dropped")}
-        findings = unit_findings(ws, unit_before) + findings
         if unit_before.get("results"):
             (ws / "out" / "unit_results.json").write_text(json.dumps(unit_before["results"], indent=1, ensure_ascii=False))
+    if opts.localsim:
+        info["local_before"] = {k: local_before.get(k) for k in ("ran", "summary", "skipped", "error")}
+        if local_before.get("results"):
+            (ws / "out" / "localsim_results.json").write_text(json.dumps(local_before["results"], indent=1, default=str))
+    findings = unit_findings(ws, unit_before) + localsim_findings(local_before) + findings
     (ws / "out" / "findings.json").write_text(json.dumps(findings, indent=1, ensure_ascii=False))
     info.update(review_rules=len(parsed["rules"]), findings=len(findings), parse_error=parsed.get("error"),
                 kinds={k: sum(f["kind"] == k for f in findings) for k in {f["kind"] for f in findings}})
@@ -289,18 +347,38 @@ def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_st
                           opts.max_turns, opts.max_usd, resume=session)
     state = _phase(query_fn, task, options, trace, opts.fix_minutes, "fix")
     info.update(fix_ran=True, fix=_result_summary(state["result"]), fix_timed_out=state["timed_out"], fix_resumed=bool(session))
-    before = (unit_before.get("summary") or {}).get("passed")
     fixed = _reviewable(ws)
-    if before is not None and fixed is not None:
-        after = unit_phase(ws, opts, trace, fixed, freya_mod, "unit (after fix)")
-        info["unit_after"] = {k: after.get(k) for k in ("ran", "summary", "skipped", "error")}
-        now = (after.get("summary") or {}).get("passed")
-        if now is not None and now < before:
-            shutil.copyfile(ws / "out" / "prefix.workflow.json", ws / "out" / "workflow.json")
-            info["rolled_back"] = f"unit tests passed {now} after the fix vs {before} before: kept the pre-fix workflow"
-            trace.event("rollback", info["rolled_back"])
-        elif after.get("results"):
-            (ws / "out" / "unit_results.json").write_text(json.dumps(after["results"], indent=1, ensure_ascii=False))
+    if fixed is None:
+        return info
+    unit_after, local_after, threads = {}, {}, []
+    if unit_before.get("results"):
+        threads.append(threading.Thread(target=lambda: unit_after.update(unit_phase(ws, opts, trace, fixed, freya_mod, "unit (after fix)"))))
+    if local_before.get("results"):
+        threads.append(threading.Thread(target=lambda: local_after.update(localsim_phase(ws, opts, trace, fixed, "local sims (after fix)"))))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    worse = []
+    if unit_after.get("results"):
+        info["unit_after"] = {k: unit_after.get(k) for k in ("ran", "summary", "skipped", "error")}
+        b, a = _passed_common(unit_before, unit_after)
+        if a < b:
+            worse.append(f"unit tests {a} vs {b}")
+    if local_after.get("results"):
+        info["local_after"] = {k: local_after.get(k) for k in ("ran", "summary", "skipped", "error")}
+        b, a = local_before["summary"]["passed"], local_after["summary"]["passed"]
+        if a < b:
+            worse.append(f"local sims {a} vs {b}")
+    if worse:
+        shutil.copyfile(ws / "out" / "prefix.workflow.json", ws / "out" / "workflow.json")
+        info["rolled_back"] = f"the fix made it worse ({'; '.join(worse)} passed, after vs before): kept the pre-fix workflow"
+        trace.event("rollback", info["rolled_back"])
+    else:
+        if unit_after.get("results"):
+            (ws / "out" / "unit_results.json").write_text(json.dumps(unit_after["results"], indent=1, ensure_ascii=False))
+        if local_after.get("results"):
+            (ws / "out" / "localsim_results.json").write_text(json.dumps(local_after["results"], indent=1, default=str))
     return info
 
 

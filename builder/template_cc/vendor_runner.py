@@ -168,7 +168,13 @@ class VendorRunner:
         _wait_http(self.origin + "/openapi.json", 90)
         self.trace.selftest(f"mock bank public at {self.origin}")
 
+    def use_shared(self, origin: str):
+        """Use a bank someone else started (a shared multi-brief bank): no bank or tunnel of our own."""
+        self.origin, self.shared = origin.rstrip("/"), True
+
     def _ensure(self, cases: list[dict]):
+        if getattr(self, "shared", False):
+            return
         new = [c for c in cases if c["id"] not in self.loaded]
         if new or self.bank is None or self.bank.poll() is not None:
             self.loaded.update({c["id"]: c for c in cases})

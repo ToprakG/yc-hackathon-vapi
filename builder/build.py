@@ -28,7 +28,7 @@ def run_agentic(args, briefs, api) -> dict:
     return run(BuildOptions(briefs=briefs, api=api, slot=args.slot, out_dir=Path(args.out), save=args.save,
                             max_minutes=args.max_minutes, model=args.model, max_usd=args.max_usd,
                             review=args.review == "on", review_minutes=args.review_minutes, fix_minutes=args.fix_minutes,
-                            unit=args.unit == "on",
+                            unit=args.unit == "on", localsim=args.localsim == "on",
                             keep_workspace=args.keep_workspace, self_test=args.self_test))
 
 
@@ -43,6 +43,7 @@ def parse(argv=None):
     p.add_argument("--slot", help="Freya slot name; default <variant>-<last brief stem>")
     p.add_argument("--max-minutes", type=float, default=15.0, help="hard wall clock for the build agent")
     p.add_argument("--unit", default="on", choices=["on", "off"], help="run the builder's own unit tests on Freya (a -unit copy)")
+    p.add_argument("--localsim", default="on", choices=["on", "off"], help="hard local simulations from the builder's own policy; failures join the fix round")
     p.add_argument("--review", default="on", choices=["on", "off"], help="fresh-context review + one fix round")
     p.add_argument("--review-minutes", type=float, default=5.0)
     p.add_argument("--fix-minutes", type=float, default=6.0)

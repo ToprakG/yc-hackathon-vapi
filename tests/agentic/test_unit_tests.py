@@ -197,3 +197,26 @@ def test_failed_local_cases_become_regression_tests(demo):
     assert [(t["name"], t["start_node"]) for t in tests] == [("sim T-1 turn 3", "offer")]
     assert all("only one offer" in t["expect"] for t in tests) and tests[0]["messages"][-1] == {"role": "user", "text": "I said no."}
     assert unit_tests.validate(tests[:1], demo, openapi_summary.load(FIX / "pattern_demo.openapi.json"))["errors"] == []
+
+
+def test_local_sim_failures_reach_the_fix_round_and_a_worse_fix_is_rolled_back(tmp_path, monkeypatch):
+    from builder.agentic import run as run_mod
+
+    calls = []
+
+    def fake_localsim(ws, opts, trace, workflow_path, label="local sims"):
+        calls.append(label)
+        before = "before" in label
+        res = [{"id": "T-001", "family": "Unclear", "style": "pieces", "pass": not before and False, "nodes": ["opening", "opening"],
+                "ledger_failed": [], "failed_checks": ["the agent ends the call after the second unclear answer"],
+                "transcript": [("assistant", "Am I speaking with Mx Doe?"), ("user", "What?")]},
+               {"id": "T-002", "family": "Happy path", "pass": before, "nodes": [], "transcript": []}]
+        passed = sum(r["pass"] for r in res)
+        return {"ran": True, "results": res, "summary": {"passed": passed, "total": 2}}
+
+    monkeypatch.setattr(run_mod, "localsim_phase", fake_localsim)
+    report, phases, fake = _run_build(tmp_path, {"refusal goes to the next proposal": ["pass", "pass"]})
+    assert calls == ["local sims (before fix)", "local sims (after fix)"]
+    findings = json.loads((tmp_path / "out" / "findings.json").read_text())
+    assert findings[0]["kind"] == "local_sim_failed" and "second unclear answer" in findings[0]["defect"]
+    assert phases[-1][0] == "fix" and "local sims 0 vs 1" in report["review"]["rolled_back"]

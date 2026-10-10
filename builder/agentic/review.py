@@ -134,8 +134,10 @@ def priority(f: dict) -> tuple:
     text = f"{f.get('defect', '')} {f.get('fix', '')}"
     if f["kind"] == "unit_test_failed":
         return (0, f.get("review_id", ""))  # a failed test on the real engine is the most concrete finding
+    if f["kind"] == "local_sim_failed":
+        return (1, f.get("review_id", ""))  # then a whole simulated call that failed
     is_defect = f["kind"] != "unlisted_rule"
-    return (1 if is_defect and MODEL_LIMIT.search(text) else 2 if is_defect else 3, f.get("review_id", ""))
+    return (2 if is_defect and MODEL_LIMIT.search(text) else 3 if is_defect else 4, f.get("review_id", ""))
 
 
 def fix_prompt(findings: list[dict], minutes: float) -> str:
@@ -145,8 +147,10 @@ def fix_prompt(findings: list[dict], minutes: float) -> str:
         where = ", ".join(f["node_ids"]) or "no node yet"
         lines.append(f"{i}. [{f['kind']}] rule: {f['rule'] or f['quote']}\n   quote: \"{f['quote']}\"\n   nodes: {where}\n"
                      f"   problem: {f['defect'] or 'not in your rules.json'}\n   suggested fix: {f['fix'] or 'implement the rule'}")
-    return (f"Your unit tests ran on Freya's real engine, and an independent reviewer read the brief and your workflow "
-            f"(it did not see your rules.json). Failed unit tests come first. "
+    return (f"Your unit tests ran on Freya's real engine, hard simulated calls from your own policy ran locally, and an "
+            f"independent reviewer read the brief and your workflow (it did not see your rules.json). Failed unit tests "
+            f"come first, then failed simulated calls: for those, find the cause in your workflow, do not patch the one "
+            f"conversation. "
             f"Fix these findings in out/workflow.json, in the order given (the first ones matter most); add any rule "
             f"missing from out/rules.json with its exact quote and location. Ignore a finding only if the brief clearly "
             f"contradicts it, and say why in one line.\n\n"

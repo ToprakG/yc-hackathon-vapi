@@ -14,8 +14,9 @@ from pathlib import Path
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vendor", required=True)
-    ap.add_argument("--cases", required=True)
-    ap.add_argument("--config", required=True)
+    ap.add_argument("--cases")
+    ap.add_argument("--config")
+    ap.add_argument("--multi", help="JSON file {name: {cases, config}}: one bank per name under /<name>")
     ap.add_argument("--port", type=int, default=8787)
     a = ap.parse_args()
     root = Path(a.vendor).resolve()
@@ -24,7 +25,14 @@ def main():
     import uvicorn
     from mockbank import create_app
 
-    app = create_app(cases=json.loads(Path(a.cases).read_text()), config=json.loads(Path(a.config).read_text()))
+    if a.multi:  # several briefs behind ONE port (and so one tunnel): /<name>/v1/<tool>, /<name>/v1/practice/...
+        from fastapi import FastAPI
+        app = FastAPI()
+        for name, spec in json.loads(Path(a.multi).read_text()).items():
+            app.mount("/" + name, create_app(cases=json.loads(Path(spec["cases"]).read_text()),
+                                             config=json.loads(Path(spec["config"]).read_text())))
+    else:
+        app = create_app(cases=json.loads(Path(a.cases).read_text()), config=json.loads(Path(a.config).read_text()))
     uvicorn.run(app, host="127.0.0.1", port=a.port, log_level="warning")
 
 
