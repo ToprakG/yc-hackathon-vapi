@@ -1,0 +1,23 @@
+18:27:07 start 2026-10-10T18:27:07+0300
+18:27:07   variant: T-CC (template compiler + Claude Code patcher + decision-model judge)
+18:27:07   slot: tcc-brief-a
+18:27:07   briefs: ["briefs/brief-a.md"]
+18:27:07   tool_api: tools/openapi.json
+18:27:07   save: none
+18:27:07   audit: off
+18:27:07   self_test: local
+18:27:07   max_minutes: 25.0
+18:27:07   close_form: lifecycle
+18:27:07   models: {"extract": "openrouter:anthropic/claude-opus-5.5", "analyze": "openrouter:anthropic/claude-sonnet-5.5", "patch": "claude-opus-5-5", "judge": "openrouter:anthropic/claude-sonnet-5.5", "judge_threshold": 0.5, "judge_votes": 1, "judge_vendor_model": "", "audit_budget_usd": 3.0, "patch_budget_usd": ...
+18:27:07 self-test runner: vendor chat driver + mock bank + decision-model judge (build-the-builder)
+18:27:07 inputs: 1 brief part(s), 10174 chars; tool API 'Freya Bank collections tools' with 7 tools; missing kit tools: []
+18:27:07 judge: vendor decision model (build-the-builder, threshold 0.5)
+18:27:07 extract: skipped, policy from out/template_cc/policy-a.json
+18:27:07 check policy_check (given policy): ok 0 violation(s)
+18:27:07 check lint baseline (extracted policy): ok 0 error(s), 11 warning(s)
+18:27:07 audit: off
+18:27:07 testgen: 17 case(s) from our policy; gaps: product_id_format has no {n}: cases use p{n}
+18:27:09 self-test: mock bank up on 127.0.0.1:8787 with 12 of our own case(s)
+18:28:29 self-test: mock bank public at https://dover-bangkok-vocabulary-narrative.trycloudflare.com
+18:28:32 freya save_workflow (self-test slot): {"slot": "tcc-brief-a-selftest", "workflow_id": "5c11cd8f-de24-4a25-9eb8-24fb875c877c", "agent_id": "24f38582-797d-46ec-9909-ad3adee10fdb", "version": 2}
+18:39:44 self-test: 11 run(s) hit an infrastructure error; retrying them one at a time

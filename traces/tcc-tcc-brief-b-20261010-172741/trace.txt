@@ -1,0 +1,16 @@
+17:27:41 start 2026-10-10T17:27:41+0300
+17:27:41   variant: T-CC (template compiler + Claude Code patcher + decision-model judge)
+17:27:41   slot: tcc-brief-b
+17:27:41   briefs: ["briefs/brief-a.md", "briefs/brief-b.md"]
+17:27:41   tool_api: tools/openapi.json
+17:27:41   save: freya
+17:27:41   audit: on
+17:27:41   self_test: none
+17:27:41   max_minutes: 25.0
+17:27:41   close_form: lifecycle
+17:27:41   models: {"extract": "openrouter:deepseek/deepseek-v4-pro", "analyze": "openrouter:deepseek/deepseek-v4-pro", "patch": "claude-opus-5-5", "judge": "openrouter:deepseek/deepseek-v4-pro", "judge_threshold": 0.5, "judge_votes": 1, "judge_vendor_model": "", "audit_budget_usd": 3.0, "patch_budget_usd": 3.0}
+17:27:41 inputs: 2 brief part(s), 12713 chars; tool API 'Freya Bank collections tools' with 7 tools; missing kit tools: []
+17:27:41 judge: vendor decision model (build-the-builder, threshold 0.5)
+17:27:41 model call openrouter:deepseek/deepseek-v4-pro: extract pass 1: brief -> policy.json | 0.3s | ERROR POST https://openrouter.ai/api/v1/chat/completions -> 402: {"error":{"message":"This request would exceed your available credits given your current in-flight requests. Retry after in-flight request...
+17:27:41 WARNING build failed: LLMError('POST https://openrouter.ai/api/v1/chat/completions -> 402: {"error":{"message":"This request would exceed your available credits given your current in-flight requests. Retry after in-flight requests settle, or add credits.","code":402,"metadata":{"reason":"in_flight_budget_exhausted","limit_source":"openrouter_in_flight_budget","remedy_hint":"Retry after your in-flight requests settle (see the Retry-After header). Adding credits at https://openrouter.ai/settings/credits raises your in-flight budget, up to a capped ceiling.","headers":{"Retry-After":"120"},"provider_name":null}},"user_id":"user_3GlubIYRCLsf6VAl0gd5W4atDCD"}')
+17:27:41 end 2026-10-10T17:27:41+0300 status=failed wall=0.3s model_calls=1 tokens_in=0 tokens_out=0 cost=$0.0000

@@ -1,0 +1,23 @@
+17:51:46 start 2026-10-10T17:51:46+0300
+17:51:46   variant: T-CC (template compiler + Claude Code patcher + decision-model judge)
+17:51:46   slot: tcc-brief-b
+17:51:46   briefs: ["briefs/brief-a.md", "briefs/brief-b.md"]
+17:51:46   tool_api: tools/openapi.json
+17:51:46   save: freya
+17:51:46   audit: off
+17:51:46   self_test: none
+17:51:46   max_minutes: 25.0
+17:51:46   close_form: lifecycle
+17:51:46   models: {"extract": "anthropic:claude-opus-5-5", "analyze": "anthropic:claude-sonnet-5-5", "patch": "claude-opus-5-5", "judge": "anthropic:claude-sonnet-5-5", "judge_threshold": 0.5, "judge_votes": 1, "judge_vendor_model": "", "audit_budget_usd": 3.0, "patch_budget_usd": 3.0}
+17:51:46 inputs: 2 brief part(s), 12713 chars; tool API 'Freya Bank collections tools' with 7 tools; missing kit tools: []
+17:51:46 judge: vendor decision model (build-the-builder, threshold 0.5)
+17:51:46 extract: skipped, policy from out/template_cc/policy-b.json
+17:51:46 check policy_check (given policy): ok 0 violation(s)
+17:51:46 check lint baseline (extracted policy): ok 0 error(s), 11 warning(s)
+17:51:46 audit: off
+17:51:46 self-test: no self-test (none)
+17:51:46 check lint final: ok 0 error(s), 11 warning(s)
+17:51:47 check freya validate (dry run): ok {"ok": true, "response": "{\"valid\": true, \"dryRun\": true}"}
+17:51:52 freya save_workflow: {"slot": "tcc-brief-b", "workflow_id": "77ec0ff4-cd7d-4b71-aa4e-f6c543c5bbce", "agent_id": "885a07dc-6b40-463a-8204-62bcab34d9cb", "version": 3}
+17:51:53 freya export_workflow: {"workflow_id": "77ec0ff4-cd7d-4b71-aa4e-f6c543c5bbce", "path": "/Users/alinebidal/yc-hackathon-vapi/out/template_cc/tcc-brief-b/tcc-brief-b.workflow.json"}
+17:51:53 end 2026-10-10T17:51:53+0300 status=ok wall=6.7s model_calls=0 tokens_in=0 tokens_out=0 cost=$0.0000

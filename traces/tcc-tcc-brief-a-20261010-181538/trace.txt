@@ -1,0 +1,24 @@
+18:15:38 start 2026-10-10T18:15:38+0300
+18:15:38   variant: T-CC (template compiler + Claude Code patcher + decision-model judge)
+18:15:38   slot: tcc-brief-a
+18:15:38   briefs: ["briefs/brief-a.md"]
+18:15:38   tool_api: tools/openapi.json
+18:15:38   save: none
+18:15:38   audit: off
+18:15:38   self_test: local
+18:15:38   max_minutes: 25.0
+18:15:38   close_form: lifecycle
+18:15:38   models: {"extract": "openrouter:anthropic/claude-opus-5.5", "analyze": "openrouter:anthropic/claude-sonnet-5.5", "patch": "claude-opus-5-5", "judge": "openrouter:anthropic/claude-sonnet-5.5", "judge_threshold": 0.5, "judge_votes": 1, "judge_vendor_model": "", "audit_budget_usd": 3.0, "patch_budget_usd": ...
+18:15:38 self-test runner: vendor chat driver + mock bank + decision-model judge (build-the-builder)
+18:15:38 inputs: 1 brief part(s), 10174 chars; tool API 'Freya Bank collections tools' with 7 tools; missing kit tools: []
+18:15:38 judge: vendor decision model (build-the-builder, threshold 0.5)
+18:15:38 extract: skipped, policy from out/template_cc/policy-a.json
+18:15:38 check policy_check (given policy): ok 0 violation(s)
+18:15:38 check lint baseline (extracted policy): ok 0 error(s), 11 warning(s)
+18:15:38 audit: off
+18:15:38 testgen: 17 case(s) from our policy; gaps: product_id_format has no {n}: cases use p{n}
+18:16:39 WARNING self-test loop failed: RunnerUnavailable('no answer from http://127.0.0.1:8787/tools/openapi.json: HTTP Error 500: Internal Server Error'); keeping the baseline
+18:16:39 check lint final: ok 0 error(s), 11 warning(s)
+18:16:40 check freya validate (dry run): ok {"ok": true, "response": "{\"valid\": true, \"dryRun\": true}"}
+18:16:40 freya: nothing saved (--save none)
+18:16:40 end 2026-10-10T18:16:40+0300 status=ok wall=62.2s model_calls=0 tokens_in=0 tokens_out=0 cost=$0.0000

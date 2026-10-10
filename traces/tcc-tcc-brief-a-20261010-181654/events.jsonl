@@ -1,0 +1,8 @@
+{"type": "start", "t": 0.0, "time": "2026-10-10T18:16:54+0300", "variant": "T-CC (template compiler + Claude Code patcher + decision-model judge)", "slot": "tcc-brief-a", "briefs": ["briefs/brief-a.md"], "tool_api": "tools/openapi.json", "save": "none", "audit": "off", "self_test": "local", "max_minutes": 25.0, "close_form": "lifecycle", "models": {"extract": "openrouter:anthropic/claude-opus-5.5", "analyze": "openrouter:anthropic/claude-sonnet-5.5", "patch": "claude-opus-5-5", "judge": "openrouter:anthropic/claude-sonnet-5.5", "judge_threshold": 0.5, "judge_votes": 1, "judge_vendor_model": "", "audit_budget_usd": 3.0, "patch_budget_usd": 3.0}}
+{"type": "check", "t": 0.179, "name": "policy_check (given policy)", "ok": true, "detail": "0 violation(s)"}
+{"type": "check", "t": 0.297, "name": "lint baseline (extracted policy)", "ok": true, "detail": "0 error(s), 11 warning(s)"}
+{"type": "selftest", "t": 1.443, "detail": "mock bank up on 127.0.0.1:8787 with 12 of our own case(s)"}
+{"type": "selftest", "t": 84.514, "detail": "mock bank public at https://draw-federation-ballet-trailers.trycloudflare.com"}
+{"type": "freya", "t": 85.81, "action": "save_workflow (self-test slot)", "detail": {"slot": "tcc-brief-a-selftest", "workflow_id": "5c11cd8f-de24-4a25-9eb8-24fb875c877c", "agent_id": "24f38582-797d-46ec-9909-ad3adee10fdb"}}
+{"type": "selftest", "t": 500.78, "detail": "12 case(s) x 1 rep(s) via the vendor chat driver: 1/12 passed in 415s (customer: vendor LLM persona; judge: vendor decision model)"}
+{"type": "selftest", "t": 502.282, "detail": "mock bank up on 127.0.0.1:8787 with 17 of our own case(s)"}

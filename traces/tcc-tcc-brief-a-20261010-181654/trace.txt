@@ -1,0 +1,24 @@
+18:16:54 start 2026-10-10T18:16:54+0300
+18:16:54   variant: T-CC (template compiler + Claude Code patcher + decision-model judge)
+18:16:54   slot: tcc-brief-a
+18:16:54   briefs: ["briefs/brief-a.md"]
+18:16:54   tool_api: tools/openapi.json
+18:16:54   save: none
+18:16:54   audit: off
+18:16:54   self_test: local
+18:16:54   max_minutes: 25.0
+18:16:54   close_form: lifecycle
+18:16:54   models: {"extract": "openrouter:anthropic/claude-opus-5.5", "analyze": "openrouter:anthropic/claude-sonnet-5.5", "patch": "claude-opus-5-5", "judge": "openrouter:anthropic/claude-sonnet-5.5", "judge_threshold": 0.5, "judge_votes": 1, "judge_vendor_model": "", "audit_budget_usd": 3.0, "patch_budget_usd": ...
+18:16:54 self-test runner: vendor chat driver + mock bank + decision-model judge (build-the-builder)
+18:16:54 inputs: 1 brief part(s), 10174 chars; tool API 'Freya Bank collections tools' with 7 tools; missing kit tools: []
+18:16:54 judge: vendor decision model (build-the-builder, threshold 0.5)
+18:16:54 extract: skipped, policy from out/template_cc/policy-a.json
+18:16:54 check policy_check (given policy): ok 0 violation(s)
+18:16:54 check lint baseline (extracted policy): ok 0 error(s), 11 warning(s)
+18:16:54 audit: off
+18:16:54 testgen: 17 case(s) from our policy; gaps: product_id_format has no {n}: cases use p{n}
+18:16:56 self-test: mock bank up on 127.0.0.1:8787 with 12 of our own case(s)
+18:18:19 self-test: mock bank public at https://draw-federation-ballet-trailers.trycloudflare.com
+18:18:20 freya save_workflow (self-test slot): {"slot": "tcc-brief-a-selftest", "workflow_id": "5c11cd8f-de24-4a25-9eb8-24fb875c877c", "agent_id": "24f38582-797d-46ec-9909-ad3adee10fdb"}
+18:25:15 self-test: 12 case(s) x 1 rep(s) via the vendor chat driver: 1/12 passed in 415s (customer: vendor LLM persona; judge: vendor decision model)
+18:25:16 self-test: mock bank up on 127.0.0.1:8787 with 17 of our own case(s)
