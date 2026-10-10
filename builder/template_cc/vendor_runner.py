@@ -147,7 +147,7 @@ class VendorRunner:
                                       str(self.dir / "cases.json"), "--config", str(self.dir / "config.json"),
                                       "--port", str(self.port)], stdout=log, stderr=subprocess.STDOUT,
                                      start_new_session=True)
-        _wait_http(f"http://127.0.0.1:{self.port}/tools/openapi.json", 60)
+        _wait_http(f"http://127.0.0.1:{self.port}/openapi.json", 60)  # FastAPI's own schema route
         self.trace.selftest(f"mock bank up on 127.0.0.1:{self.port} with {len(self.loaded)} of our own case(s)")
 
     def _start_tunnel(self):
@@ -163,7 +163,7 @@ class VendorRunner:
             time.sleep(0.5)
         if not self.origin:
             raise RunnerUnavailable("cloudflared did not print a public URL")
-        _wait_http(self.origin + "/tools/openapi.json", 90)
+        _wait_http(self.origin + "/openapi.json", 90)
         self.trace.selftest(f"mock bank public at {self.origin}")
 
     def _ensure(self, cases: list[dict]):
