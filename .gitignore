@@ -8,3 +8,8 @@ runs/
 versions/
 results/*.json
 !results/.gitkeep
+
+# hackathon kit local state
+env.sh
+.freya-agents.json
+.personas.json
