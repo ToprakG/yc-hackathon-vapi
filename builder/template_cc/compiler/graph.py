@@ -13,8 +13,8 @@ from builder.template_cc.policy_check import CANONICAL_NOTES
 from builder.template_cc.zones import ZoneBook, esc
 
 MIN_CONF = 0.6
-CLOSING_PREFIX = {"promise": "promise_confirmation", "paid": "already_paid", "nv_failed": "failed_id",
-                  "nr_deceased": "deceased"}
+CLOSING_PREFIX = {"promise": "promise_confirmation", "paid": "paid_reply", "nv_failed": "failed_id",
+                  "nr_deceased": "condolence"}
 GENERIC_PREFIX = {"np_service_error": "I am sorry, I could not complete that because of a system problem.",
                   "nr_callback": "Thank you, we will call back then.",
                   "tr_restructuring": "I am connecting you with a colleague now.", "tr_human": "I am connecting you with a colleague now.",
@@ -317,8 +317,8 @@ class Graph:
     # opening ----------------------------------------------------------------------------------------------------------
     def _who_transitions(self, var: str, unclear_target: str) -> list:
         out = [eq("identity", "the customer confirmed", var, "customer")]
-        out.append(eq("mark_nr_deceased", "the customer has died", var, "deceased"))
-        out.append(eq("mark_nr_wrong_number", "not the customer's number", var, "wrong_number"))
+        out.append(eq("mark_nr_deceased", "the customer has died", var, "customer_died"))
+        out.append(eq("mark_nr_wrong_number", "not the customer's number", var, "not_their_number"))
         out.append(eq("third_party", "someone else answered", var, "someone_else"))
         out.append(eq(unclear_target, "no clear confirmation", var, "unclear"))
         return out
@@ -326,7 +326,7 @@ class Graph:
     def _opening(self):
         opening = " ".join(x for x in (P.line(self.p, "opening"), P.line(self.p, "right_party_question")) if x)
         second = int(self.limits.get("right_party", 2)) >= 2
-        who = ["customer", "someone_else", "wrong_number", "deceased", "unclear"]
+        who = ["customer", "someone_else", "not_their_number", "customer_died", "unclear"]
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
                   extraction=self.extraction("opening", "opening", [("who1", who)]),
                   transitions=self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear"),
@@ -399,11 +399,11 @@ class Graph:
                           pre=pre, post=post)
         trs = [eq("mark_nr_callback", "the callback is booked", "cb_state", "booked"),
                eq("mark_nr_no_callback", "the callback could not be booked", "cb_state", "failed"),
-               eq("mark_nr_wrong_number", "not the customer's number", "tp_state", "wrong_number"),
-               eq("mark_nr_deceased", "the customer has died", "tp_state", "deceased"),
+               eq("mark_nr_wrong_number", "not the customer's number", "tp_state", "not_their_number"),
+               eq("mark_nr_deceased", "the customer has died", "tp_state", "customer_died"),
                eq("mark_nr_no_callback", "no time inside the window", "tp_state", "gave_up")]
         self.conv("third_party", on_enter={"type": "llm"}, tools=[tool],
-                  extraction=self.extraction("third_party", "third_party", [("tp_state", ["gave_up", "wrong_number", "deceased", "none"])]),
+                  extraction=self.extraction("third_party", "third_party", [("tp_state", ["gave_up", "not_their_number", "customer_died", "none"])]),
                   transitions=trs, max_turns=8, turn_target="mark_nr_no_callback")
         self.tool_zones("third_party", 0, tool, msgs)
         self.task_zones("third_party", "third_party", P.third_party_task(self.p, hint))
@@ -675,7 +675,7 @@ class Graph:
     def _side_transitions(self, nid: str) -> list:
         out = [eq("wrap", "every product is resolved", "neg_state", "done"),
                eq("hardship", "the customer mentioned a hardship", "side", "hardship"),
-               eq("side_mark", "dispute or already paid", "side", "dispute", "already_paid")]
+               eq("side_mark", "dispute or already paid", "side", "dispute", "paid_already")]
         if "restructuring" in self.queues:
             first = "pre_transfer" if self._restructuring_notes() else "transfer_restructuring"
             out.append(eq(first, "asks for a new plan or lower instalments", "side", "restructuring"))
@@ -698,7 +698,7 @@ class Graph:
 
     def _negotiation(self):
         tool, msgs, cents = self._promise_tool()
-        fields = [("side", ["none", "hardship", "dispute", "already_paid", "restructuring", "human", "stop_talking"])]
+        fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"])]
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]))
         refusal = ("When a product's persuasion attempts are used up and the customer still refuses, CALL "

@@ -77,14 +77,14 @@ def opening_task(policy: dict) -> str:
     return ("You opened the call and asked whether you are speaking with the customer "
             f"({spoken(policy.get('address', ''), policy) or 'the account holder'}). Find out whether this is that person. "
             "Only a clear confirmation counts, for example a yes or the person saying their own name; a greeting, "
-            "'go ahead' or a question back does not. Do not say why you are calling. "
+            "'go ahead' or a question back does not. Never mention the reason for the call. "
             "No tool call is allowed in this turn.")
 
 
 def opening_ask2_task(policy: dict) -> str:
     return ("The person has not clearly confirmed who they are yet. If they asked a question, answer it in one short "
             f"sentence first: who you are ({quoted(policy, 'ai')}); if they doubt the call ({quoted(policy, 'scam')}). "
-            f"Never say why you are calling. Then ask once more: {quoted(policy, 'ask_again')}. "
+            f"Never mention the reason for the call. Then ask once more: {quoted(policy, 'ask_again')}. "
             "No tool call is allowed in this turn.")
 
 
@@ -92,7 +92,7 @@ def third_party_task(policy: dict, api_cb_field_hint: str) -> str:
     n = int((policy.get("ask_limits") or {}).get("callback_reask", 1))
     return ("You are not speaking with the customer. Do not say why you are calling and give no account details, even "
             "if the person offers to pay or to answer questions for the customer. Never ask them security questions. "
-            "Ask when the customer can be reached.\n"
+            "Find out when the customer is available.\n"
             "{{cb_window_text}}\n"
             f"When the person names a day and a time inside these times, CALL schedule_callback ({api_cb_field_hint}), "
             "then thank them and say goodbye. If the time is outside these times, say when you can call back and ask "
@@ -113,14 +113,14 @@ def identity_task(policy: dict) -> str:
 
 def identity_explain_task(policy: dict) -> str:
     return (f"The customer did not want to answer or asked what this is about. Explain once: {quoted(policy, 'id_reason')}. "
-            "Do not say why you are calling. Then ask the pending security question again. After the answer CALL "
+            "Never mention the reason for the call. Then ask the pending security question again. After the answer CALL "
             "verify_identity as before and follow what_to_do_next.")
 
 
 def negotiate_task(policy: dict, multi: bool) -> str:
     parts = [
         "You stated the debt and asked the first question. Get a payment promise where you can, within these rules:",
-        "- Ask for the full past-due amount first. Never ask how much the customer can pay: you propose every amount.",
+        "- Start by asking for the whole past-due amount. Never ask how much the customer can pay: you propose every amount.",
         "- A date or an amount the customer proposes is never a refusal: check it against the facts.",
         "- A promise date must be today or later, a business day, and not after the product's latest date (see the "
         "date table). A weekend day or holiday that is not after the latest date: offer the next business day. A date "
@@ -131,7 +131,7 @@ def negotiate_task(policy: dict, multi: bool) -> str:
         "- Amounts from the minimum amount up to the full amount, both included, are accepted. If the full amount is "
         "too much, offer the minimum amount once and say the rest stays overdue. Below the minimum amount: say it "
         "cannot be recorded and offer the minimum amount once.",
-        "- A flat refusal or a non-answer uses one persuasion attempt. Use the attempt proposals from the facts, in "
+        "- Each flat refusal or non-answer counts as one persuasion attempt. Use the attempt proposals from the facts, in "
         "order. Refusing the latest date or the minimum amount is a refusal. When the attempts of a product are used up "
         "and the customer still refuses, stop: never repeat an offer the customer refused, and CALL the refusal "
         "transition for that product.",
@@ -147,7 +147,7 @@ def negotiate_task(policy: dict, multi: bool) -> str:
         parts += [
             "Several products:",
             "- If the customer cannot pay everything today, go through the products one by one, in the order of the "
-            "facts. Do not ask about today again for each product. Persuasion attempts count per product and start "
+            "facts. Ask about paying today only once, not per product. Persuasion attempts count per product and start "
             "again at attempt 1 for each product.",
             "- If the customer names one date for everything and it is after one product's latest date, that product "
             "gets its own latest date: say so in the read-back. The other products keep the named date.",
@@ -179,22 +179,22 @@ def human_task(policy: dict) -> str:
 def resume_entry(policy: dict) -> str:
     return ("Continue the conversation from where it is: briefly acknowledge what the customer just said and go on with "
             "the next open product or the next step. If the customer said they already paid, "
-            f"{quoted(policy, 'already_paid')}.")
+            f"{quoted(policy, 'paid_reply')}.")
 
 
 # --- extraction descriptions -----------------------------------------------------------------------------------------
 
 EXTRACT = {
     "who1": "Who answered: customer = the person confirms they are the customer; someone_else = another person "
-            "(a relative, a colleague); wrong_number = the number is not the customer's; deceased = the customer has "
+            "(a relative, a colleague); not_their_number = the number is not the customer's; customer_died = the customer has "
             "died; unclear = no clear confirmation yet (a greeting, a question, 'go ahead').",
     "tp_state": "gave_up = the person gave a second time outside the allowed times, or cannot or will not say when the "
-                "customer can be reached; wrong_number = not the customer's number; deceased = the customer has died; "
+                "customer can be reached; not_their_number = not the customer's number; customer_died = the customer has died; "
                 "none = anything else.",
     "id_refusal": "declines = the customer refuses to answer a security question; asks_purpose = asks what the call is "
                   "about instead of answering; answering = anything else.",
     "side": "What the customer's last message is about: hardship = illness, a death in the family or job loss; "
-            "dispute = the debt or product is not theirs, or was closed or paid off in the past; already_paid = they "
+            "dispute = the debt or product is not theirs, or was closed or paid off in the past; paid_already = they "
             "already paid this past-due amount; restructuring = asks for a new payment plan or lower instalments; "
             "human = asks for a person; stop_talking = does not want to talk; none = anything else, including dates, "
             "amounts and refusals to pay.",

@@ -22,8 +22,8 @@ CANONICAL_OUTCOMES = ("promise", "paid", "tr_restructuring", "tr_human", "tr_sup
                       "nr_wrong_number", "nr_deceased", "nr_unclear")
 CANONICAL_QUEUES = ("restructuring", "human", "support")
 CANONICAL_NOTES = ("refused", "hardship", "dispute", "paid", "service_error")
-LINE_KEYS = ("opening", "right_party_question", "ask_again", "deceased", "debt_intro", "first_ask", "first_ask_multi",
-             "confirm_question", "promise_confirmation", "ai", "scam", "failed_id", "already_paid", "change_promise",
+LINE_KEYS = ("opening", "right_party_question", "ask_again", "condolence", "debt_intro", "first_ask", "first_ask_multi",
+             "confirm_question", "promise_confirmation", "ai", "scam", "failed_id", "paid_reply", "change_promise",
              "cannot_record", "no_info", "id_reason", "hardship_sympathy", "hint_retry", "goodbye")
 ATTEMPT_DATES = ("end_of_week_roll", "end_of_week", "deadline", "today", "next_business_day")
 ATTEMPT_AMOUNTS = ("full_or_floor", "full", "floor")
@@ -170,7 +170,7 @@ def default_lines(policy: dict) -> dict:
     out = {
         "opening": _line(_sentence("Hello, this is " + s["opening"]) if s.get("opening") else "Hello."),
         "right_party_question": _line(f"Am I speaking with {addr}?" if addr else "Am I speaking with the account holder?"),
-        "deceased": _line("I am sorry for your loss."),
+        "condolence": _line("I am sorry for your loss."),
         "debt_intro": _line("I am calling about a late payment."),
         "first_ask": _line("Can you pay this amount today?"),
         "first_ask_multi": _line("Can you pay all of these today?"),
@@ -178,7 +178,7 @@ def default_lines(policy: dict) -> dict:
         "ai": _line(_sentence("I am " + s["ai"]) if s.get("ai") else "I am a digital assistant."),
         "scam": _line(_sentence("You can " + s["scam"]) if s.get("scam") else "You can call the bank to check this call."),
         "failed_id": _line(_sentence("Please " + s["failed_id"]) if s.get("failed_id") else "I cannot continue without verification."),
-        "already_paid": _line("Thank you. A payment can take a little time to show on the account."),
+        "paid_reply": _line("Thank you. A payment can take a little time to show on the account."),
         "change_promise": _line("A recorded promise cannot be changed on this call."),
         "cannot_record": _line("I am sorry, I could not record that."),
         "no_info": _line("I do not have that information."),
