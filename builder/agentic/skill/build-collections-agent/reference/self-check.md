@@ -44,6 +44,8 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
       question) enters a stage node that says it on entry; the ending depends only on the customer's answer there.
 - [ ] The brief's own proposal sequence (per product) runs in an offer loop: code picks each proposal, the agent
       speaks it verbatim, a refusal goes back to code. A question the brief asks once is not repeated per product.
+- [ ] Every write whose values code can decide (promises after a confirmed read-back, notes for products out of
+      proposals) is engine-run from an `api_request` node; the model's conversation nodes have no write tools there.
 - [ ] Every conversation node where the call can finish offers an `end_call` tool; completion flags count successes
       and do not depend on which product a single tool call was for.
 - [ ] Every offer the brief prescribes is a complete sentence in the facts (with all its required clauses) and the

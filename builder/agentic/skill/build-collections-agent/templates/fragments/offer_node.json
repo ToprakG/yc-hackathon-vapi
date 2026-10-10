@@ -5,74 +5,8 @@
   "type": "tts",
   "text": "{{offer_text}}"
  },
- "task_message": "You just made this proposal: {{offer_text}} (item_ref {{offer_ref}}). If the customer accepts it or names an amount and date allowed by the facts, read back item, amount and date, wait for a clear yes, then call create_promise. Never make another proposal yourself: the next one comes automatically after a refusal. When the call is over, say goodbye and call end_call.\n\nFacts:\n{{facts_text}}\n\nAfter every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+ "task_message": "You just said: {{offer_text}} Wait for the answer. Answer questions from the facts, but make no other proposal and do not read anything back: that comes automatically. No tool call is allowed except end_call after a goodbye.\n\nFacts:\n{{facts_text}}",
  "tools": [
-  {
-   "type": "function",
-   "config": {
-    "timeoutMs": 12000,
-    "maxRetries": 0
-   },
-   "function": {
-    "name": "create_promise",
-    "handler": "__function__:api_call",
-    "description": "Record one promise. CALL it only after the customer said yes to the read-back.",
-    "parameters": {
-     "type": "object",
-     "properties": {
-      "url": {
-       "type": "string",
-       "default": "https://api.example-bank.invalid/v1/create_promise"
-      },
-      "method": {
-       "type": "string",
-       "default": "POST"
-      },
-      "headers": {
-       "type": "object",
-       "properties": {
-        "Content-Type": {
-         "type": "string",
-         "default": "application/json"
-        }
-       }
-      },
-      "body": {
-       "type": "object",
-       "properties": {
-        "customer_id": {
-         "type": "string",
-         "default": "{{customer_id}}"
-        },
-        "item_ref": {
-         "type": "string",
-         "description": "item_ref of the proposal, copied unchanged.",
-         "default": "{{item_ref}}"
-        },
-        "amount_minor": {
-         "type": "number",
-         "description": "Amount in currency units as read back, e.g. 412.50.",
-         "default": "{{amount_minor}}"
-        },
-        "pay_on": {
-         "type": "string",
-         "description": "Payment date as YYYY-MM-DD.",
-         "default": "{{pay_on}}"
-        }
-       },
-       "required": [
-        "customer_id",
-        "item_ref",
-        "amount_minor",
-        "pay_on"
-       ]
-      }
-     }
-    }
-   },
-   "pre_process_code": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef to_cents(amount):\n    \"\"\"Major units -> integer minor units. round(), never int(): 19.99 * 100 is 1998.999...\"\"\"\n    return int(round(float(str(amount).replace(',', '')) * 100))\n\ntry:\n    b = config.get('body')\n    if isinstance(b, dict) and b.get('amount_minor') not in (None, ''):\n        b['amount_minor'] = to_cents(b['amount_minor'])\nexcept Exception:\n    pass\n",
-   "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        vars['offer_answer'] = 'recorded'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
-  },
   {
    "type": "function",
    "config": {
@@ -100,18 +34,45 @@
    "type": "string",
    "enum_values": [
     "stay",
-    "refused"
+    "refused",
+    "agreed"
    ],
-   "description": "refused when the customer says no to the proposal just made, without naming an amount or date of their own; else stay.",
+   "description": "agreed when the customer says yes to the proposal or names their own amount and/or date; refused when they say no without naming any; else stay.",
+   "min_confidence": 0.7
+  },
+  {
+   "name": "agreed_amount",
+   "type": "float",
+   "description": "The amount the customer names themselves, if any.",
+   "min_confidence": 0.7
+  },
+  {
+   "name": "agreed_date_words",
+   "type": "string",
+   "description": "The customer's own words for the payment day, e.g. 'next Tuesday', if they name one.",
    "min_confidence": 0.7
   }
  ],
- "max_node_turns": 12,
+ "max_node_turns": 8,
  "max_turn_transition": "goodbye",
  "transitions": [
   {
+   "target_node": "store_agreement",
+   "description": "Agreed",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "offer_answer",
+      "operator": "equals",
+      "operand": "agreed"
+     }
+    ]
+   }
+  },
+  {
    "target_node": "next_offer",
-   "description": "Refused, or recorded: next proposal",
+   "description": "Refused: next proposal",
    "condition": {
     "logic": "or",
     "conditions": [
@@ -119,11 +80,6 @@
       "variable": "offer_answer",
       "operator": "equals",
       "operand": "refused"
-     },
-     {
-      "variable": "offer_answer",
-      "operator": "equals",
-      "operand": "recorded"
      }
     ]
    }

@@ -126,6 +126,31 @@ def parse_date_words(text, today):
     return None
 
 
+def resolve_date_words(text, today, next_weekday_weeks=1):
+    """The customer's date words -> date, or None when vague. Handles ISO and numeric dates, '7 March', 'today',
+    'tomorrow', 'day after tomorrow', '<weekday>', 'this <weekday>', 'next <weekday>'. A bare weekday is the next one
+    on or after today. next_weekday_weeks sets what 'next <weekday>' means: 1 = that weekday in the following calendar
+    week. Set it from the brief; if the brief defines it otherwise, change it."""
+    s = str(text or '').strip().lower()
+    if not s:
+        return None
+    if 'day after tomorrow' in s:
+        return today + datetime.timedelta(days=2)
+    if 'tomorrow' in s:
+        return today + datetime.timedelta(days=1)
+    if re.search(r'\btoday\b|\bnow\b', s):
+        return today
+    for i, name in enumerate(WEEKDAYS):
+        if re.search(r'\b' + name + r'\b', s):
+            if re.search(r'\bnext\s+' + name, s):
+                return weekday_in_week(today, name, next_weekday_weeks)
+            if re.search(r'\bthis\s+' + name, s):
+                return weekday_in_week(today, name, 0)
+            d = weekday_in_week(today, name, 0)
+            return d if d >= today else d + datetime.timedelta(days=7)
+    return parse_date_words(s, today)
+
+
 def spoken_date(d):
     """'Friday 7 March'. Adapt the words to the brief's language."""
     return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()

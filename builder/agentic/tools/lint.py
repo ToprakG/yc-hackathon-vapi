@@ -538,6 +538,15 @@ def _check_platform_facts(wf, api, r: Report):
         if kind == "post_process_code" and re.search(r"_args\.", code):
             r.warn(path, "reads <tool>_args in a post-hook: with several calls in one message it holds only one call's "
                          "values. Count successes, or queue ids from the pre-hook's config['body']")
+    # Fact 10: a model tool call on entry made the platform speak a filler line; engine-run writes avoid it.
+    for path, nid, node, _ in _all_nodes(wf):
+        on_enter = node.get("on_enter") or {}
+        prompt_text = str(on_enter.get("prompt") or "") if isinstance(on_enter, dict) and on_enter.get("type") == "llm" else ""
+        for t in node.get("tools") or []:
+            name = _fn(t).get("name")
+            if name and _handler(t) == API_CALL and name in prompt_text:
+                r.warn(f"{path}.on_enter.prompt", f"the entry prompt makes the model call {name}; if code can decide the "
+                                                  "values, send it from an api_request node instead (platform-facts.md #10)")
     # Fact 3: a completion flag can stay false; the agent then says goodbye until the turn cap. Safety net: end_call.
     nodes = wf.get("nodes") or {}
     graph = {nid: [t.get("target_node") for t in n.get("transitions") or [] if isinstance(t, dict)]

@@ -94,25 +94,36 @@ question (and which), whether the full amount comes first, whether a lower amoun
 offer exists, how many proposals are allowed and whether that depends on the product, how several products are
 handled, and when a refusal ends the negotiation. Write the brief's own sequence down in `rules.json` first. Then:
 
-- **Proposal sequence in code.** The facts node writes, per product in the brief's order, the list of proposals the
-  brief allows, each as a complete sentence (`offers_json`). An **offer loop** runs it: a code node (`next_offer`)
-  picks the current product and step and writes `offer_text`, or `out_of_attempts`, or `done`; a conversation node
-  (`offer`) speaks `{{offer_text}}` as a `tts` line on every entry and extracts the answer (`refused` / `stay`); a
-  refusal routes back to the code node, a recorded promise or note moves to the next product (post-hooks write the
-  state). The model never decides whether another proposal is allowed, and cannot add or repeat a question the brief
-  does not have. Seen in practice runs: with the limits only in text, the model made extra attempts and re-asked an
-  opening question per product. Fragments: `offer_loop_code_node.json`, `offer_node.json`, and the `note_item` node
-  in `examples/pattern_demo.workflow.json`.
+- **Proposal sequence in code.** The facts node writes, per product in the brief's order, the proposals the brief
+  allows: each with its sentence, amount and date (`offers_json`). An **offer loop** runs it:
+  - `next_offer` (code) picks the current product and step from events (`start`, `refused`, `agreed`, `noted`) and
+    writes `offer_text`, or `note` (out of proposals), or `readback` / `done` (all products handled);
+  - `offer` (conversation) speaks `{{offer_text}}` as a `tts` line on every entry and only **extracts** the answer:
+    `agreed` (a yes, or the customer's own amount and/or date, with `agreed_amount` and `agreed_date_words`),
+    `refused`, or `stay`. It has no write tools;
+  - `store_agreement` (code) checks an agreement against the facts with the brief's rules (dates from `now` with
+    `resolve_date_words`, business days, the deadline, the minimum amount, the maximum) and either stores it or writes
+    the brief's correction as the next `offer_text` (a correction is not a new attempt), then clears the extracted
+    fields;
+  - `confirm` speaks the read-back built in code (`readback_text`; one joint read-back if the brief asks for it) and
+    extracts `yes` / `change`;
+  - **writes are engine-run**: `record_next` (code) picks the next agreement and `record_one` (api_request) sends
+    `create_promise` with values baked from code; a post-hook writes the result; `record_next` applies the brief's
+    retry rule. Notes go the same way (`note_one`).
+
+  The model never decides what comes next, never counts, and never sends a write. Seen in practice runs: with limits
+  in text the model made extra attempts, re-asked the opening question per product, lost a promise on the customer's
+  own date, and sent a note for the wrong product. Fragments: `offer_loop_code_node.json`, `offer_node.json`,
+  `agreement_code_node.json`, `readback_node.json`, `engine_write_node.json`; the full loop is in
+  `examples/pattern_demo.workflow.json`.
 - **A question the brief asks once** (e.g. an opening question covering every product) lives in its own node before
   the loop and is never part of the per-product steps.
-- **The customer's own date or amount** is not a refusal (if the brief says so): check it against the facts' date
-  table and limits; apply the brief's handling for weekends/holidays, dates past the deadline, vague dates, amounts
-  below a minimum. Put each such answer the brief prescribes in the facts as a sentence too.
-- **Read back** what the brief lists with its confirmation question; call the write tool only on a clear yes; a
-  changed value is checked and read back again. If the brief wants one joint read-back for several products, the loop
-  collects agreements first (the post-hook or a code node keeps them) and a final node reads them back together.
-- **Write tool post-hook:** on success count it and set the close state, and quote the brief's confirmation sentence;
-  on failure apply the brief's retry rule, then the truthful failure line and the failure state.
+- **Adapt the loop to the brief:** single or several products, one read-back per product or one joint read-back, the
+  brief's own correction sentences, the brief's retry rule, which refusals end the negotiation, what happens to
+  agreements when a transfer comes first. The loop is the shape; the brief supplies every rule in it.
+- **Write results:** the write's post-hook counts successes and sets the close state; after the last write the
+  agent (or the end node's fixed line) says the brief's confirmation sentence, verbatim, only for writes that
+  succeeded; on the final failure it says the truthful failure line.
 - **Products without a promise** get the brief's note (if it has notes) with the brief's reason, and only where the
   brief allows (some briefs forbid notes around transfers; some require one before a transfer).
 

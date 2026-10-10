@@ -84,3 +84,14 @@ def test_list_from_vars_prefers_mapped_then_flattened():
     assert cal.list_from_vars(v, "items", ["tool_response.data.items", "node_response.data.items"]) == [{"a": 1, "b": "x"}, {"a": 2}]
     assert cal.list_from_vars({"items": '[{"a": 9}]', **v}, "items", ["node_response.data.items"]) == [{"a": 9}]
     assert cal.list_from_vars({}, "items", ["node_response.data.items"]) == []
+
+
+def test_resolve_date_words():
+    fri = D("2031-03-07")  # a Friday
+    assert cal.resolve_date_words("tomorrow", fri) == D("2031-03-08")
+    assert cal.resolve_date_words("I can pay today", fri) == fri
+    assert cal.resolve_date_words("this Friday", fri) == fri
+    assert cal.resolve_date_words("next Friday", fri) == D("2031-03-14")
+    assert cal.resolve_date_words("on Tuesday", fri) == D("2031-03-11")
+    assert cal.resolve_date_words("the 20th of March", fri) == D("2031-03-20")
+    assert cal.resolve_date_words("when I get paid", fri) is None and cal.resolve_date_words("", fri) is None

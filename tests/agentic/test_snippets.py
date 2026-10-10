@@ -100,34 +100,65 @@ def test_facts_node_reads_the_flattened_list_the_platform_delivers():
     assert res["vars_written"]["facts_state"] == "ok" and res["vars_written"]["item_count"] == "2"
 
 
-def _loop(wf, state, answer):
-    state = {**state, "offer_answer": answer}
-    state.update(run_snippet(wf, "next_offer", state)["vars_written"])
+def _run(wf, node, state, **changes):
+    state = {**state, **changes}
+    res = run_snippet(wf, node, state)
+    assert res.get("exception") is None, res
+    state.update(res["vars_written"])
     return state
+
+
+def _start(wf):
+    state = {"now": "2031-03-07T11:00", "items": ITEMS}  # r1: 2 attempts, deadline 12 Mar; r2: 1 attempt, deadline 17 Mar
+    state = _run(wf, "facts", state)
+    return _run(wf, "next_offer", state)
 
 
 def test_offer_loop_never_exceeds_the_attempts_per_item():
     wf = _demo()
-    state = {"now": "2031-03-07T11:00", "items": ITEMS}  # r1: 2 attempts, r2: 1 attempt
-    state.update(run_snippet(wf, "facts", state)["vars_written"])
-    state = _loop(wf, state, "stay")  # first entry
+    state = _start(wf)
     assert state["offer_state"] == "offer" and state["offer_ref"] == "r1" and "412.50" in state["offer_text"]
-    state = _loop(wf, state, "refused")
+    state = _run(wf, "next_offer", state, offer_answer="refused")
     assert state["offer_state"] == "offer" and "80" in state["offer_text"] and "remaining amount" in state["offer_text"]
-    state = _loop(wf, state, "refused")
-    assert state["offer_state"] == "out_of_attempts" and state["note_ref"] == "r1"
-    state = _loop(wf, state, "noted")
+    state = _run(wf, "next_offer", state, offer_answer="refused")
+    assert state["offer_state"] == "note" and state["note_ref"] == "r1"  # engine-run note, then back to the loop
+    state = _run(wf, "next_offer", state)
     assert state["offer_state"] == "offer" and state["offer_ref"] == "r2"
-    state = _loop(wf, state, "refused")  # r2 allows one attempt only
-    assert state["offer_state"] == "out_of_attempts" and state["note_ref"] == "r2"
-    assert _loop(wf, state, "noted")["offer_state"] == "done"
+    state = _run(wf, "next_offer", state, offer_answer="refused")  # r2 allows one attempt only
+    assert state["offer_state"] == "note" and state["note_ref"] == "r2"
+    assert _run(wf, "next_offer", state)["offer_state"] == "done"
 
 
-def test_offer_loop_moves_on_after_a_recorded_promise():
+def test_customer_own_date_is_checked_stored_read_back_and_recorded():
     wf = _demo()
-    state = {"now": "2031-03-07T11:00", "items": ITEMS}
-    state.update(run_snippet(wf, "facts", state)["vars_written"])
-    state = _loop(wf, state, "stay")
-    state = _loop(wf, state, "recorded")
-    assert state["offer_state"] == "offer" and state["offer_ref"] == "r2" and state["offer_answer"] == "stay"
-    assert _loop(wf, state, "recorded")["offer_state"] == "done"
+    state = _start(wf)
+    # r1: the customer names a date after its latest date -> the correction becomes the next spoken line
+    state = _run(wf, "store_agreement", state, offer_answer="agreed", agreed_date_words="next Friday")
+    assert state["store_state"] == "corrected" and "latest date I can record is Wednesday 12 March" in state["offer_text"]
+    # yes to the correction -> stored with the corrected date and the proposal's amount
+    state = _run(wf, "store_agreement", state, offer_answer="agreed")
+    assert state["store_state"] == "stored" and state["agreed_date_words"] == "" and state["loop_event"] == "agreed"
+    state = _run(wf, "next_offer", state)
+    assert state["offer_ref"] == "r2"
+    # r2: own amount below the lowest amount -> correction; then own amount and a weekday
+    state = _run(wf, "store_agreement", state, offer_answer="agreed", agreed_amount="50", agreed_date_words="Tuesday")
+    assert "lowest amount I can record is 100" in state["offer_text"]
+    state = _run(wf, "store_agreement", state, offer_answer="agreed", agreed_amount="300", agreed_date_words="Tuesday")
+    assert state["store_state"] == "stored"
+    state = _run(wf, "next_offer", state)
+    assert state["offer_state"] == "readback"
+    assert state["readback_text"] == "To confirm: for your item ending 1234, 412.50 on Wednesday 12 March; for your second item, 300 on Tuesday 11 March. Do you confirm?"
+    state = _run(wf, "record_next", state)
+    assert state["record_state"] == "record" and state["current_ref"] == "r1" and state["current_amount_minor"] == 41250
+    state = _run(wf, "record_next", state, record_result="ok")
+    assert state["current_ref"] == "r2" and state["current_amount_minor"] == 30000
+    assert _run(wf, "record_next", state, record_result="ok")["record_state"] == "done"
+
+
+def test_a_write_failing_twice_ends_in_the_failure_state():
+    wf = _demo()
+    state = _run(wf, "record_next", {"agreements_json": '[{"ref": "r1", "name": "x", "amount": 10, "date": "2031-03-10"}]'})
+    state = _run(wf, "record_next", state, record_result="failed")
+    assert state["record_state"] == "record"  # one retry
+    state = _run(wf, "record_next", state, record_result="failed")
+    assert state["record_state"] == "failed" and state["close_outcome"] == "outcome_y"

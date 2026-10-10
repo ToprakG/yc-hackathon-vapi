@@ -230,3 +230,9 @@ def test_finishing_node_without_end_call_is_warned(base_agent, kit_api):
                             "condition": {"logic": "or", "conditions": [{"variable": "create_promise_success_count", "operator": "greater_than", "operand": 0}]}}]
     assert any("$.nodes.collection" in w["path"] and "no end_call tool" in w["msg"] for w in lint.lint(wf, kit_api)["warnings"])
     assert not any("$.nodes.identity" in w["path"] and "no end_call tool" in w["msg"] for w in lint.lint(wf, kit_api)["warnings"])
+
+
+def test_tool_call_on_entry_is_warned(base_agent, kit_api):
+    wf = copy.deepcopy(base_agent)
+    wf["nodes"]["collection"]["on_enter"] = {"type": "llm", "prompt": "Call create_promise for the agreed item, then confirm."}
+    assert any("entry prompt makes the model call create_promise" in w for w in warnings(wf, kit_api))
