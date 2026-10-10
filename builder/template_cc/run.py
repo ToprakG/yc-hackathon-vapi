@@ -46,6 +46,10 @@ def _default_validate(wf, name):
 
 def compile_checked(policy, api, close_form, trace, label, features=None) -> tuple[dict | None, object, dict]:
     wf, book = compiler.compile(policy, api, close_form, features)
+    active = frozenset() if features is None else (feat.parse(features) if isinstance(features, str) else frozenset(features))
+    if "f11_promise_typed" in active and not policy.get("vague_date_offer"):
+        trace.event("note", message="vague_date_offer missing, defaulting to latest date")
+        trace.line("vague_date_offer missing, defaulting to latest date")
     report = compiler.lint(wf, policy, api)
     trace.check(f"lint {label}", not report["errors"], f"{len(report['errors'])} error(s), {len(report['warnings'])} warning(s)")
     for e in report["errors"][:10]:

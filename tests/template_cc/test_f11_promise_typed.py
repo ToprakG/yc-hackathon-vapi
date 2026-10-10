@@ -53,7 +53,7 @@ def test_valid_words_go_to_a_read_back(a):
     assert o["cp_route"] == "confirm" and o["rb_pid"] == "p1" and o["rb_date"] == "2031-03-07" and float(o["rb_amount"]) == 300.0
     assert "300" in o["say_line"] and "7 March" in o["say_line"] and "(2031" not in o["say_line"]
     assert o["offer_intent"] == "none" and o["offer_amount_text"] == "" and o["rb_answer"] == "other"
-    o = check(wf, v, "", "the sixth of March", "accepts_offer")  # accepted without an amount: the full amount was asked
+    o = check(wf, v, "the whole amount", "the sixth of March")
     assert o["cp_route"] == "confirm" and float(o["rb_amount"]) == 412.5
 
 
@@ -142,3 +142,55 @@ def test_multi_product_resets_side_product_inside_its_enum():
         code = wf["nodes"][nid]["pre_actions"][0]["function"]["parameters"]["properties"]["code"]["default"]
         for val in re.findall(r"vars\['side_product'\] = '([^']*)'", code):
             assert val in enum, (nid, val)
+
+
+def test_an_unreadable_amount_is_asked_never_guessed(a):
+    wf, _, _, v = a
+    o = check(wf, v, "", "the sixth of March", "accepts_offer")
+    assert o["cp_route"] == "back" and "which amount" in o["say_line"].lower() and not o.get("rb_amount")
+    o = check(wf, o, "um, whatever works", "the sixth of March", "accepts_offer")
+    assert o["cp_route"] == "back" and not o.get("rb_amount") and o["amt_ask_n"] == "2"
+    for _ in range(3):  # after three questions it stops asking, but never records a guess
+        o = check(wf, o, "", "the sixth of March", "accepts_offer")
+    assert o["cp_route"] == "back" and o["say_line"] == "" and not o.get("rb_amount")
+
+
+def _with_offer(mode):
+    pol = json.loads((GOLD / "brief-a.policy.json").read_text())
+    if mode:
+        pol["vague_date_offer"] = mode
+    api = ApiModel.load(REPO / "tools" / "openapi.json")
+    wf, _ = compiler.compile(pol, api, features=FEATS)
+    return wf, pol
+
+
+@pytest.mark.parametrize("mode,expect", [("attempt1", "date I can record is"), ("deadline", "latest date I can record"),
+                                         (None, "latest date I can record")])
+def test_vague_date_offer_follows_the_policy_or_defaults_to_the_latest_date(mode, expect):
+    wf, pol = _with_offer(mode)
+    v = after_setup_and_facts(wf, pol, NOW, 1)
+    row = json.loads(v["products"])[0]
+    o = v
+    for _ in range(int(pol["ask_limits"].get("vague_date", 1)) + 1):
+        o = check(wf, o, "three hundred", "when things settle")
+    assert expect in o["say_line"] and o["cp_route"] == "back"
+    if mode == "attempt1":
+        assert "latest" not in o["say_line"] and row["att1"]
+
+
+def test_the_missing_policy_field_is_traced():
+    from builder.template_cc import run
+    ev = []
+
+    class T:
+        def event(self, kind, **d): ev.append((kind, d))
+        def line(self, text): ev.append(("line", text))
+        def check(self, *a, **k): pass
+
+    pol = json.loads((GOLD / "brief-a.policy.json").read_text())
+    api = ApiModel.load(REPO / "tools" / "openapi.json")
+    run.compile_checked(pol, api, "lifecycle", T(), "t", frozenset({"f11_promise_typed"}))
+    assert any("vague_date_offer missing, defaulting to latest date" in str(e) for e in ev)
+    ev.clear()
+    run.compile_checked({**pol, "vague_date_offer": "deadline"}, api, "lifecycle", T(), "t", frozenset({"f11_promise_typed"}))
+    assert not any("vague_date_offer" in str(e) for e in ev)

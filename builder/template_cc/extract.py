@@ -67,6 +67,7 @@ Keys
 - retries: {{tool name: extra attempts after a failure}} as the brief or the API allows.
 - ask_limits: {{"right_party", "id_decline", "callback_reask", "vague_date", "stop_talking", "human_offer"}} counts.
 - routes: {{"human_before_verify": false}} only when the brief says a request for a person must not be honoured before identity is verified (quote it in extra_rules).
+- vague_date_offer: "deadline" | "attempt1" | "other": which date to offer when the customer gives no exact day (null if the brief is silent).
 - unused_tools: tools the brief never uses.
 - extra_rules: [{{"statement", "brief_quote", "stage": opening|third_party|identity|debt|negotiate|close|global}}]
   for every brief rule that the keys above do not capture. Short, concrete, in the brief's terms."""

@@ -114,6 +114,7 @@ class Graph:
         self.non_conv: list[str] = []
         if "f11_promise_typed" in self.f:
             self.cfg["vague_limit"] = int(self.limits.get("vague_date", 1))
+            self.cfg["vague_offer"] = str(policy.get("vague_date_offer") or "deadline")
         routes = policy.get("routes") or {}  # F3: a request for a person is honoured before identity is verified
         self.human_first = ("f3_human_first" in self.f and "human" in self.queues
                             and routes.get("human_before_verify", True) is not False)
@@ -803,7 +804,7 @@ ID_INIT        vars['cb_state'] = 'none'
             pids = [r['pid'] for r in rows]
             jput(vars, 'pids', pids)
             jput(vars, 'pstate', dict((p, 'open') for p in pids))
-            jput(vars, 'products', [dict(pid=r['pid'], label=r['label'], past_due=r['past_due'], floor=r['floor'], deadline=r['deadline']) for r in rows])
+            jput(vars, 'products', [dict(pid=r['pid'], label=r['label'], past_due=r['past_due'], floor=r['floor'], deadline=r['deadline']ATT1) for r in rows])
             vars['product_count'] = str(len(rows))
             vars['phase'] = 'products'
             vars['end_key'] = 'np_refused'
@@ -839,6 +840,7 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['facts_state'] = 'error'
         vars['end_key'] = 'np_service_error_hard'
         """
+        body = body.replace("ATT1", ", att1=(r['proposals'][0]['date'] if r['proposals'] else r['deadline'])" if "f11_promise_typed" in self.f else "")
         self.code("facts", body, [eq("mark_np_service_error_hard", "no products could be read", "facts_state", "error"),
                                   always("negotiate")],
                   uses=("product_rows", "parse_now", "jput", "spoken_full", "money", "date_table", "weekday_words",
@@ -1001,7 +1003,6 @@ ID_INIT        vars['cb_state'] = 'none'
             amt, ac = amount_from_speech(at) if at else (None, False)
             if ac == 'full':
                 amt = past
-            amt = past if amt is None else float(amt)
             d_iso, dc = date_from_speech(dt, vars.get('now')) if dt else (None, False)
             if not d_iso and dt:
                 d_iso = to_iso(dt, today)
@@ -1010,9 +1011,16 @@ ID_INIT        vars['cb_state'] = 'none'
                 vars['vague_n'] = str(n)
                 if n <= int(CFG['vague_limit']):
                     say = 'On which day exactly would you like to pay it?'
+                elif CFG['vague_offer'] == 'attempt1' and r.get('att1'):
+                    say = 'The date I can record is ' + spoken(datetime.date.fromisoformat(r['att1'])) + '. Could you pay on that date?'
                 else:
                     say = 'The latest date I can record is ' + spoken(dl) + '. Could you pay on that date?'
+            elif amt is None:
+                n = int(num(vars.get('amt_ask_n'))) + 1
+                vars['amt_ask_n'] = str(n)
+                say = 'Which amount would you like to pay?' if n <= 3 else ''
             else:
+                amt = float(amt)
                 d = datetime.date.fromisoformat(d_iso)
                 if amt < floor - 0.005:
                     say = 'I cannot record less than ' + money(floor) + '. Could you pay that amount?'
