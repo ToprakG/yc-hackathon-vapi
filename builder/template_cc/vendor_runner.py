@@ -122,8 +122,8 @@ def _wait_http(url: str, seconds: float):
 class VendorRunner:
     def __init__(self, slot: str, policy: dict, api, trace, freya_mod, vendor: Path = VENDOR, port: int = 8787,
                  concurrency: int = 2, run_timeout_s: float = 1500, worker_python: str | None = None,
-                 infra_retries: int = 1):
-        self.slot, self.policy, self.api, self.trace, self.freya = f"{slot}-selftest", policy, api, trace, freya_mod
+                 infra_retries: int = 1, slot_suffix: str = "-selftest"):
+        self.slot, self.policy, self.api, self.trace, self.freya = f"{slot}{slot_suffix}", policy, api, trace, freya_mod
         self.vendor, self.port, self.concurrency, self.run_timeout_s = Path(vendor), port, concurrency, run_timeout_s
         self.worker_python = worker_python or sys.executable
         self.infra_retries = infra_retries
