@@ -201,3 +201,25 @@ def test_extract_falls_back_to_defaults_when_fix_fails(fx_api, fx_brief):
     bad["queue_map"]["human"] = "desk_unknown"
     res = extract.extract(fx_brief, fx_api, lambda *a, **k: copy.deepcopy(bad), "m", NullTrace())
     assert res["policy"]["queue_map"]["human"] is None and res["repairs"]
+
+
+def test_call_llm_openrouter_provider(monkeypatch):
+    seen = {}
+
+    def fake(url, headers, payload, timeout):
+        seen.update(url=url, headers=headers, payload=payload)
+        return {"choices": [{"message": {"content": '{"a": 2}'}}], "usage": {"prompt_tokens": 3, "completion_tokens": 1}}
+
+    monkeypatch.setattr(llm, "TRANSPORT", fake)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "rk")
+    out = llm.call_llm("s", "u", "openrouter:anthropic/claude-opus-5.5", json_schema={"type": "object", "required": ["a"]})
+    assert out == {"a": 2} and seen["url"] == llm.OPENROUTER_URL and seen["headers"]["Authorization"] == "Bearer rk"
+    assert seen["payload"]["model"] == "anthropic/claude-opus-5.5" and seen["payload"]["temperature"] == 0.2
+
+
+def test_openai_reasoning_models_get_max_completion_tokens(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "TRANSPORT", lambda u, h, p, t: seen.update(p=p) or {"choices": [{"message": {"content": "ok"}}]})
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    llm.call_llm("s", "u", "openai:gpt-5.5")
+    assert "temperature" not in seen["p"] and "max_completion_tokens" in seen["p"] and "max_tokens" not in seen["p"]

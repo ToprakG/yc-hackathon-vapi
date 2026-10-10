@@ -20,6 +20,7 @@ from builder.template_cc.io import REPO
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 class LLMError(RuntimeError):
@@ -87,15 +88,28 @@ def _anthropic(system, user, model, max_tokens, effort, timeout) -> tuple[str, d
     return text, {"in": u.get("input_tokens"), "out": u.get("output_tokens")}
 
 
-def _openai(system, user, model, temperature, max_tokens, json_mode, timeout) -> tuple[str, dict]:
-    key = os.environ.get("OPENAI_API_KEY", "")
+def _reasoning_model(model: str) -> bool:
+    """OpenAI reasoning models (gpt-5+, o-series) reject temperature and want max_completion_tokens."""
+    name = model.split("/")[-1].lower()
+    return name.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4", "o5"))
+
+
+def _openai(system, user, model, temperature, max_tokens, json_mode, timeout, router=False) -> tuple[str, dict]:
+    var = "OPENROUTER_API_KEY" if router else "OPENAI_API_KEY"
+    key = os.environ.get(var, "")
     if not key:
-        raise LLMError("OPENAI_API_KEY is empty", status=401)
-    payload: dict[str, Any] = {"model": model, "temperature": temperature, "max_tokens": max_tokens,
+        raise LLMError(f"{var} is empty", status=401)
+    payload: dict[str, Any] = {"model": model,
                                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    if _reasoning_model(model) and not router:
+        payload["max_completion_tokens"] = max(max_tokens, 16000)
+    else:
+        payload["max_tokens"] = max(max_tokens, 16000) if router else max_tokens
+        if not _reasoning_model(model):
+            payload["temperature"] = temperature
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
-    body = TRANSPORT(OPENAI_URL, {"Authorization": "Bearer " + key}, payload, timeout)
+    body = TRANSPORT(OPENROUTER_URL if router else OPENAI_URL, {"Authorization": "Bearer " + key}, payload, timeout)
     text = ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     u = body.get("usage") or {}
     return text, {"in": u.get("prompt_tokens"), "out": u.get("completion_tokens")}
@@ -125,8 +139,9 @@ def call_llm(system: str, user: str, model: str, json_schema: dict | None = None
         try:
             if provider == "anthropic":
                 text, usage = _anthropic(system, user, name, max_tokens, effort, timeout)
-            elif provider == "openai":
-                text, usage = _openai(system, user, name, temperature, max_tokens, json_schema is not None, timeout)
+            elif provider in ("openai", "openrouter"):
+                text, usage = _openai(system, user, name, temperature, max_tokens, json_schema is not None, timeout,
+                                      router=provider == "openrouter")
             else:
                 raise ValueError(f"unknown LLM provider: {provider}")
             if trace:

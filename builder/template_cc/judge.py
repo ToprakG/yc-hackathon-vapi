@@ -375,7 +375,8 @@ def make_judge(models, trace, call_llm, deadline=None, vendor_path: Path = VENDO
     import os
     load_env()
     provider, _ = split_model(models.judge)
-    if not os.environ.get("ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"):
+    var = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}.get(provider, "OPENAI_API_KEY")
+    if not os.environ.get(var):
         trace.warn("judge: no key for the local decision model either; patches will be logged, not applied")
         return None
     return LocalDecisionJudge(LocalDecisionBackend(call_llm, models.judge, models.judge_votes, trace, deadline), trace=trace)
