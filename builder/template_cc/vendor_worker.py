@@ -31,26 +31,49 @@ def main():
     for p in (root, root / "tools", root / "tools" / "driver"):
         sys.path.insert(0, str(p))
     import freya
-    from chat_driver import MAX_TURNS, bank_call, chat_turn, customer_reply, for_judge
+    from chat_driver import MAX_TURNS, _spoken, bank_call, chat_turn, customer_reply, for_judge
     from judge import judge_transcript
     from run_cases import persona_for
     from score import score_ledger
 
     job = json.loads(Path(a.job).read_text())
     wid, origin = job["workflow_id"], job["origin"].rstrip("/")
+    customer_model = job.get("customer_model")  # e.g. deepseek/deepseek-v4.1-flash on OpenRouter; None = vendor default
+
+    def customer(prompt, agent_lines, customer_lines):
+        if not customer_model:
+            return customer_reply(prompt, agent_lines, customer_lines)
+        import os
+        import urllib.request
+        messages = [{"role": "system", "content": prompt}]
+        for i, line in enumerate(agent_lines):  # the agent speaks as "user", the customer answers as "assistant"
+            messages.append({"role": "user", "content": line})
+            if i < len(customer_lines):
+                messages.append({"role": "assistant", "content": customer_lines[i]})
+        req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", method="POST",
+                                     data=json.dumps({"model": customer_model, "temperature": 0.5, "messages": messages}).encode(),
+                                     headers={"Authorization": "Bearer " + os.environ.get("OPENROUTER_API_KEY", ""),
+                                              "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            body = json.load(r)
+        text = _spoken(((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+        if not text:
+            raise RuntimeError("the customer model returned no spoken line")
+        return text
 
     def closed(ledger):
         calls = ledger.get("calls") or []
         return bool(calls) and calls[-1].get("tool") == "close_call" and (calls[-1].get("result") or {}).get("ok") is True
 
     def play(case, rep):
-        row = {"case_id": case["id"], "rep": rep, "passed": False, "failed_reasons": [], "transcript": [], "tool_calls": []}
+        row = {"case_id": case["id"], "rep": rep, "passed": False, "failed_reasons": [], "transcript": [], "tool_calls": [],
+               "style": case.get("style"), "family": case.get("family"), "level": case.get("level")}
         try:
             status, opened = bank_call(origin, "/v1/practice/sessions", {"case": case["id"]})
             if status != 200:
                 raise RuntimeError(f"bank session -> {status} {opened}")
             variables = opened["variables"]
-            prompt = persona_for(case, {"identity": case["identity"]}, case.get("style"))["prompt"]
+            prompt = persona_for(case, {"identity": case["identity"]}, case.get("style") or None)["prompt"]
             prompt += ("\n\nWHEN YOU NAME A TIME: say the hour and the minutes, like 11:00. Do not say morning, "
                        "afternoon, or around in place of that time.")
             call_id, agent, _ = chat_turn(wid, "Hello?", variables)
@@ -58,7 +81,7 @@ def main():
             for _ in range(MAX_TURNS):
                 if not agent_lines:
                     break
-                reply = customer_reply(prompt, agent_lines, customer_lines)
+                reply = customer(prompt, agent_lines, customer_lines)
                 customer_lines.append(reply)
                 call_id, agent, _ = chat_turn(wid, reply, variables, call_id)
                 if agent:

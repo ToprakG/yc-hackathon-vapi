@@ -69,8 +69,8 @@ def test_guard_hook_shape(ws):
 
 def test_mcp_tools_take_no_path_parameters():
     for name, (desc, schema) in session.TOOL_SPECS.items():
-        assert schema == {}, name
-    assert session.tool_names() == ["mcp__tcc__zones", "mcp__tcc__preview_patches", "mcp__tcc__time_left"]
+        assert all(t is int for t in schema.values()) and not any("path" in k or "file" in k for k in schema), name
+    assert session.tool_names() == ["mcp__tcc__zones", "mcp__tcc__preview_patches", "mcp__tcc__time_left", "mcp__tcc__run_sims"]
 
 
 # --- workspace + mocked sessions ------------------------------------------------------------------------------------

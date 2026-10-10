@@ -36,6 +36,7 @@ class LoopDeps:
     query_fn: object = None
     server: object = None
     unit: object = None  # UnitSuite: a fast unit-test gate before the full chats (optional)
+    sims_fn: object = None  # (workflow, n) -> report text: the patcher's run_sims tool (optional)
 
 
 @dataclass
@@ -87,9 +88,10 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
                 res.stop_reason = "analyzer found no generalized bug"
                 res.iterations.append(rec)
                 break
+            kw = {"sims_fn": d.sims_fn} if d.sims_fn is not None else {}
             prop = patcher_fn(d.briefs, d.brief_text, d.api_path, d.api, d.policy, res.workflow, res.book, report, failures,
                               d.models, tr, d.deadline, d.out_dir, it, keep_workspace=d.keep_workspace,
-                              query_fn=d.query_fn, server=d.server)
+                              query_fn=d.query_fn, server=d.server, **kw)
             proposed = prop.get("patches") or []
             rec["proposed"] = len(proposed)
             if d.judge is None:

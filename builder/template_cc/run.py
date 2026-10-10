@@ -141,8 +141,13 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
         # SELF-TEST LOOP
         if args.self_test == "local":
             try:
+                sims_fn = None
                 if runner is None:
                     own_runner = runner = vendor_runner.VendorRunner(slot, policy, api, trace, freya_mod or _import_freya())
+                    from builder.template_cc import sims as S  # noqa: PLC0415
+                    own_runner.customer_model = S.CUSTOMER_MODEL  # DeepSeek plays the customer in every self-test chat
+                    fm = freya_mod or _import_freya()
+                    sims_fn = lambda wf, n: S.render(S.run_sims(wf, policy, api, n, trace, fm, runner=own_runner))  # noqa: E731
                 unit = None
                 if args.unit_gate == "on" and own_runner is not None:
                     from builder.template_cc.unittests import UnitSuite  # noqa: PLC0415
@@ -150,7 +155,7 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
                 d = loop.LoopDeps(runner=runner, judge=the_judge, call_llm=call_llm, models=models, trace=trace, briefs=briefs,
                                   brief_text=brief_text, api_path=Path(api_path), api=api, tool_api=tool_api, policy=policy,
                                   out_dir=out, deadline=deadline, keep_workspace=args.keep_workspace, query_fn=query_fn,
-                                  server=sdk_server, unit=unit)
+                                  server=sdk_server, unit=unit, sims_fn=sims_fn)
                 res = loop.run_loop(best, best_book, d, max_iters=args.max_iters, reps=args.self_test_reps,
                                     n_cases=args.self_test_cases, p_threshold=args.gate_p)
                 report["self_test"] = {"iterations": len(res.iterations), "committed": res.committed,

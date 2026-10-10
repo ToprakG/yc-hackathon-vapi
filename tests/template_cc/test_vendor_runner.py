@@ -129,6 +129,8 @@ STUB = {
             return "Customer line"
         def for_judge(messages):
             return messages
+        def _spoken(text):
+            return text
     """,
 }
 
@@ -183,3 +185,48 @@ def test_worker_flags_chat_gateway_errors_as_infrastructure():
     pat = _re.compile(_re.search(r'INFRA = re.compile\(r"(.+?)", re.I\)', src).group(1), _re.I)
     assert pat.search("RuntimeError('POST /api/v2/chat/message -> 504: error code: 504')")
     assert not pat.search("RuntimeError('bank session -> 404')")
+
+
+def test_hard_cases_are_hard_first_and_styled(fx_policy):
+    from builder.template_cc import sims
+    cases = sims.hard_cases(fx_policy, 6)
+    assert len(cases) == 6 and all(c["style"] in sims.HARD_STYLES for c in cases)
+    assert len({c["family"] for c in cases}) >= 4
+    assert [sims.LEVEL.get(c["level"], 3) for c in cases][0] == min(sims.LEVEL.get(c["level"], 3) for c in cases)
+
+
+def test_render_shows_failures_with_reasons():
+    from builder.template_cc import sims
+    from builder.template_cc.runner import CaseResult
+    cases = [{"id": "T-1", "family": "Dates", "level": "hard", "style": "pieces", "script": "Wants a holiday."},
+             {"id": "T-2", "family": "Happy path", "level": "easy", "style": "talkative"}]
+    rep = sims.summarize([CaseResult("T-1", 1, False, ["promise date wrong"]), CaseResult("T-2", 1, False, ["504"], infra=True)], cases)
+    text = sims.render(rep)
+    assert rep["passed"] == 0 and rep["scored"] == 1 and rep["unscored"] == 1
+    assert "FAIL     T-1 Dates [hard, style pieces]" in text and "- promise date wrong" in text and "UNSCORED" in text
+
+
+def test_run_sims_tool_tries_the_patched_candidate(fx_api, fx_policy, fx_brief, tmp_path):
+    import time as _t
+    from builder.template_cc import session
+    from builder.template_cc.io import Brief
+    wf, book = compiler.compile(fx_policy, fx_api)
+    w = session.make_workspace([Brief("brief-1.md", "b", fx_brief)], Path(__file__).parent / "fixtures" / "invented.openapi.json",
+                               fx_policy, wf, book)
+    seen = {}
+
+    def sims_fn(cand, n):
+        seen["marked"] = "Say the amount slowly." in cand["nodes"]["negotiate"]["task_message"]
+        seen["n"] = n
+        return "1/2 hard sims passed"
+
+    try:
+        b = session.BoundTools(w, "patch", _t.time() + 100, fx_policy, fx_api, fx_brief, wf, book, sims_fn=sims_fn)
+        (w / "out" / "patches.json").write_text(json.dumps([{"id": "p1", "bug_ids": [], "zone": "node:negotiate/rules", "op": "append",
+                                                             "before": "", "after": "- Say the amount slowly.", "brief_quote": "x", "rationale": "r"}]))
+        out = b.call("run_sims", {"n": 9})
+        assert seen == {"marked": True, "n": 4} and "1 patch(es)" in out and "1/2 hard sims passed" in out
+        a = session.BoundTools(w, "audit", _t.time() + 100, fx_policy, fx_api, fx_brief)
+        assert "not available" in a.call("run_sims", {"n": 2})
+    finally:
+        session.remove_workspace(w)

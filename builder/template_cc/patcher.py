@@ -37,22 +37,26 @@ Write out/patches.json: a JSON list of
 {"id": "p1", "bug_ids": ["b1"], "zone": "<zone id>", "op": "append"|"replace", "before": "<exact current text or empty>",
  "after": "<new text>", "brief_quote": "<exact brief words>", "rationale": "<one sentence>"}.
 Call preview_patches to check the file (schema, lint, growth budget, diff) and fix what it reports. Call zones to see
-the current zone texts and time_left when unsure. Stop when the file is written and previewed."""
+the current zone texts and time_left when unsure. When run_sims is available, call it once (n 2 to 4) after
+preview_patches to try your patches on hard simulations; if a patch makes things worse, change or drop it. Stop when the
+file is written and previewed."""
 
 TASK = "Read report/bugs.json and write out/patches.json for the bugs you can fix. You have {secs} seconds."
 
 
 def run_patcher(briefs, brief_text: str, api_path: Path, api, policy: dict, workflow: dict, book, bug_report: dict,
                 failures: list, models, trace, deadline: float, out_dir: Path, iteration: int,
-                keep_workspace: bool = False, query_fn=None, server=None, seconds: float = 240) -> dict:
+                keep_workspace: bool = False, query_fn=None, server=None, seconds: float = 240, sims_fn=None) -> dict:
     """Returns {"patches": [...], "session": {...}, "error": ...}. Never raises."""
     rec = {"patches": [], "session": None, "error": None}
     ws = None
     try:
         ws = session.make_workspace(briefs, api_path, policy, workflow, book, report=bug_report, failures=failures)
+        if sims_fn is not None:
+            seconds = max(seconds, 900)  # a run_sims call takes minutes
         secs = max(0.0, min(seconds, deadline - time.time() - 60))
         bound = session.BoundTools(ws, "patch", time.time() + secs, policy, api, brief_text, workflow, book,
-                                   on_event=trace.event)
+                                   on_event=trace.event, sims_fn=sims_fn)
         rec["session"] = session.run(TASK.format(secs=int(secs)), SYSTEM, ws, bound, models.patch, trace,
                                      f"patcher iter {iteration}", secs, max_turns=40, max_usd=models.patch_budget_usd,
                                      query_fn=query_fn, server=server)

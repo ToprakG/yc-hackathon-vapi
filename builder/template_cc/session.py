@@ -31,6 +31,10 @@ TOOL_SPECS = {
     "preview_patches": ("Read out/patches.json (or out/policy_patches.json in the audit), apply it in memory and "
                         "return schema errors, the lint result, growth and a diff. Writes nothing.", {}),
     "time_left": ("Seconds left for this session.", {}),
+    "run_sims": ("Apply out/patches.json in memory and run hard simulations of that candidate agent: an LLM customer "
+                 "(DeepSeek) with hard talking styles, the bank ledger scored, the conversation judged by the decision "
+                 "model. Returns pass/fail per case with the failure reasons. Slow: about 2-4 minutes per case; "
+                 "n is 1 to 4.", {"n": int}),
 }
 
 
@@ -74,15 +78,17 @@ class BoundTools:
     """The MCP tools, bound to one workspace and its in-memory state. No path parameters anywhere."""
 
     def __init__(self, ws: Path, mode: str, deadline: float, policy: dict, api, brief_text: str,
-                 workflow: dict | None = None, book: zones.ZoneBook | None = None, on_event=None):
+                 workflow: dict | None = None, book: zones.ZoneBook | None = None, on_event=None, sims_fn=None):
         self.ws, self.mode, self.deadline = Path(ws), mode, deadline
         self.policy, self.api, self.brief_text = policy, api, brief_text
         self.workflow, self.book = workflow, book
         self.on_event = on_event or (lambda *a, **k: None)
+        self.sims_fn = sims_fn  # (workflow, n) -> report text; None when no simulator is connected
 
     def call(self, name: str, args: dict | None = None) -> str:
         try:
-            out = getattr(self, "t_" + name)()
+            fn = getattr(self, "t_" + name)
+            out = fn(**{k: v for k, v in (args or {}).items() if k in fn.__code__.co_varnames})
             self.on_event("mcp", tool=name, result=short(out, 200))
             return out
         except Exception as e:  # noqa: BLE001 - a tool error is text for the model
@@ -90,6 +96,17 @@ class BoundTools:
 
     def t_time_left(self) -> str:
         return f"{max(0, int(self.deadline - time.time()))} seconds left"
+
+    def t_run_sims(self, n: int = 2) -> str:
+        if self.mode != "patch" or self.sims_fn is None:
+            return "run_sims is not available in this session"
+        n = max(1, min(4, int(n or 2)))
+        path = self.ws / "out" / "patches.json"
+        items = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        wf, book, applied, failed = patches.apply_all(self.workflow, self.book, items if isinstance(items, list) else [])
+        head = (f"candidate = current agent + {len(applied)} patch(es) from out/patches.json"
+                + (f" ({len(failed)} not applied)" if failed else ""))
+        return head + "\n" + self.sims_fn(wf, n)
 
     def t_zones(self) -> str:
         if self.book is None:
