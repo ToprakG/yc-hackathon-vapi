@@ -22,7 +22,7 @@ number the model had to work out by itself. So: read everything, extract everyth
 | `out/` | The only place you may write. |
 
 Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`, `check_coverage`,
-`check_unit_tests`, `run_local_sims`, `validate_workflow`, `time_left`. They work on the fixed files above; you pass node ids and tool names, never paths.
+`policy_unit_suite`, `check_unit_tests`, `run_local_sims`, `validate_workflow`, `time_left`. They work on the fixed files above; you pass node ids and tool names, never paths.
 
 ## Hard rules
 
@@ -84,7 +84,8 @@ Decide the variables each code node and hook writes, and their fallbacks.
    - every hook with a success result and a failure result (`{"ok": false}`, or an envelope with `status_code` 500).
    Check the outputs by hand against the brief. Fix and re-run until they are right.
 
-4. Write `out/unit_tests.json` per `reference/unit-tests.md`: one test per decisive rule (each route that must
+4. Write `out/unit_tests.json` per `reference/unit-tests.md`: first one test per template from `policy_unit_suite`
+   (required), then one test per other decisive rule (each route that must
    fire, each write that must or must not happen, each limit, each fixed sentence at its turn), with your real node
    ids and variables. Run `check_unit_tests` until 0 errors. After your build they run on Freya's real engine; failed
    tests come back to you in the fix round, and a fix that passes fewer tests is thrown away.

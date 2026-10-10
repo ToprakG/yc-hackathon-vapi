@@ -177,7 +177,14 @@ def unit_phase(ws: Path, opts: BuildOptions, trace: Trace, workflow_path: Path, 
     try:
         suite = json.loads((ws / "out" / "unit_tests.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        out["skipped"] = "no valid out/unit_tests.json"
+        suite = []
+    try:  # regression tests derived from failed local simulations (run_local_sims)
+        suite = (suite.get("tests") if isinstance(suite, dict) else suite) + json.loads(
+            (ws / "out" / "derived_unit_tests.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    if not suite:
+        out["skipped"] = "no unit tests"
         return out
     if freya_mod is None and not os.environ.get("FREYA_API_KEY"):
         out["skipped"] = "no FREYA_API_KEY"
@@ -208,10 +215,12 @@ def unit_phase(ws: Path, opts: BuildOptions, trace: Trace, workflow_path: Path, 
 
 def unit_findings(ws: Path, unit: dict) -> list[dict]:
     """A failed unit test is a finding with its start node, the failed checks and the judge's reason."""
-    try:
-        suite = {t["name"]: t for t in json.loads((ws / "out" / "unit_tests.json").read_text(encoding="utf-8")) if isinstance(t, dict)}
-    except (OSError, json.JSONDecodeError, TypeError):
-        suite = {}
+    suite = {}
+    for name in ("unit_tests.json", "derived_unit_tests.json"):
+        try:
+            suite.update({t["name"]: t for t in json.loads((ws / "out" / name).read_text(encoding="utf-8")) if isinstance(t, dict)})
+        except (OSError, json.JSONDecodeError, TypeError, KeyError):
+            pass
     found = []
     for r in unit.get("results") or []:
         if r["outcome"] != "fail":
@@ -308,7 +317,8 @@ def finalize(ws: Path, opts: BuildOptions, trace: Trace, freya_mod=None, validat
     dest.mkdir(parents=True, exist_ok=True)
     api = openapi_summary.load(ws / "input" / "tools.openapi.json")
     report = {"status": "failed", "slot": opts.slot, "fallback_used": False, "saved": None, "validate": None}
-    for name in ("policy.json", "rules.json", "review.json", "findings.json", "unit_tests.json", "unit_results.json"):
+    for name in ("policy.json", "rules.json", "review.json", "findings.json", "unit_tests.json", "derived_unit_tests.json",
+                 "unit_results.json", "localsim_results.json"):
         if (out / name).exists():
             shutil.copyfile(out / name, dest / name)
     chosen = None

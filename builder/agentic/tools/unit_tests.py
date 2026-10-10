@@ -30,7 +30,23 @@ def _nodes(wf: dict) -> set:
     return set(wf.get("nodes") or {}) | set(wf.get("global_nodes") or {})
 
 
-def validate(tests, wf: dict, api_summary: dict) -> dict:
+def check_templates(tests: list, required: list[dict]) -> list[dict]:
+    """Every required template has a test that keeps all the template's checks (the builder may add, not remove)."""
+    errors = []
+    by_template = {t.get("template"): t for t in tests if isinstance(t, dict) and t.get("template")}
+    for r in required:
+        t = by_template.get(r["template"])
+        if t is None:
+            errors.append({"test": r["template"], "msg": f"required template {r['template']!r} has no test (see policy_unit_suite)"})
+            continue
+        have = [json.dumps(c, sort_keys=True) for c in t.get("checks") or []]
+        lost = [c for c in r["checks"] if json.dumps(c, sort_keys=True) not in have]
+        if lost:
+            errors.append({"test": t.get("name") or r["template"], "msg": f"keep the template's checks: missing {lost}"})
+    return errors
+
+
+def validate(tests, wf: dict, api_summary: dict, required: list[dict] | None = None) -> dict:
     """{errors, warnings}. Errors make a test unusable; the suite is still run without them."""
     errors, warnings = [], []
     if isinstance(tests, dict):
@@ -82,6 +98,8 @@ def validate(tests, wf: dict, api_summary: dict) -> dict:
                 errors.append({"test": label, "msg": f"mock for {tool_name!r}, which is not in the tool API"})
         if not t.get("rule"):
             warnings.append({"test": label, "msg": "no rule id: say which rules.json rule this test covers"})
+    if required:
+        errors += check_templates(tests, required)
     return {"errors": errors, "warnings": warnings, "tests": len(tests)}
 
 

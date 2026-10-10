@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from builder.agentic.tools import clock as clock_mod
-from builder.agentic.tools import coverage, lint, openapi_summary, snippets, unit_tests, validate
+from builder.agentic.tools import coverage, lint, openapi_summary, policy_suite, snippets, unit_tests, validate
 
 SERVER = "fb"
 OBJ = {"type": "object", "properties": {}, "additionalProperties": False}
@@ -34,6 +34,10 @@ TOOL_SPECS = {
                      "required": ["node_id", "kind"], "additionalProperties": False}),
     "check_coverage": ("Checks out/rules.json: every source_quote is in the brief, every implemented_in location "
                        "exists in out/workflow.json, n/a rules have a reason; reports numbered brief lines not cited.", OBJ),
+    "policy_unit_suite": ("The required unit-test templates generated from out/policy.json and the tool API: what the "
+                          "customer says at which stage and what your agent's next turn must or must not do. Write one test "
+                          "per template in out/unit_tests.json with \"template\": <id>, your own start_node, variables and "
+                          "messages, and keep the template's checks (you may add more). check_unit_tests enforces it.", OBJ),
     "check_unit_tests": ("Checks out/unit_tests.json offline: every start_node and checked node exists in out/workflow.json, "
                          "every tool, body field and mock is in the tool API, messages end with the customer's line. "
                          "The tests run on Freya after the build; write them per reference/unit-tests.md.", OBJ),
@@ -123,6 +127,20 @@ class BoundTools:
         self.on_event("check", {"coverage": f"{len(report['errors'])} errors, {len(report['warnings'])} warnings"})
         return coverage.render(report)
 
+    def _required(self, wf):
+        try:
+            policy = json.loads(self.policy.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return policy_suite.templates(policy, self.api, (wf.get("test_variables") or {}).get("now"))
+
+    def policy_unit_suite(self, args=None) -> str:
+        wf, err = self._wf()
+        required = self._required(wf or {})
+        if required is None:
+            return "write out/policy.json first: the templates are generated from it"
+        return json.dumps(required, indent=1, ensure_ascii=False)
+
     def check_unit_tests(self, args=None) -> str:
         wf, err = self._wf()
         if err:
@@ -133,7 +151,7 @@ class BoundTools:
             return "out/unit_tests.json does not exist yet"
         except json.JSONDecodeError as e:
             return f"out/unit_tests.json is not valid JSON: {e}"
-        report = unit_tests.validate(suite, wf, self.api)
+        report = unit_tests.validate(suite, wf, self.api, self._required(wf))
         self.on_event("check", {"unit_tests": f"{len(report['errors'])} errors, {report.get('tests', 0)} tests"})
         return unit_tests.render(report)
 
@@ -159,8 +177,18 @@ class BoundTools:
             return f"could not generate cases from policy.json (check its keys against reference/policy-schema.md): {e!r}"[:600]
         results = sim.run_cases(wf, cases[:n], bank_config(policy), parallel=5)
         (self.ws / "out" / "localsim_results.json").write_text(json.dumps(results, indent=1, default=str))
-        self.on_event("check", {"local_sims": sim.summary(results)})
-        return sim.render(results)
+        derived_path = self.ws / "out" / "derived_unit_tests.json"
+        try:
+            old = json.loads(derived_path.read_text(encoding="utf-8")) if derived_path.exists() else []
+        except json.JSONDecodeError:
+            old = []
+        new = sim.derive_tests(results, wf)
+        merged = {t["name"]: t for t in old + new}
+        derived_path.write_text(json.dumps(list(merged.values())[-12:], indent=1, ensure_ascii=False, default=str))
+        self.on_event("check", {"local_sims": sim.summary(results), "derived_unit_tests": len(new)})
+        note = (f"\n\n{len(new)} regression unit test(s) were derived from the failed turns (out/derived_unit_tests.json). "
+                "They run on Freya after your build together with your own tests, before and after the fix.") if new else ""
+        return sim.render(results) + note
 
     def validate_workflow(self, args=None) -> str:
         wf, err = self._wf()

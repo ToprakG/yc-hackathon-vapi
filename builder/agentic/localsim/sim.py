@@ -122,7 +122,8 @@ def run_case(workflow: dict, case: dict, config: dict, bank, style: str | None =
             "error": error, "engine_errors": engine.errors[:5], "nodes": [json.loads(e["message"])["node"] for e in engine.events
                                                                           if e["role"] == "system" and '"node_enter"' in e["message"]],
             "transcript": [(e["role"], e["message"]) for e in engine.events if e["role"] in ("user", "assistant")],
-            "model_calls": model.calls, "seconds": round(time.time() - t0, 1)}
+            "model_calls": model.calls, "seconds": round(time.time() - t0, 1),
+            "turns": engine.turn_log if not (led["pass"] and judged.get("pass") is True and not error) else []}
 
 
 def run_cases(workflow: dict, cases: list[dict], config: dict, parallel: int = 4, hard: bool = True) -> list[dict]:
@@ -130,6 +131,37 @@ def run_cases(workflow: dict, cases: list[dict], config: dict, parallel: int = 4
     styles = [c.get("style") or (HARD_STYLES[i % len(HARD_STYLES)] if hard else None) for i, c in enumerate(cases)]
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
         return list(pool.map(lambda pair: run_case(workflow, pair[0], config, bank, pair[1]), zip(cases, styles)))
+
+
+def derive_tests(results: list[dict], workflow: dict, per_case: int = 2, total: int = 8) -> list[dict]:
+    """Regression unit tests from failed local cases: the call's last customer turn, and the first turn where the
+    agent repeated an earlier line (a loop). Each starts in that turn's node with that turn's variables; the judge
+    sentence is what the case failed on."""
+    conv = {nid for nid, n in (workflow.get("nodes") or {}).items() if (n.get("node_type") or "conversation") == "conversation"}
+    conv |= set(workflow.get("global_nodes") or {})
+    out = []
+    for r in results:
+        if r.get("pass") or not r.get("turns"):
+            continue
+        turns = [t for t in r["turns"] if t.get("node") in conv and str(t.get("agent") or "").strip()]
+        if not turns:
+            continue
+        picks, seen = [turns[-1]], set()
+        for t in turns:
+            if t["agent"] in seen and t is not turns[-1]:
+                picks.insert(0, t)
+                break
+            seen.add(t["agent"])
+        why = "; ".join([*(r.get("ledger_failed") or []), *(r.get("failed_checks") or [])])[:500]
+        for i, t in enumerate(picks[:per_case]):
+            variables = dict(list({k: (v[:2000] if isinstance(v, str) else v) for k, v in t["vars"].items()}.items())[:150])
+            out.append({"name": f"sim {r['id']} turn {r['turns'].index(t) + 1}", "derived_from": r["id"], "start_node": t["node"],
+                        "variables": variables, "messages": [{"role": "assistant", "text": t["agent"]}, {"role": "user", "text": t["user"]}],
+                        "expect": f"In this turn the agent moves the call toward what the brief requires here. The full call failed on: {why}",
+                        "checks": [], "tags": ["derived"]})
+            if len(out) >= total:
+                return out
+    return out
 
 
 def summary(results: list[dict]) -> dict:
@@ -163,9 +195,10 @@ def main(argv=None) -> int:
     p.add_argument("workflow")
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--brief", choices=["A", "B"], help="the kit's practice cases with the brief's correct config (development)")
+    src.add_argument("--testbed", choices=["A", "B"], help="the testbed's 100 (A) / 60 (B) cases with the correct config (development)")
     src.add_argument("--fake", help="a testbed fake brief id (development)")
     src.add_argument("--policy", help="a policy.json: generate hard cases from it (what the builder's self-test does)")
-    p.add_argument("--n", type=int, default=12)
+    p.add_argument("--n", type=int, default=1000)
     p.add_argument("--only")
     p.add_argument("--parallel", type=int, default=4)
     p.add_argument("--out")
@@ -179,6 +212,9 @@ def main(argv=None) -> int:
     if a.brief:
         cases = [c for c in json.loads((REPO / "public-test-set.json").read_text()) if c.get("brief") == a.brief]
         config = json.loads((REPO / "testbed" / "configs" / f"brief-{a.brief.lower()}.config.json").read_text())
+    elif a.testbed:
+        cases = json.loads((REPO / "testbed" / "personas" / f"brief-{a.testbed.lower()}.cases.json").read_text())
+        config = json.loads((REPO / "testbed" / "configs" / f"brief-{a.testbed.lower()}.config.json").read_text())
     elif a.fake:
         folder = REPO / "testbed" / "fake_briefs" / a.fake
         cases, config = json.loads((folder / "cases.json").read_text()), json.loads((folder / "config.json").read_text())

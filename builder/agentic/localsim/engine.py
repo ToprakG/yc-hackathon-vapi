@@ -61,6 +61,7 @@ class Engine:
         self.spoken: list[str] = []
         self.max_turns = max_turns_per_call
         self.errors: list[str] = []
+        self.turn_log: list[dict] = []  # per customer turn: node, variables, the agent's previous line, the customer's line
 
     # --- helpers ----------------------------------------------------------------------------------------------------
     def subst(self, text) -> str:
@@ -383,6 +384,9 @@ class Engine:
         self.spoken = []
         if self.ended:
             return ""
+        last_agent = next((m["content"] for m in reversed(self.history) if m["role"] == "assistant" and m.get("content")), "")
+        self.turn_log.append({"node": self.node, "vars": {k: v for k, v in self.vars.items() if isinstance(v, (str, int, float))},
+                              "agent": last_agent, "user": text})
         self.history.append({"role": "user", "content": text})
         self.events.append({"role": "user", "message": text})
         node = self._get(self.node) or {}

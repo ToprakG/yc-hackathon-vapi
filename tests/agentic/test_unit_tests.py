@@ -152,3 +152,48 @@ def test_a_fix_that_passes_fewer_unit_tests_is_rolled_back(tmp_path):
     report, phases, fake = _run_build(tmp_path, {"refusal goes to the next proposal": ["pass", "fail"]}, [defect])
     assert phases[-1][0] == "fix" and "rolled_back" in report["review"]
     assert not json.loads((tmp_path / "out" / "workflow.json").read_text())["system_prompt"].endswith("Fixed.")
+
+
+POLICY = {"sentences": {"ai": "Example Bank's automated assistant", "failed_id": "visit a branch"},
+          "queue_map": {"human": "desk_x", "restructuring": None, "support": "desk_y"},
+          "outcome_map": {"nr_wrong_number": ["outcome_w", "detail_b"], "nr_deceased": None, "np_dispute": ["outcome_u", "detail_h"]},
+          "callback": {"start": "09:00", "end": "17:00"}, "holidays": ["2031-03-10"],
+          "tools": {"schedule_callback": {"mode": "datetime", "datetime": "slot"}, "transfer_to_agent": {"queue": "desk"}}}
+
+
+def test_policy_templates_take_every_value_from_the_policy_and_api(demo_api):
+    from builder.agentic.tools import policy_suite
+
+    t = {x["template"]: x for x in policy_suite.templates(POLICY, demo_api, "2031-03-07T11:00")}
+    assert "deceased" not in t and "restructuring_request" not in t  # the policy has no such route
+    cb = t["callback_inside_window"]["checks"][0]
+    assert cb == {"tool": "schedule_callback", "body": {"slot": "2031-03-11T10:00"}}  # next business day after a holiday
+    assert {"tool": "transfer_to_agent", "body": {"desk": "desk_x"}} in t["human_request_insists"]["checks"]
+    assert "Example Bank's automated assistant" in t["robot_question_opening"]["expect"]
+    assert t["identity_last_wrong_answer"]["mock"]["verify_identity"]["tries_left"] == 0
+
+
+def test_required_templates_are_enforced(demo, demo_api):
+    from builder.agentic.tools import policy_suite
+
+    required = policy_suite.templates(POLICY, demo_api, "2031-03-07T11:00")
+    tests = [dict(GOOD, name="robot", template="robot_question_opening", checks=[])]
+    msgs = [e["msg"] for e in unit_tests.validate(tests, demo, demo_api, required)["errors"]]
+    assert any("keep the template's checks" in m for m in msgs)  # its get_account-absent check was dropped
+    assert any("'callback_inside_window' has no test" in m for m in msgs)
+
+
+def test_failed_local_cases_become_regression_tests(demo):
+    from builder.agentic.localsim.sim import derive_tests
+
+    turns = [{"node": "identity", "vars": {"x": "1"}, "agent": "Your code?", "user": "123"},
+             {"node": "offer", "vars": {"offer_text": "Pay 10?"}, "agent": "Pay 10?", "user": "No."},
+             {"node": "offer", "vars": {"offer_text": "Pay 10?"}, "agent": "Pay 10?", "user": "I said no."},
+             {"node": "facts", "vars": {}, "agent": "x", "user": "y"}]  # not a conversation node: never a start node
+    res = [{"id": "T-1", "pass": False, "turns": turns, "failed_checks": ["only one offer"], "ledger_failed": []},
+           {"id": "T-2", "pass": True, "turns": turns}]
+    tests = derive_tests(res, demo)
+    # the last conversation turn is also the loop turn here, so one test; the passing case gives none
+    assert [(t["name"], t["start_node"]) for t in tests] == [("sim T-1 turn 3", "offer")]
+    assert all("only one offer" in t["expect"] for t in tests) and tests[0]["messages"][-1] == {"role": "user", "text": "I said no."}
+    assert unit_tests.validate(tests[:1], demo, openapi_summary.load(FIX / "pattern_demo.openapi.json"))["errors"] == []

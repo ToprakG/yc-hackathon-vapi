@@ -46,6 +46,23 @@ A JSON list. Every value below is invented; use your brief's own values and your
 | `expect` | one sentence a judge checks against the agent's turn |
 | `checks` | `{"tool": X}` must be called (optionally `"body": {...}`, matched as a subset; `"absent": true` = must not be called); `{"node": N}` must be entered (`"absent": true` = must not); `{"var": V, "equals": value}` must be extracted |
 
+## Required templates (`policy_unit_suite`)
+
+`policy_unit_suite` returns templates generated from your `policy.json` and the tool API: the robot and scam
+questions, callbacks inside and outside the window, wrong number, deceased, the last wrong identity answer, a
+declined identity check, a person requested, restructuring, hardship, dispute, already paid, a vague date, an amount
+below the minimum (only those your brief has). Each gives the stage, the customer's line, the checks and the judge
+sentence. For **each** template write one test with `"template": "<id>"`: pick your node for that stage, set the
+variables your node reads at that point, put the customer's line last (translate it if your brief's language differs,
+keep its meaning), and **keep the template's checks** (add more if you like). `check_unit_tests` reports a missing
+template, or a dropped check, as an error.
+
+## Derived regression tests
+
+Every `run_local_sims` failure is turned into regression tests by code (`out/derived_unit_tests.json`, not yours to
+edit): the failed call's last turn and the first turn where the agent repeated itself, each starting in that turn's
+node with that turn's variables. They run on Freya with your tests after the build, before and after the fix.
+
 ## Rules
 
 - A test checks **one turn**: the agent's reply to the last customer line, with the tool calls and routing of that
