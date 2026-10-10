@@ -125,7 +125,7 @@ def processes():
 
 def logs():
     out = []
-    for name in ("chat-fakes.log", "chat-shared.log", "freya-run.log"):
+    for name in ("freya-run-f2f7.log", "freya-run.log", "chat-fakes.log", "chat-shared.log"):
         p = EVAL / name
         if p.exists():
             lines = [l for l in p.read_text().splitlines() if "another simulation" not in l]
