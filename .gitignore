@@ -15,3 +15,6 @@ env.sh
 .personas.json
 .venv310/
 out/
+
+# read-only clone of the decision-model repo (never committed)
+vendor/
