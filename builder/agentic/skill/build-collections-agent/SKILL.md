@@ -17,12 +17,12 @@ number the model had to work out by itself. So: read everything, extract everyth
 | `input/tools.openapi.json` | The bank's tool API. Field names, enums and URLs come only from here. |
 | `docs/` | The kit docs: `workflow-format.md`, `tools-and-code.md`, `api.md`. Read sections when a question comes up. |
 | `examples/pattern_demo.workflow.json` | A lint-clean example with **invented** values and its invented API `examples/pattern_demo.openapi.json`. Copy shapes, never values. |
-| `.claude/skills/build-collections-agent/reference/` | `platform-facts.md`, `call-architecture.md`, `freya-cookbook.md`, `policy-schema.md`, `self-check.md`. |
+| `.claude/skills/build-collections-agent/reference/` | `platform-facts.md`, `call-architecture.md`, `freya-cookbook.md`, `policy-schema.md`, `unit-tests.md`, `self-check.md`. |
 | `.claude/skills/build-collections-agent/templates/` | `calendar.py` (business-day and money helpers) and `fragments/*.json`. |
 | `out/` | The only place you may write. |
 
 Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`, `check_coverage`,
-`validate_workflow`, `time_left`. They work on the fixed files above; you pass node ids and tool names, never paths.
+`check_unit_tests`, `validate_workflow`, `time_left`. They work on the fixed files above; you pass node ids and tool names, never paths.
 
 ## Hard rules
 
@@ -84,6 +84,11 @@ Decide the variables each code node and hook writes, and their fallbacks.
    - every hook with a success result and a failure result (`{"ok": false}`, or an envelope with `status_code` 500).
    Check the outputs by hand against the brief. Fix and re-run until they are right.
 
+4. Write `out/unit_tests.json` per `reference/unit-tests.md`: one test per decisive rule (each route that must
+   fire, each write that must or must not happen, each limit, each fixed sentence at its turn), with your real node
+   ids and variables. Run `check_unit_tests` until 0 errors. After your build they run on Freya's real engine; failed
+   tests come back to you in the fix round, and a fix that passes fewer tests is thrown away.
+
 ### 5. Check and fix (until clean, or time is up)
 
 1. `lint_workflow` → fix every error → again, until 0 errors. Read every warning; fix it or record why it is fine.
@@ -97,8 +102,8 @@ Decide the variables each code node and hook writes, and their fallbacks.
 
 ### 6. Finish
 
-End with one line: `out/workflow.json, out/policy.json, out/rules.json written; lint 0 errors; coverage 0 errors`.
-Never end your turn before the three files exist and the last `lint_workflow` showed 0 errors.
+End with one line: `out/workflow.json, out/policy.json, out/rules.json, out/unit_tests.json written; lint 0 errors;
+coverage 0 errors`. Never end your turn before these files exist and the last `lint_workflow` showed 0 errors.
 
 ## What makes agents fail (check yourself against it)
 

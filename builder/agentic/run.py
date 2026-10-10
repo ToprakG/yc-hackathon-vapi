@@ -14,12 +14,13 @@ import shutil
 import signal
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from builder.agentic import guard, mcp_server, prompt, review
-from builder.agentic.tools import lint, openapi_summary, validate
+from builder.agentic.tools import lint, openapi_summary, unit_tests, validate
 from builder.agentic.tools.clock import Clock
 from builder.common.io import REPO, SKILL_NAME, build_workspace
 from builder.common.trace import Trace
@@ -36,10 +37,11 @@ class BuildOptions:
     slot: str
     out_dir: Path
     save: str = "freya"
-    max_minutes: float = 16.0
+    max_minutes: float = 15.0
     review: bool = True
     review_minutes: float = 5.0
-    fix_minutes: float = 7.0
+    fix_minutes: float = 6.0
+    unit: bool = True  # run the builder's own unit tests on Freya; failures join the fix round
     model: str = "claude-opus-5-5"
     max_usd: float | None = None
     keep_workspace: bool = False
@@ -169,13 +171,76 @@ def _reviewable(ws: Path) -> Path | None:
     return out / "last_good.workflow.json" if (out / "last_good.workflow.json").exists() else None
 
 
-def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_state: dict, bound, workspace_root=None) -> dict:
-    """One fresh-context review, code comparison with rules.json, and at most one fix round."""
+def unit_phase(ws: Path, opts: BuildOptions, trace: Trace, workflow_path: Path, freya_mod=None, label="unit") -> dict:
+    """Run the builder's own unit tests (out/unit_tests.json) on a copy of the workflow in the `<slot>-unit` slot."""
+    out = {"ran": False}
+    try:
+        suite = json.loads((ws / "out" / "unit_tests.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        out["skipped"] = "no valid out/unit_tests.json"
+        return out
+    if freya_mod is None and not os.environ.get("FREYA_API_KEY"):
+        out["skipped"] = "no FREYA_API_KEY"
+        return out
+    try:
+        wf = json.loads(workflow_path.read_text(encoding="utf-8"))
+        wf.pop("agent_config", None)
+        api = openapi_summary.load(ws / "input" / "tools.openapi.json")
+        suite = suite.get("tests") if isinstance(suite, dict) else suite
+        report = unit_tests.validate(suite, wf, api)
+        bad = {e["test"] for e in report["errors"]}
+        usable = [t for t in suite if isinstance(t, dict) and t.get("name") and t["name"] not in bad]
+        if not usable:
+            out["skipped"] = "no usable unit tests"
+            return out
+        freya = freya_mod or _import_freya()
+        saved = freya.save_workflow(f"{opts.slot}-unit", wf, state_file=str(STATE_FILE))
+        trace.event("freya", {"saved (unit-test copy)": saved})
+        cvars = {k: v for k, v in (wf.get("test_variables") or {}).items()}
+        results = unit_tests.sync_and_run(freya, saved["workflow_id"], usable, cvars)
+        out.update(ran=True, results=results, summary=unit_tests.summary(results), dropped=sorted(bad))
+        trace.event(label, out["summary"])
+    except Exception as e:  # noqa: BLE001  (a unit-test failure of the infrastructure never stops the build)
+        out["error"] = repr(e)[:300]
+        trace.event("error", f"{label}: {out['error']}")
+    return out
+
+
+def unit_findings(ws: Path, unit: dict) -> list[dict]:
+    """A failed unit test is a finding with its start node, the failed checks and the judge's reason."""
+    try:
+        suite = {t["name"]: t for t in json.loads((ws / "out" / "unit_tests.json").read_text(encoding="utf-8")) if isinstance(t, dict)}
+    except (OSError, json.JSONDecodeError, TypeError):
+        suite = {}
+    found = []
+    for r in unit.get("results") or []:
+        if r["outcome"] != "fail":
+            continue
+        t = suite.get(r["name"], {})
+        checks = "; ".join(json.dumps(c.get("assertion") or c, default=str)[:160] for c in r.get("failed_checks") or [])
+        found.append({"kind": "unit_test_failed", "review_id": r["name"], "quote": "", "rule": f"unit test '{r['name']}' ({t.get('rule', '')})",
+                      "verdict": "wrong", "node_ids": [t.get("start_node", "")],
+                      "defect": f"{r.get('reason', '')[:300]} Agent said: {r.get('agent', '')[:200]} Failed checks: {checks}",
+                      "fix": t.get("expect", "") or "make the agent's turn pass the test's checks"})
+    return found
+
+
+def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_state: dict, bound, workspace_root=None,
+                   freya_mod=None) -> dict:
+    """Fresh-context review and the builder's unit tests (in parallel), then at most one fix round, then a
+    regression check on the unit tests: the fixed workflow is kept only if it passes no fewer of them."""
     info = {"ran": False, "findings": 0, "fix_ran": False}
     target = _reviewable(ws)
     if target is None:
         info["skipped"] = "no lint-clean workflow to review"
         return info
+    unit_before = {}
+    unit_thread = None
+    if opts.unit:
+        snapshot = ws / "out" / "prefix.workflow.json"
+        shutil.copyfile(target, snapshot)
+        unit_thread = threading.Thread(target=lambda: unit_before.update(unit_phase(ws, opts, trace, snapshot, freya_mod, "unit (before fix)")))
+        unit_thread.start()
     rws = Path(tempfile.mkdtemp(prefix="fb-review-", dir=workspace_root))
     parsed = {"rules": [], "error": "review did not run"}
     try:
@@ -194,6 +259,12 @@ def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_st
     except (OSError, json.JSONDecodeError):
         rules = []
     findings = review.compare(parsed, rules)
+    if unit_thread is not None:
+        unit_thread.join()
+        info["unit_before"] = {k: unit_before.get(k) for k in ("ran", "summary", "skipped", "error", "dropped")}
+        findings = unit_findings(ws, unit_before) + findings
+        if unit_before.get("results"):
+            (ws / "out" / "unit_results.json").write_text(json.dumps(unit_before["results"], indent=1, ensure_ascii=False))
     (ws / "out" / "findings.json").write_text(json.dumps(findings, indent=1, ensure_ascii=False))
     info.update(review_rules=len(parsed["rules"]), findings=len(findings), parse_error=parsed.get("error"),
                 kinds={k: sum(f["kind"] == k for f in findings) for k in {f["kind"] for f in findings}})
@@ -209,6 +280,18 @@ def review_and_fix(ws: Path, opts: BuildOptions, trace: Trace, query_fn, main_st
                           opts.max_turns, opts.max_usd, resume=session)
     state = _phase(query_fn, task, options, trace, opts.fix_minutes, "fix")
     info.update(fix_ran=True, fix=_result_summary(state["result"]), fix_timed_out=state["timed_out"], fix_resumed=bool(session))
+    before = (unit_before.get("summary") or {}).get("passed")
+    fixed = _reviewable(ws)
+    if before is not None and fixed is not None:
+        after = unit_phase(ws, opts, trace, fixed, freya_mod, "unit (after fix)")
+        info["unit_after"] = {k: after.get(k) for k in ("ran", "summary", "skipped", "error")}
+        now = (after.get("summary") or {}).get("passed")
+        if now is not None and now < before:
+            shutil.copyfile(ws / "out" / "prefix.workflow.json", ws / "out" / "workflow.json")
+            info["rolled_back"] = f"unit tests passed {now} after the fix vs {before} before: kept the pre-fix workflow"
+            trace.event("rollback", info["rolled_back"])
+        elif after.get("results"):
+            (ws / "out" / "unit_results.json").write_text(json.dumps(after["results"], indent=1, ensure_ascii=False))
     return info
 
 
@@ -225,7 +308,7 @@ def finalize(ws: Path, opts: BuildOptions, trace: Trace, freya_mod=None, validat
     dest.mkdir(parents=True, exist_ok=True)
     api = openapi_summary.load(ws / "input" / "tools.openapi.json")
     report = {"status": "failed", "slot": opts.slot, "fallback_used": False, "saved": None, "validate": None}
-    for name in ("policy.json", "rules.json", "review.json", "findings.json"):
+    for name in ("policy.json", "rules.json", "review.json", "findings.json", "unit_tests.json", "unit_results.json"):
         if (out / name).exists():
             shutil.copyfile(out / name, dest / name)
     chosen = None
@@ -294,7 +377,8 @@ def run(opts: BuildOptions, query_fn=None, freya_mod=None, validate_fn=validate.
         trace.event("prompt", task)
         state = _phase(query_fn, task, options, trace, opts.max_minutes, "build")
         t_agent = time.monotonic() - t0
-        review_info = review_and_fix(ws, opts, trace, query_fn, state, bound, workspace_root) if opts.review else {"ran": False}
+        review_info = (review_and_fix(ws, opts, trace, query_fn, state, bound, workspace_root, freya_mod)
+                       if opts.review else {"ran": False})
         t_review = time.monotonic() - t0 - t_agent
         report = finalize(ws, opts, trace, freya_mod=freya_mod, validate_fn=validate_fn)
         report["review"] = review_info

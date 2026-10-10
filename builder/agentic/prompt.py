@@ -18,5 +18,6 @@ Write these files:
 - out/policy.json (the extraction, per the skill's policy schema)
 - out/rules.json (every rule with its quote and where it is implemented)
 - out/workflow.json (the Freya workflow)
+- out/unit_tests.json (unit tests for your workflow, per the skill's reference/unit-tests.md)
 
 Finish only when mcp__fb__lint_workflow reports 0 errors and mcp__fb__check_coverage reports 0 errors, or when time runs out. If time runs short, make sure out/workflow.json lints with 0 errors before anything else."""

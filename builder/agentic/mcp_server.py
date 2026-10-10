@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from builder.agentic.tools import clock as clock_mod
-from builder.agentic.tools import coverage, lint, openapi_summary, snippets, validate
+from builder.agentic.tools import coverage, lint, openapi_summary, snippets, unit_tests, validate
 
 SERVER = "fb"
 OBJ = {"type": "object", "properties": {}, "additionalProperties": False}
@@ -34,6 +34,9 @@ TOOL_SPECS = {
                      "required": ["node_id", "kind"], "additionalProperties": False}),
     "check_coverage": ("Checks out/rules.json: every source_quote is in the brief, every implemented_in location "
                        "exists in out/workflow.json, n/a rules have a reason; reports numbered brief lines not cited.", OBJ),
+    "check_unit_tests": ("Checks out/unit_tests.json offline: every start_node and checked node exists in out/workflow.json, "
+                         "every tool, body field and mock is in the tool API, messages end with the customer's line. "
+                         "The tests run on Freya after the build; write them per reference/unit-tests.md.", OBJ),
     "validate_workflow": ("Freya dry-run validation of out/workflow.json (stores nothing). Returns the platform's answer, "
                           "or skipped when no key is set.", OBJ),
     "time_left": ("Minutes left on this build's wall clock and the phase plan. Call it at every phase boundary.", OBJ),
@@ -49,6 +52,7 @@ class BoundTools:
         self.last_good = ws / "out" / "last_good.workflow.json"
         self.rules = ws / "out" / "rules.json"
         self.policy = ws / "out" / "policy.json"
+        self.unit_tests = ws / "out" / "unit_tests.json"
         self.briefs = sorted((ws / "input").glob("brief-*"), key=lambda p: int(p.stem.split("-")[1]))
         self.clock = clock
         self.on_event = on_event or (lambda kind, detail: None)
@@ -109,6 +113,20 @@ class BoundTools:
             report["errors"].insert(0, {"rule": None, "msg": err})
         self.on_event("check", {"coverage": f"{len(report['errors'])} errors, {len(report['warnings'])} warnings"})
         return coverage.render(report)
+
+    def check_unit_tests(self, args=None) -> str:
+        wf, err = self._wf()
+        if err:
+            return err
+        try:
+            suite = json.loads(self.unit_tests.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return "out/unit_tests.json does not exist yet"
+        except json.JSONDecodeError as e:
+            return f"out/unit_tests.json is not valid JSON: {e}"
+        report = unit_tests.validate(suite, wf, self.api)
+        self.on_event("check", {"unit_tests": f"{len(report['errors'])} errors, {report.get('tests', 0)} tests"})
+        return unit_tests.render(report)
 
     def validate_workflow(self, args=None) -> str:
         wf, err = self._wf()

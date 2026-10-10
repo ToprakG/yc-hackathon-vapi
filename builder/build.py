@@ -28,6 +28,7 @@ def run_agentic(args, briefs, api) -> dict:
     return run(BuildOptions(briefs=briefs, api=api, slot=args.slot, out_dir=Path(args.out), save=args.save,
                             max_minutes=args.max_minutes, model=args.model, max_usd=args.max_usd,
                             review=args.review == "on", review_minutes=args.review_minutes, fix_minutes=args.fix_minutes,
+                            unit=args.unit == "on",
                             keep_workspace=args.keep_workspace, self_test=args.self_test))
 
 
@@ -40,10 +41,11 @@ def parse(argv=None):
     p.add_argument("--variant", default="agentic", choices=sorted(VARIANTS))
     p.add_argument("--save", default="freya", choices=["freya", "none"], help="none: write files only, touch nothing on Freya")
     p.add_argument("--slot", help="Freya slot name; default <variant>-<last brief stem>")
-    p.add_argument("--max-minutes", type=float, default=16.0, help="hard wall clock for the build agent")
+    p.add_argument("--max-minutes", type=float, default=15.0, help="hard wall clock for the build agent")
+    p.add_argument("--unit", default="on", choices=["on", "off"], help="run the builder's own unit tests on Freya (a -unit copy)")
     p.add_argument("--review", default="on", choices=["on", "off"], help="fresh-context review + one fix round")
     p.add_argument("--review-minutes", type=float, default=5.0)
-    p.add_argument("--fix-minutes", type=float, default=7.0)
+    p.add_argument("--fix-minutes", type=float, default=6.0)
     p.add_argument("--model", default=os.environ.get("BUILDER_MODEL", "claude-opus-5-5"))
     p.add_argument("--max-usd", type=float, default=None, help="optional cost cap for the agent run")
     p.add_argument("--out", help="output directory; default out/<variant>/<slot>/")

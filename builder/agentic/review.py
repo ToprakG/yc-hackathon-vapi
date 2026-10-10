@@ -132,8 +132,10 @@ MODEL_LIMIT = re.compile(r"left to the model|by the model|only (as|in) text|not 
 def priority(f: dict) -> tuple:
     """Fix order: defects that leave a limit to the model first, then other defects, then unlisted rules."""
     text = f"{f.get('defect', '')} {f.get('fix', '')}"
+    if f["kind"] == "unit_test_failed":
+        return (0, f.get("review_id", ""))  # a failed test on the real engine is the most concrete finding
     is_defect = f["kind"] != "unlisted_rule"
-    return (0 if is_defect and MODEL_LIMIT.search(text) else 1 if is_defect else 2, f.get("review_id", ""))
+    return (1 if is_defect and MODEL_LIMIT.search(text) else 2 if is_defect else 3, f.get("review_id", ""))
 
 
 def fix_prompt(findings: list[dict], minutes: float) -> str:
@@ -143,7 +145,8 @@ def fix_prompt(findings: list[dict], minutes: float) -> str:
         where = ", ".join(f["node_ids"]) or "no node yet"
         lines.append(f"{i}. [{f['kind']}] rule: {f['rule'] or f['quote']}\n   quote: \"{f['quote']}\"\n   nodes: {where}\n"
                      f"   problem: {f['defect'] or 'not in your rules.json'}\n   suggested fix: {f['fix'] or 'implement the rule'}")
-    return (f"An independent reviewer read the brief and your workflow (it did not see your rules.json). "
+    return (f"Your unit tests ran on Freya's real engine, and an independent reviewer read the brief and your workflow "
+            f"(it did not see your rules.json). Failed unit tests come first. "
             f"Fix these findings in out/workflow.json, in the order given (the first ones matter most); add any rule "
             f"missing from out/rules.json with its exact quote and location. Ignore a finding only if the brief clearly "
             f"contradicts it, and say why in one line.\n\n"
