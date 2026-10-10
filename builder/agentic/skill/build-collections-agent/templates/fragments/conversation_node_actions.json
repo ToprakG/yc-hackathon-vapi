@@ -6,7 +6,7 @@
   "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."
  },
  "on_enter_first_entry_only": true,
- "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+ "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk once whether the customer can settle everything now. If they cannot, say nothing more: the proposals come next, one by one. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
  "tools": [
   {
    "type": "function",
@@ -72,7 +72,7 @@
     }
    },
    "pre_process_code": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef to_cents(amount):\n    \"\"\"Major units -> integer minor units. round(), never int(): 19.99 * 100 is 1998.999...\"\"\"\n    return int(round(float(str(amount).replace(',', '')) * 100))\n\ntry:\n    b = config.get('body')\n    if isinstance(b, dict) and b.get('amount_minor') not in (None, ''):\n        b['amount_minor'] = to_cents(b['amount_minor'])\nexcept Exception:\n    pass\n",
-   "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
+   "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        vars['offer_answer'] = 'recorded'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
   },
   {
    "type": "function",
@@ -139,7 +139,8 @@
       }
      }
     }
-   }
+   },
+   "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['note_count'] = str(int(vars.get('note_count') or 0) + 1)\n        vars['offer_answer'] = 'noted'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Noted. Say in one short sentence that you noted it.'\n    elif isinstance(d, dict):\n        d['what_to_do_next'] = 'NOT noted. Call add_note once more with the same values.'\nexcept Exception:\n    pass\n"
   },
   {
    "type": "function",
@@ -230,6 +231,16 @@
    "min_confidence": 0.7
   },
   {
+   "name": "first_answer",
+   "type": "string",
+   "enum_values": [
+    "stay",
+    "not_now"
+   ],
+   "description": "not_now when the customer says they cannot settle everything now, else stay.",
+   "min_confidence": 0.7
+  },
+  {
    "name": "topic",
    "type": "string",
    "enum_values": [
@@ -267,6 +278,20 @@
       "variable": "topic",
       "operator": "equals",
       "operand": "difficulty"
+     }
+    ]
+   }
+  },
+  {
+   "target_node": "next_offer",
+   "description": "Cannot settle now: start the proposals",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "first_answer",
+      "operator": "equals",
+      "operand": "not_now"
      }
     ]
    }

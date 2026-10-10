@@ -173,11 +173,27 @@ try:
     vars['facts_text'] = ('Today is ' + spoken_date(today) + '.\\n' + '\\n'.join(lines) +
                           '\\nSay these sentences exactly when they apply:\\n' + '\\n'.join(offers))
     vars['facts_json'] = json.dumps(facts)
+    # The proposal sequence per item, in the bank's order, as complete sentences. The offer loop speaks them; the
+    # model never decides how many attempts are left. (Example Bank: attempt 1 = full amount on the attempt-1 date,
+    # attempt 2 = the lowest amount on the latest date, only for items allowed 2 attempts.)
+    offer_list = []
+    for f in facts:
+        steps = ['For your ' + f['name'] + ', could you pay ' + money(f['overdue'] or 0) + ' by ' +
+                 spoken_date(datetime.date.fromisoformat(f['attempt1'])) + '?']
+        if f['attempts'] >= 2:
+            steps.append('Could you pay ' + money(f['floor'] or 0) + ' by ' +
+                         spoken_date(datetime.date.fromisoformat(f['deadline'])) + '? The remaining amount stays open on this item.')
+        offer_list.append(dict(ref=f['ref'], name=f['name'], steps=steps))
+    vars['offers_json'] = json.dumps(offer_list)
+    vars['offer_item'] = '0'
+    vars['offer_step'] = '-1'
+    vars['offer_answer'] = 'stay'
     vars['item_count'] = str(len(facts))
     vars['facts_state'] = 'ok' if facts else 'empty'
 except Exception:
     vars['facts_text'] = 'The account details could not be read.'
     vars['facts_json'] = '[]'
+    vars['offers_json'] = '[]'
     vars['item_count'] = '0'
     vars['facts_state'] = 'error'
 """
@@ -219,6 +235,7 @@ PROMISE_POST = """try:
         vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)
         vars['close_outcome'] = 'outcome_x'
         vars['close_detail'] = ''
+        vars['offer_answer'] = 'recorded'  # the offer loop moves to the next item
         d['what_to_do_next'] = 'Recorded. Say: "You will get a letter about this promise." Then move on.'
     else:
         tries = int(vars.get('promise_failures') or 0) + 1
@@ -229,6 +246,46 @@ PROMISE_POST = """try:
             result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'
 except Exception:
     pass
+"""
+
+NOTE_POST = """try:
+    result.pop('header', None)
+    d = result.get('data')
+    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':
+        vars['note_count'] = str(int(vars.get('note_count') or 0) + 1)
+        vars['offer_answer'] = 'noted'  # the offer loop moves to the next item
+        d['what_to_do_next'] = 'Noted. Say in one short sentence that you noted it.'
+    elif isinstance(d, dict):
+        d['what_to_do_next'] = 'NOT noted. Call add_note once more with the same values.'
+except Exception:
+    pass
+"""
+
+NEXT_OFFER = """import json
+try:
+    offers = json.loads(vars.get('offers_json') or '[]')
+    item = int(vars.get('offer_item') or 0)
+    step = int(vars.get('offer_step') or -1)
+    answer = vars.get('offer_answer') or 'stay'
+    if answer in ('recorded', 'noted'):
+        item, step = item + 1, 0
+    else:
+        step += 1  # the first entry, or the customer refused the last proposal
+    vars['offer_answer'] = 'stay'
+    if item >= len(offers):
+        vars['offer_state'] = 'done'
+    elif step >= len(offers[item]['steps']):
+        vars['offer_state'] = 'out_of_attempts'
+        vars['note_ref'] = offers[item]['ref']
+        vars['note_name'] = offers[item]['name']
+    else:
+        vars['offer_state'] = 'offer'
+        vars['offer_text'] = offers[item]['steps'][step]
+        vars['offer_ref'] = offers[item]['ref']
+    vars['offer_item'] = str(item)
+    vars['offer_step'] = str(step)
+except Exception:
+    vars['offer_state'] = 'done'
 """
 
 TRANSFER_POST = """try:
@@ -351,7 +408,7 @@ WF = {
             "name": "negotiate", "node_type": "conversation",
             "on_enter": {"type": "llm", "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."},
             "on_enter_first_entry_only": True,
-            "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. " + AFTER_TOOL,
+            "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk once whether the customer can settle everything now. If they cannot, say nothing more: the proposals come next, one by one. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. " + AFTER_TOOL,
             "tools": [
                 api_tool("create_promise", {
                     "customer_id": {"type": "string", "default": "{{customer_id}}"},
@@ -365,7 +422,7 @@ WF = {
                     "item_ref": {"type": "string", "description": "item_ref from the facts.", "default": "{{item_ref}}"},
                     "code": {"type": "string", "enum": ["note_x", "note_y"], "description": "note_x: refused. note_y: says already paid.", "default": "{{code}}"},
                     "text": {"type": "string", "description": "One short sentence.", "default": "{{text}}"}},
-                    "Record why an item has no promise. CALL it once per item without a promise."),
+                    "Record why an item has no promise. CALL it once per item without a promise.", post_process_code=NOTE_POST),
                 api_tool("transfer_to_agent", {
                     "customer_id": {"type": "string", "default": "{{customer_id}}"},
                     "desk": {"type": "string", "enum": ["desk_x"], "description": "desk_x: a person.", "default": "{{desk}}"}},
@@ -374,13 +431,49 @@ WF = {
             "extraction_schema": [{"name": "wrap_up", "type": "string", "enum_values": ["stay", "finished"],
                                    "description": "finished once every item has a promise or a note and you said goodbye, else stay.",
                                    "min_confidence": 0.7},
+                                  {"name": "first_answer", "type": "string", "enum_values": ["stay", "not_now"],
+                                   "description": "not_now when the customer says they cannot settle everything now, else stay.",
+                                   "min_confidence": 0.7},
                                   {"name": "topic", "type": "string", "enum_values": ["none", "difficulty"],
                                    "description": "difficulty when the customer says a life event stops them paying, else none.",
                                    "min_confidence": 0.7}],
             "max_node_turns": 40, "max_turn_transition": "goodbye",
             "transitions": [go("goodbye_transfer", "Transferred", when("call_state", "transferred")),
                             go("difficulty_prep", "A life event stops them paying", when("topic", "difficulty")),
+                            go("next_offer", "Cannot settle now: start the proposals", when("first_answer", "not_now")),
                             go("goodbye", "Everything handled", when("wrap_up", "finished"))]},
+        # The offer loop: code picks the next proposal; the agent speaks it verbatim; a refusal goes back to code.
+        "next_offer": code_node("next_offer", NEXT_OFFER, "offer", extra_transitions=[
+            go("note_item", "Out of attempts on this item", when("offer_state", "out_of_attempts")),
+            go("goodbye_short", "Every item handled", when("offer_state", "done"))]),
+        "offer": {
+            "name": "offer", "node_type": "conversation",
+            "on_enter": {"type": "tts", "text": "{{offer_text}}"},
+            "task_message": "You just made this proposal: {{offer_text}} (item_ref {{offer_ref}}). If the customer accepts it or names an amount and date allowed by the facts, read back item, amount and date, wait for a clear yes, then call create_promise. Never make another proposal yourself: the next one comes automatically after a refusal. When the call is over, say goodbye and call end_call.\n\nFacts:\n{{facts_text}}\n\n" + AFTER_TOOL,
+            "tools": [api_tool("create_promise", {
+                "customer_id": {"type": "string", "default": "{{customer_id}}"},
+                "item_ref": {"type": "string", "description": "item_ref of the proposal, copied unchanged.", "default": "{{item_ref}}"},
+                "amount_minor": {"type": "number", "description": "Amount in currency units as read back, e.g. 412.50.", "default": "{{amount_minor}}"},
+                "pay_on": {"type": "string", "description": "Payment date as YYYY-MM-DD.", "default": "{{pay_on}}"}},
+                "Record one promise. CALL it only after the customer said yes to the read-back.",
+                pre_process_code=PROMISE_PRE, post_process_code=PROMISE_POST), END_CALL_TOOL],
+            "extraction_schema": [{"name": "offer_answer", "type": "string", "enum_values": ["stay", "refused"],
+                                   "description": "refused when the customer says no to the proposal just made, without naming an amount or date of their own; else stay.",
+                                   "min_confidence": 0.7}],
+            "max_node_turns": 12, "max_turn_transition": "goodbye",
+            "transitions": [go("next_offer", "Refused, or recorded: next proposal", when("offer_answer", "refused", "recorded"))]},
+        "note_item": {
+            "name": "note_item", "node_type": "conversation",
+            "on_enter": {"type": "llm", "prompt": "Call add_note for item_ref {{note_ref}} with code note_x, then say in one sentence that you noted it."},
+            "task_message": "The customer refused every proposal for the {{note_name}}. Call add_note for item_ref {{note_ref}} with code note_x. Do not make any proposal. " + AFTER_TOOL,
+            "tools": [api_tool("add_note", {
+                "customer_id": {"type": "string", "default": "{{customer_id}}"},
+                "item_ref": {"type": "string", "description": "The item_ref to note.", "default": "{{item_ref}}"},
+                "code": {"type": "string", "enum": ["note_x"], "description": "note_x: refused.", "default": "{{code}}"},
+                "text": {"type": "string", "description": "One short sentence.", "default": "{{text}}"}},
+                "Record that this item has no promise. CALL it once.", post_process_code=NOTE_POST), END_CALL_TOOL],
+            "max_node_turns": 4, "max_turn_transition": "goodbye",
+            "transitions": [go("next_offer", "Noted: next item", when("offer_answer", "noted"))]},
         # A side route with required agent lines: the trigger goes to a stage node that speaks on entry;
         # the ending depends only on the answer to the offer, never on the trigger message.
         "difficulty_prep": code_node("difficulty_prep", "try:\n    vars['close_outcome'] = 'outcome_u'\n    vars['close_detail'] = 'detail_e'\n"
@@ -413,7 +506,7 @@ WF = {
             "task_message": "Say you are Example Bank's automated assistant.",
             "on_enter": {"type": "tts", "text": "I am Example Bank's automated assistant."},
             "passthrough": True, "passthrough_default_transition": "__previous__",
-            "excluded_nodes": ["setup", "mark_not_their_line", "third_party_prep", "id_failed", "load_account", "account_error", "facts", "difficulty_prep",
+            "excluded_nodes": ["setup", "mark_not_their_line", "third_party_prep", "id_failed", "load_account", "account_error", "facts", "difficulty_prep", "next_offer",
                                "goodbye", "goodbye_short", "goodbye_failed", "goodbye_error", "goodbye_transfer"],
             "transitions": [go("__previous__", "always", {"operator": "always"})]}},
     "tools": [{**api_tool("close_call", {
@@ -439,6 +532,8 @@ FRAGMENTS = {
     "end_node_silent.json": ("nodes", "goodbye"),
     "global_node.json": ("global_nodes", "asks_robot"),
     "stage_node_offer.json": ("nodes", "difficulty"),
+    "offer_loop_code_node.json": ("nodes", "next_offer"),
+    "offer_node.json": ("nodes", "offer"),
     "lifecycle_close_tool.json": ("tools", 0),
 }
 

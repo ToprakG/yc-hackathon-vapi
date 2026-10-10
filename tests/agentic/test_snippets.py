@@ -98,3 +98,36 @@ def test_facts_node_reads_the_flattened_list_the_platform_delivers():
             flat[f"load_account_response.data.items.{i}.{k}"] = v
     res = run_snippet(_demo(), "facts", flat)
     assert res["vars_written"]["facts_state"] == "ok" and res["vars_written"]["item_count"] == "2"
+
+
+def _loop(wf, state, answer):
+    state = {**state, "offer_answer": answer}
+    state.update(run_snippet(wf, "next_offer", state)["vars_written"])
+    return state
+
+
+def test_offer_loop_never_exceeds_the_attempts_per_item():
+    wf = _demo()
+    state = {"now": "2031-03-07T11:00", "items": ITEMS}  # r1: 2 attempts, r2: 1 attempt
+    state.update(run_snippet(wf, "facts", state)["vars_written"])
+    state = _loop(wf, state, "stay")  # first entry
+    assert state["offer_state"] == "offer" and state["offer_ref"] == "r1" and "412.50" in state["offer_text"]
+    state = _loop(wf, state, "refused")
+    assert state["offer_state"] == "offer" and "80" in state["offer_text"] and "remaining amount" in state["offer_text"]
+    state = _loop(wf, state, "refused")
+    assert state["offer_state"] == "out_of_attempts" and state["note_ref"] == "r1"
+    state = _loop(wf, state, "noted")
+    assert state["offer_state"] == "offer" and state["offer_ref"] == "r2"
+    state = _loop(wf, state, "refused")  # r2 allows one attempt only
+    assert state["offer_state"] == "out_of_attempts" and state["note_ref"] == "r2"
+    assert _loop(wf, state, "noted")["offer_state"] == "done"
+
+
+def test_offer_loop_moves_on_after_a_recorded_promise():
+    wf = _demo()
+    state = {"now": "2031-03-07T11:00", "items": ITEMS}
+    state.update(run_snippet(wf, "facts", state)["vars_written"])
+    state = _loop(wf, state, "stay")
+    state = _loop(wf, state, "recorded")
+    assert state["offer_state"] == "offer" and state["offer_ref"] == "r2" and state["offer_answer"] == "stay"
+    assert _loop(wf, state, "recorded")["offer_state"] == "done"

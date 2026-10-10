@@ -1,7 +1,8 @@
 # Call architecture for a collections call
 
-A menu of stages. Keep the stages the brief has, drop the ones it does not, and fill every value from the brief and
-the tool API. Nothing here is a value: words in `<angle brackets>` are slots.
+A menu of stages. Keep the stages the brief has, drop the ones it does not, add the ones it has and this page lacks,
+and fill every value from the brief and the tool API. Nothing here is a value: words in `<angle brackets>` are slots.
+**Where this page and the brief differ, the brief wins**: these stages describe a common shape, not the required one.
 
 The scoring checks three things on every simulated call: the **bank records** (which tools were called, with which
 values, in which order), **policy** (the brief's rules) and **honesty** (nothing claimed that did not happen). So the
@@ -30,9 +31,8 @@ design goal is: **every record and every number is decided by code or by a route
 
 ## Stage 1: opening and right-party check (conversation)
 
-- `on_enter` **tts** with the brief's opening, word for word where the brief fixes it (disclosure that it is an
-  automated or digital assistant, the bank's name, recording notice) and the right-party question with the brief's
-  address form (e.g. `{{title}} {{last_name}}`).
+- `on_enter` **tts** with the brief's opening, word for word where the brief fixes it (whatever disclosures the brief
+  requires, the bank's name) and the right-party question with the brief's address form (e.g. `{{title}} {{last_name}}`).
 - `system_prompt` + task: nothing about the reason for the call, the product, money or the forbidden words before
   verification. This holds for anyone on the line.
 - Extract who answered as an enum: `customer`, `someone_else`, `not_their_line`, `deceased`, `unclear` (only the values
@@ -87,45 +87,43 @@ Per product, in the API's order:
 - Amounts in the brief's currency and format; cents converted with `round()` when the API wants minor units.
 - Write: `facts_text` (finished, human-readable, used verbatim in prompts), `facts_json`, `product_count`, string flags.
 
-## Stage 5: negotiation and promise (conversation)
+## Stage 5: negotiation and promise
 
-Tools: `create_promise` (and `add_note`, `transfer_to_agent`, `schedule_callback` if the brief routes from here).
-Implement the brief's flow, typically:
-- State the debt: the brief's framing sentence, each product in one sentence (product, amount, days late).
-- The brief's first question (e.g. whether the customer can pay today), full amount first, never "how much can you
-  pay?" when the brief forbids it.
-- A date or amount the customer proposes is not a refusal: check it against the date table and the floor.
-  Weekend/holiday → next business day; after the deadline → offer the deadline; vague → ask once, then propose the
-  deadline. Amount between floor and full → accept; below the floor → offer the floor once; too much → the floor once.
-- Flat refusals use persuasion attempts, counted per product. **Count them in code, never in the model** (seen in a
-  practice run: the facts said "no attempt 2", the model made one anyway). Pattern: the negotiation node extracts the
-  customer's answer to the current proposal (`agreed` / `refused` / `other`, default `other`); `refused` routes to a
-  code node that increments the current product's attempt counter and writes either the next proposal sentence or
-  `out_of_attempts`; it routes back to the negotiation node (with `on_enter_first_entry_only`) or to the
-  no-promise handling for that product. When attempts are used up: stop, do not repeat a refused offer.
-- Read back what the brief lists (product, amount, date) with its confirmation question; call `create_promise` only on
-  a clear yes. A changed value is re-checked and read back again.
-- `create_promise` post-hook: on success count it, set the close state, and tell the model to say the brief's
-  confirmation sentence verbatim; on failure apply the brief's retry rule, then the truthful failure line and the
-  service-error state.
-- Multi-product: state all products first; one "all today?" question; then product by product in API order, attempts
-  per product; one date for everything that is past one product's deadline → that product on its own deadline, said in
-  the read-back; read back all promises together, one confirmation, one `create_promise` per product. A code node that
-  picks the next product (`current_*` variables) keeps the loop honest.
-- Products without a promise get `add_note` with the brief's reason, if the brief uses notes, and only where it allows
-  (some briefs forbid notes around transfers; some require one before a transfer).
+**The brief defines the negotiation; do not assume any particular flow.** Briefs differ in: whether there is an opening
+question (and which), whether the full amount comes first, whether a lower amount, a plan, a discount or a deadline
+offer exists, how many proposals are allowed and whether that depends on the product, how several products are
+handled, and when a refusal ends the negotiation. Write the brief's own sequence down in `rules.json` first. Then:
+
+- **Proposal sequence in code.** The facts node writes, per product in the brief's order, the list of proposals the
+  brief allows, each as a complete sentence (`offers_json`). An **offer loop** runs it: a code node (`next_offer`)
+  picks the current product and step and writes `offer_text`, or `out_of_attempts`, or `done`; a conversation node
+  (`offer`) speaks `{{offer_text}}` as a `tts` line on every entry and extracts the answer (`refused` / `stay`); a
+  refusal routes back to the code node, a recorded promise or note moves to the next product (post-hooks write the
+  state). The model never decides whether another proposal is allowed, and cannot add or repeat a question the brief
+  does not have. Seen in practice runs: with the limits only in text, the model made extra attempts and re-asked an
+  opening question per product. Fragments: `offer_loop_code_node.json`, `offer_node.json`, and the `note_item` node
+  in `examples/pattern_demo.workflow.json`.
+- **A question the brief asks once** (e.g. an opening question covering every product) lives in its own node before
+  the loop and is never part of the per-product steps.
+- **The customer's own date or amount** is not a refusal (if the brief says so): check it against the facts' date
+  table and limits; apply the brief's handling for weekends/holidays, dates past the deadline, vague dates, amounts
+  below a minimum. Put each such answer the brief prescribes in the facts as a sentence too.
+- **Read back** what the brief lists with its confirmation question; call the write tool only on a clear yes; a
+  changed value is checked and read back again. If the brief wants one joint read-back for several products, the loop
+  collects agreements first (the post-hook or a code node keeps them) and a final node reads them back together.
+- **Write tool post-hook:** on success count it and set the close state, and quote the brief's confirmation sentence;
+  on failure apply the brief's retry rule, then the truthful failure line and the failure state.
+- **Products without a promise** get the brief's note (if it has notes) with the brief's reason, and only where the
+  brief allows (some briefs forbid notes around transfers; some require one before a transfer).
 
 ## Offer sentences (part of the facts node)
 
-The model paraphrases offers and drops clauses. For every offer the brief prescribes, the facts node writes the
-**complete sentence**, with every clause the brief attaches to it, and the negotiation prompt says to use it verbatim:
-- the first ask (full amount, the brief's opening question);
-- the lower-amount offer (the floor and its date) with what the brief says must accompany it (e.g. what happens to
-  the rest of the debt);
-- each persuasion attempt's proposal (amount + spoken date);
-- the "latest date I can record" offer for a date past the deadline;
-- the read-back and confirmation question in the brief's words.
-Put them in `facts_text` under a heading such as "Say these sentences exactly when they apply".
+The model paraphrases offers and drops clauses. For every sentence the brief prescribes for the negotiation, the facts
+node writes it **complete**, with every clause the brief attaches to it, and the prompt says to use it verbatim. Which
+sentences exist depends on the brief, for example: an opening question, each proposal of the offer loop, a
+lower-amount offer with what the brief says must accompany it, the "latest date I can record" answer, the read-back
+and its confirmation question. Put them in `facts_text` under a heading such as "Say these sentences exactly when
+they apply".
 
 ## Stage 6: side routes (global nodes or branches)
 

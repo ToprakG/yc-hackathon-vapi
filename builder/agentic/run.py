@@ -36,10 +36,10 @@ class BuildOptions:
     slot: str
     out_dir: Path
     save: str = "freya"
-    max_minutes: float = 18.0
+    max_minutes: float = 16.0
     review: bool = True
     review_minutes: float = 5.0
-    fix_minutes: float = 5.0
+    fix_minutes: float = 7.0
     model: str = "claude-opus-5-5"
     max_usd: float | None = None
     keep_workspace: bool = False

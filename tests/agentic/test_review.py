@@ -101,3 +101,11 @@ def test_review_off_runs_one_phase(tmp_path):
                              save="none", review=False)
     report = run_mod.run(o, query_fn=query, validate_fn=lambda wf, n: {"skipped": "no key"}, trace_root=tmp_path / "traces")
     assert len(calls) == 1 and report["review"] == {"ran": False} and report["status"] == "ok"
+
+
+def test_fix_prompt_puts_model_limit_defects_first():
+    fs = [{"kind": "unlisted_rule", "review_id": "V1", "rule": "r1", "quote": "q1", "node_ids": [], "defect": "", "fix": ""},
+          {"kind": "defect", "review_id": "V2", "rule": "r2", "quote": "q2", "node_ids": ["a"], "defect": "wrong queue", "fix": "use x"},
+          {"kind": "defect", "review_id": "V3", "rule": "r3", "quote": "q3", "node_ids": ["b"], "defect": "attempts are left to the model", "fix": "count in code"}]
+    text = review.fix_prompt(fs, 7)
+    assert text.index("r3") < text.index("r2") < text.index("r1") and "in the order given" in text

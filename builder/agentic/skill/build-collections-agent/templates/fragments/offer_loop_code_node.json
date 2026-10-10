@@ -1,0 +1,69 @@
+{
+ "name": "next_offer",
+ "node_type": "code",
+ "passthrough": true,
+ "passthrough_default_transition": "offer",
+ "on_enter": {
+  "type": "silent"
+ },
+ "disable_inactivity_monitor": true,
+ "pre_actions": [
+  {
+   "type": "function",
+   "function": {
+    "name": "code_exec",
+    "handler": "__function__:code_exec",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "code": {
+       "type": "string",
+       "default": "import json\ntry:\n    offers = json.loads(vars.get('offers_json') or '[]')\n    item = int(vars.get('offer_item') or 0)\n    step = int(vars.get('offer_step') or -1)\n    answer = vars.get('offer_answer') or 'stay'\n    if answer in ('recorded', 'noted'):\n        item, step = item + 1, 0\n    else:\n        step += 1  # the first entry, or the customer refused the last proposal\n    vars['offer_answer'] = 'stay'\n    if item >= len(offers):\n        vars['offer_state'] = 'done'\n    elif step >= len(offers[item]['steps']):\n        vars['offer_state'] = 'out_of_attempts'\n        vars['note_ref'] = offers[item]['ref']\n        vars['note_name'] = offers[item]['name']\n    else:\n        vars['offer_state'] = 'offer'\n        vars['offer_text'] = offers[item]['steps'][step]\n        vars['offer_ref'] = offers[item]['ref']\n    vars['offer_item'] = str(item)\n    vars['offer_step'] = str(step)\nexcept Exception:\n    vars['offer_state'] = 'done'\n"
+      },
+      "timeout_ms": {
+       "type": "number",
+       "default": 10000
+      }
+     }
+    }
+   }
+  }
+ ],
+ "transitions": [
+  {
+   "target_node": "note_item",
+   "description": "Out of attempts on this item",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "offer_state",
+      "operator": "equals",
+      "operand": "out_of_attempts"
+     }
+    ]
+   }
+  },
+  {
+   "target_node": "goodbye_short",
+   "description": "Every item handled",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "offer_state",
+      "operator": "equals",
+      "operand": "done"
+     }
+    ]
+   }
+  },
+  {
+   "target_node": "offer",
+   "description": "always",
+   "condition": {
+    "operator": "always"
+   }
+  }
+ ]
+}

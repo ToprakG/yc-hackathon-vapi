@@ -29,9 +29,9 @@ is brief material (`.md`, `.txt`, `.eml`, `.csv`, `.json`, ...), read as UTF-8 i
 | `--variant` | `agentic` | `build.py` is a dispatcher; other variants register in `VARIANTS`. |
 | `--save` | `freya` | `none`: write files only. |
 | `--slot` | `agentic-<stem>` | `<stem>` = the last brief's stem, or its folder when the stem is `brief`. |
-| `--max-minutes` | `18` | Hard wall clock for the build agent. With review (5) and fix (5) the total stays under the kit's 30. |
+| `--max-minutes` | `16` | Hard wall clock for the build agent. With review (5) and fix (7) the total stays under the kit's 30. |
 | `--review` | `on` | Fresh-context review and at most one fix round (see below). |
-| `--review-minutes`, `--fix-minutes` | `5`, `5` | Wall clocks of the review and the fix round. |
+| `--review-minutes`, `--fix-minutes` | `5`, `7` | Wall clocks of the review and the fix round. |
 | `--model` | `$BUILDER_MODEL` or `claude-opus-5-5` | |
 | `--max-usd` | none | Optional cost cap (`max_budget_usd`). |
 | `--out` | `out/agentic/<slot>/` | |

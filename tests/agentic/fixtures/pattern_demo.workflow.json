@@ -665,7 +665,7 @@
        "properties": {
         "code": {
          "type": "string",
-         "default": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef parse_now(value):\n    \"\"\"'2031-03-07T11:00', '2031-03-07 11:00:00', '2031-03-07T11:00:00Z' or '2031-03-07' -> datetime.\"\"\"\n    s = str(value or '').strip().replace(' ', 'T').rstrip('Z')\n    for fmt, size in (('%Y-%m-%dT%H:%M:%S', 19), ('%Y-%m-%dT%H:%M', 16), ('%Y-%m-%d', 10)):\n        try:\n            return datetime.datetime.strptime(s[:size], fmt)\n        except ValueError:\n            pass\n    raise ValueError('cannot read now: ' + s)\n\ndef parse_holidays(values):\n    \"\"\"ISO strings -> set of dates. Unreadable entries are skipped.\"\"\"\n    out = set()\n    for v in values or []:\n        try:\n            out.add(datetime.date.fromisoformat(str(v)[:10]))\n        except ValueError:\n            pass\n    return out\n\ndef is_business_day(d, holidays):\n    return d.weekday() < 5 and d not in holidays\n\ndef next_business_day(d, holidays, include_today=False):\n    \"\"\"The first business day after d (or d itself when include_today and d is one).\"\"\"\n    if include_today and is_business_day(d, holidays):\n        return d\n    d = d + datetime.timedelta(days=1)\n    while not is_business_day(d, holidays):\n        d = d + datetime.timedelta(days=1)\n    return d\n\ndef add_business_days(d, n, holidays):\n    \"\"\"The n-th business day after d (d itself not counted). n=0 returns d.\"\"\"\n    for _ in range(int(n)):\n        d = next_business_day(d, holidays)\n    return d\n\ndef week_monday(d):\n    return d - datetime.timedelta(days=d.weekday())\n\ndef last_business_day_of_week(d, holidays):\n    \"\"\"The last business day in d's Monday-Sunday week, or None when the week has none.\"\"\"\n    day = week_monday(d) + datetime.timedelta(days=4)\n    while day >= week_monday(d):\n        if is_business_day(day, holidays):\n            return day\n        day = day - datetime.timedelta(days=1)\n    return None\n\ndef spoken_date(d):\n    \"\"\"'Friday 7 March'. Adapt the words to the brief's language.\"\"\"\n    return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()\n\ndef money(amount, symbol=''):\n    \"\"\"1234.5 -> '1,234.50' (with an optional symbol in front). 1234.0 -> '1,234'.\"\"\"\n    v = round(float(amount), 2)\n    text = '{:,.0f}'.format(v) if v == int(v) else '{:,.2f}'.format(v)\n    return symbol + text\n\ndef list_from_vars(vars, name, prefixes):\n    \"\"\"A list from an API result, wherever the platform put it. Seen in a practice run on 10 October: a node-level\n    response_mapping of a list left the variable unset; the list existed only as flattened keys such as\n    '<node id>_response.data.<field>.0.<key>'. Tries vars[name] first, then each flattened prefix\n    (e.g. 'load_account_response.data.items' or 'get_account_response.data.items'), in index order.\"\"\"\n    found = as_list(vars.get(name)) if vars.get(name) not in (None, '') else []\n    if found:\n        return found\n    for prefix in prefixes:\n        rows = {}\n        start = prefix + '.'\n        for key, value in vars.items():\n            if not str(key).startswith(start):\n                continue\n            rest = str(key)[len(start):]\n            idx, _, field = rest.partition('.')\n            if idx.isdigit():\n                if field:\n                    rows.setdefault(int(idx), {})[field] = value\n                else:\n                    rows[int(idx)] = value\n        if rows:\n            return [rows[i] for i in sorted(rows)]\n        whole = vars.get(prefix)\n        if whole not in (None, ''):\n            got = as_list(whole)\n            if got:\n                return got\n    return []\n\ndef as_list(value):\n    \"\"\"A mapped list may arrive as a list, a JSON string or a dict (tools-and-code.md): always return a list.\"\"\"\n    if isinstance(value, list):\n        return value\n    if isinstance(value, str):\n        try:\n            value = json.loads(value)\n        except ValueError:\n            return []\n    if isinstance(value, dict):\n        return [value]\n    return value if isinstance(value, list) else []\n\nBANDS = [(1, 20, 5, 1), (21, 60, 3, 2)]  # days_over from, to, deadline in business days, attempts (invented)\ntry:\n    now = parse_now(vars.get('now'))\n    hol = parse_holidays(['2031-03-14', '2031-04-02'])\n    today = now.date()\n    items = list_from_vars(vars, 'items', ['load_account_response.data.items', 'get_account_response.data.items'])\n    lines, facts, offers = [], [], []\n    for n, it in enumerate(items, 1):\n        days = int(it.get('days_over') or 0)\n        band = next((b for b in BANDS if b[0] <= days <= b[1]), BANDS[-1])\n        deadline = add_business_days(today, band[2], hol)\n        week_end = last_business_day_of_week(today, hol)\n        if week_end is None or week_end <= today:\n            week_end = last_business_day_of_week(today + datetime.timedelta(days=7), hol)\n        attempt1 = min(week_end, deadline) if week_end else deadline\n        name = 'item ending ' + str(it.get('ending')) if it.get('kind') == 'kind_a' else 'second item'\n        facts.append(dict(ref=it.get('item_ref'), name=name, overdue=it.get('overdue'), floor=it.get('floor_amount'),\n                          deadline=deadline.isoformat(), attempts=band[3], attempt1=attempt1.isoformat()))\n        offers.append('- Lower amount for ' + name + ': \"Could you pay ' + money(it.get('floor_amount') or 0) + ' by ' +\n                      spoken_date(attempt1) + '? The remaining amount stays open on this item.\"')\n        lines.append(str(n) + '. ' + name + ' (item_ref ' + str(it.get('item_ref')) + '): ' + money(it.get('overdue') or 0) +\n                     ' overdue, ' + str(days) + ' days late. Lowest amount: ' + money(it.get('floor_amount') or 0) +\n                     '. Latest date: ' + spoken_date(deadline) + ' (' + deadline.isoformat() + '). Attempts: ' + str(band[3]) +\n                     '. Attempt 1 date: ' + spoken_date(attempt1) + ' (' + attempt1.isoformat() + ').')\n    vars['facts_text'] = ('Today is ' + spoken_date(today) + '.\\n' + '\\n'.join(lines) +\n                          '\\nSay these sentences exactly when they apply:\\n' + '\\n'.join(offers))\n    vars['facts_json'] = json.dumps(facts)\n    vars['item_count'] = str(len(facts))\n    vars['facts_state'] = 'ok' if facts else 'empty'\nexcept Exception:\n    vars['facts_text'] = 'The account details could not be read.'\n    vars['facts_json'] = '[]'\n    vars['item_count'] = '0'\n    vars['facts_state'] = 'error'\n"
+         "default": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef parse_now(value):\n    \"\"\"'2031-03-07T11:00', '2031-03-07 11:00:00', '2031-03-07T11:00:00Z' or '2031-03-07' -> datetime.\"\"\"\n    s = str(value or '').strip().replace(' ', 'T').rstrip('Z')\n    for fmt, size in (('%Y-%m-%dT%H:%M:%S', 19), ('%Y-%m-%dT%H:%M', 16), ('%Y-%m-%d', 10)):\n        try:\n            return datetime.datetime.strptime(s[:size], fmt)\n        except ValueError:\n            pass\n    raise ValueError('cannot read now: ' + s)\n\ndef parse_holidays(values):\n    \"\"\"ISO strings -> set of dates. Unreadable entries are skipped.\"\"\"\n    out = set()\n    for v in values or []:\n        try:\n            out.add(datetime.date.fromisoformat(str(v)[:10]))\n        except ValueError:\n            pass\n    return out\n\ndef is_business_day(d, holidays):\n    return d.weekday() < 5 and d not in holidays\n\ndef next_business_day(d, holidays, include_today=False):\n    \"\"\"The first business day after d (or d itself when include_today and d is one).\"\"\"\n    if include_today and is_business_day(d, holidays):\n        return d\n    d = d + datetime.timedelta(days=1)\n    while not is_business_day(d, holidays):\n        d = d + datetime.timedelta(days=1)\n    return d\n\ndef add_business_days(d, n, holidays):\n    \"\"\"The n-th business day after d (d itself not counted). n=0 returns d.\"\"\"\n    for _ in range(int(n)):\n        d = next_business_day(d, holidays)\n    return d\n\ndef week_monday(d):\n    return d - datetime.timedelta(days=d.weekday())\n\ndef last_business_day_of_week(d, holidays):\n    \"\"\"The last business day in d's Monday-Sunday week, or None when the week has none.\"\"\"\n    day = week_monday(d) + datetime.timedelta(days=4)\n    while day >= week_monday(d):\n        if is_business_day(day, holidays):\n            return day\n        day = day - datetime.timedelta(days=1)\n    return None\n\ndef spoken_date(d):\n    \"\"\"'Friday 7 March'. Adapt the words to the brief's language.\"\"\"\n    return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()\n\ndef money(amount, symbol=''):\n    \"\"\"1234.5 -> '1,234.50' (with an optional symbol in front). 1234.0 -> '1,234'.\"\"\"\n    v = round(float(amount), 2)\n    text = '{:,.0f}'.format(v) if v == int(v) else '{:,.2f}'.format(v)\n    return symbol + text\n\ndef list_from_vars(vars, name, prefixes):\n    \"\"\"A list from an API result, wherever the platform put it. Seen in a practice run on 10 October: a node-level\n    response_mapping of a list left the variable unset; the list existed only as flattened keys such as\n    '<node id>_response.data.<field>.0.<key>'. Tries vars[name] first, then each flattened prefix\n    (e.g. 'load_account_response.data.items' or 'get_account_response.data.items'), in index order.\"\"\"\n    found = as_list(vars.get(name)) if vars.get(name) not in (None, '') else []\n    if found:\n        return found\n    for prefix in prefixes:\n        rows = {}\n        start = prefix + '.'\n        for key, value in vars.items():\n            if not str(key).startswith(start):\n                continue\n            rest = str(key)[len(start):]\n            idx, _, field = rest.partition('.')\n            if idx.isdigit():\n                if field:\n                    rows.setdefault(int(idx), {})[field] = value\n                else:\n                    rows[int(idx)] = value\n        if rows:\n            return [rows[i] for i in sorted(rows)]\n        whole = vars.get(prefix)\n        if whole not in (None, ''):\n            got = as_list(whole)\n            if got:\n                return got\n    return []\n\ndef as_list(value):\n    \"\"\"A mapped list may arrive as a list, a JSON string or a dict (tools-and-code.md): always return a list.\"\"\"\n    if isinstance(value, list):\n        return value\n    if isinstance(value, str):\n        try:\n            value = json.loads(value)\n        except ValueError:\n            return []\n    if isinstance(value, dict):\n        return [value]\n    return value if isinstance(value, list) else []\n\nBANDS = [(1, 20, 5, 1), (21, 60, 3, 2)]  # days_over from, to, deadline in business days, attempts (invented)\ntry:\n    now = parse_now(vars.get('now'))\n    hol = parse_holidays(['2031-03-14', '2031-04-02'])\n    today = now.date()\n    items = list_from_vars(vars, 'items', ['load_account_response.data.items', 'get_account_response.data.items'])\n    lines, facts, offers = [], [], []\n    for n, it in enumerate(items, 1):\n        days = int(it.get('days_over') or 0)\n        band = next((b for b in BANDS if b[0] <= days <= b[1]), BANDS[-1])\n        deadline = add_business_days(today, band[2], hol)\n        week_end = last_business_day_of_week(today, hol)\n        if week_end is None or week_end <= today:\n            week_end = last_business_day_of_week(today + datetime.timedelta(days=7), hol)\n        attempt1 = min(week_end, deadline) if week_end else deadline\n        name = 'item ending ' + str(it.get('ending')) if it.get('kind') == 'kind_a' else 'second item'\n        facts.append(dict(ref=it.get('item_ref'), name=name, overdue=it.get('overdue'), floor=it.get('floor_amount'),\n                          deadline=deadline.isoformat(), attempts=band[3], attempt1=attempt1.isoformat()))\n        offers.append('- Lower amount for ' + name + ': \"Could you pay ' + money(it.get('floor_amount') or 0) + ' by ' +\n                      spoken_date(attempt1) + '? The remaining amount stays open on this item.\"')\n        lines.append(str(n) + '. ' + name + ' (item_ref ' + str(it.get('item_ref')) + '): ' + money(it.get('overdue') or 0) +\n                     ' overdue, ' + str(days) + ' days late. Lowest amount: ' + money(it.get('floor_amount') or 0) +\n                     '. Latest date: ' + spoken_date(deadline) + ' (' + deadline.isoformat() + '). Attempts: ' + str(band[3]) +\n                     '. Attempt 1 date: ' + spoken_date(attempt1) + ' (' + attempt1.isoformat() + ').')\n    vars['facts_text'] = ('Today is ' + spoken_date(today) + '.\\n' + '\\n'.join(lines) +\n                          '\\nSay these sentences exactly when they apply:\\n' + '\\n'.join(offers))\n    vars['facts_json'] = json.dumps(facts)\n    # The proposal sequence per item, in the bank's order, as complete sentences. The offer loop speaks them; the\n    # model never decides how many attempts are left. (Example Bank: attempt 1 = full amount on the attempt-1 date,\n    # attempt 2 = the lowest amount on the latest date, only for items allowed 2 attempts.)\n    offer_list = []\n    for f in facts:\n        steps = ['For your ' + f['name'] + ', could you pay ' + money(f['overdue'] or 0) + ' by ' +\n                 spoken_date(datetime.date.fromisoformat(f['attempt1'])) + '?']\n        if f['attempts'] >= 2:\n            steps.append('Could you pay ' + money(f['floor'] or 0) + ' by ' +\n                         spoken_date(datetime.date.fromisoformat(f['deadline'])) + '? The remaining amount stays open on this item.')\n        offer_list.append(dict(ref=f['ref'], name=f['name'], steps=steps))\n    vars['offers_json'] = json.dumps(offer_list)\n    vars['offer_item'] = '0'\n    vars['offer_step'] = '-1'\n    vars['offer_answer'] = 'stay'\n    vars['item_count'] = str(len(facts))\n    vars['facts_state'] = 'ok' if facts else 'empty'\nexcept Exception:\n    vars['facts_text'] = 'The account details could not be read.'\n    vars['facts_json'] = '[]'\n    vars['offers_json'] = '[]'\n    vars['item_count'] = '0'\n    vars['facts_state'] = 'error'\n"
         },
         "timeout_ms": {
          "type": "number",
@@ -694,7 +694,7 @@
     "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."
    },
    "on_enter_first_entry_only": true,
-   "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+   "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk once whether the customer can settle everything now. If they cannot, say nothing more: the proposals come next, one by one. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
    "tools": [
     {
      "type": "function",
@@ -760,7 +760,7 @@
       }
      },
      "pre_process_code": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef to_cents(amount):\n    \"\"\"Major units -> integer minor units. round(), never int(): 19.99 * 100 is 1998.999...\"\"\"\n    return int(round(float(str(amount).replace(',', '')) * 100))\n\ntry:\n    b = config.get('body')\n    if isinstance(b, dict) and b.get('amount_minor') not in (None, ''):\n        b['amount_minor'] = to_cents(b['amount_minor'])\nexcept Exception:\n    pass\n",
-     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        vars['offer_answer'] = 'recorded'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
     },
     {
      "type": "function",
@@ -827,7 +827,8 @@
         }
        }
       }
-     }
+     },
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['note_count'] = str(int(vars.get('note_count') or 0) + 1)\n        vars['offer_answer'] = 'noted'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Noted. Say in one short sentence that you noted it.'\n    elif isinstance(d, dict):\n        d['what_to_do_next'] = 'NOT noted. Call add_note once more with the same values.'\nexcept Exception:\n    pass\n"
     },
     {
      "type": "function",
@@ -918,6 +919,16 @@
      "min_confidence": 0.7
     },
     {
+     "name": "first_answer",
+     "type": "string",
+     "enum_values": [
+      "stay",
+      "not_now"
+     ],
+     "description": "not_now when the customer says they cannot settle everything now, else stay.",
+     "min_confidence": 0.7
+    },
+    {
      "name": "topic",
      "type": "string",
      "enum_values": [
@@ -960,6 +971,20 @@
      }
     },
     {
+     "target_node": "next_offer",
+     "description": "Cannot settle now: start the proposals",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "first_answer",
+        "operator": "equals",
+        "operand": "not_now"
+       }
+      ]
+     }
+    },
+    {
      "target_node": "goodbye",
      "description": "Everything handled",
      "condition": {
@@ -969,6 +994,323 @@
         "variable": "wrap_up",
         "operator": "equals",
         "operand": "finished"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "next_offer": {
+   "name": "next_offer",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "offer",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "import json\ntry:\n    offers = json.loads(vars.get('offers_json') or '[]')\n    item = int(vars.get('offer_item') or 0)\n    step = int(vars.get('offer_step') or -1)\n    answer = vars.get('offer_answer') or 'stay'\n    if answer in ('recorded', 'noted'):\n        item, step = item + 1, 0\n    else:\n        step += 1  # the first entry, or the customer refused the last proposal\n    vars['offer_answer'] = 'stay'\n    if item >= len(offers):\n        vars['offer_state'] = 'done'\n    elif step >= len(offers[item]['steps']):\n        vars['offer_state'] = 'out_of_attempts'\n        vars['note_ref'] = offers[item]['ref']\n        vars['note_name'] = offers[item]['name']\n    else:\n        vars['offer_state'] = 'offer'\n        vars['offer_text'] = offers[item]['steps'][step]\n        vars['offer_ref'] = offers[item]['ref']\n    vars['offer_item'] = str(item)\n    vars['offer_step'] = str(step)\nexcept Exception:\n    vars['offer_state'] = 'done'\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "note_item",
+     "description": "Out of attempts on this item",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "offer_state",
+        "operator": "equals",
+        "operand": "out_of_attempts"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "goodbye_short",
+     "description": "Every item handled",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "offer_state",
+        "operator": "equals",
+        "operand": "done"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "offer",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "offer": {
+   "name": "offer",
+   "node_type": "conversation",
+   "on_enter": {
+    "type": "tts",
+    "text": "{{offer_text}}"
+   },
+   "task_message": "You just made this proposal: {{offer_text}} (item_ref {{offer_ref}}). If the customer accepts it or names an amount and date allowed by the facts, read back item, amount and date, wait for a clear yes, then call create_promise. Never make another proposal yourself: the next one comes automatically after a refusal. When the call is over, say goodbye and call end_call.\n\nFacts:\n{{facts_text}}\n\nAfter every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+   "tools": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "create_promise",
+      "handler": "__function__:api_call",
+      "description": "Record one promise. CALL it only after the customer said yes to the read-back.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/create_promise"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "item_ref": {
+           "type": "string",
+           "description": "item_ref of the proposal, copied unchanged.",
+           "default": "{{item_ref}}"
+          },
+          "amount_minor": {
+           "type": "number",
+           "description": "Amount in currency units as read back, e.g. 412.50.",
+           "default": "{{amount_minor}}"
+          },
+          "pay_on": {
+           "type": "string",
+           "description": "Payment date as YYYY-MM-DD.",
+           "default": "{{pay_on}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "item_ref",
+          "amount_minor",
+          "pay_on"
+         ]
+        }
+       }
+      }
+     },
+     "pre_process_code": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef to_cents(amount):\n    \"\"\"Major units -> integer minor units. round(), never int(): 19.99 * 100 is 1998.999...\"\"\"\n    return int(round(float(str(amount).replace(',', '')) * 100))\n\ntry:\n    b = config.get('body')\n    if isinstance(b, dict) and b.get('amount_minor') not in (None, ''):\n        b['amount_minor'] = to_cents(b['amount_minor'])\nexcept Exception:\n    pass\n",
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        vars['offer_answer'] = 'recorded'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 10000
+     },
+     "function": {
+      "name": "end_call",
+      "handler": "__function__:end_call",
+      "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "message_mode": {
+         "type": "string",
+         "default": "none"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "extraction_schema": [
+    {
+     "name": "offer_answer",
+     "type": "string",
+     "enum_values": [
+      "stay",
+      "refused"
+     ],
+     "description": "refused when the customer says no to the proposal just made, without naming an amount or date of their own; else stay.",
+     "min_confidence": 0.7
+    }
+   ],
+   "max_node_turns": 12,
+   "max_turn_transition": "goodbye",
+   "transitions": [
+    {
+     "target_node": "next_offer",
+     "description": "Refused, or recorded: next proposal",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "offer_answer",
+        "operator": "equals",
+        "operand": "refused"
+       },
+       {
+        "variable": "offer_answer",
+        "operator": "equals",
+        "operand": "recorded"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "note_item": {
+   "name": "note_item",
+   "node_type": "conversation",
+   "on_enter": {
+    "type": "llm",
+    "prompt": "Call add_note for item_ref {{note_ref}} with code note_x, then say in one sentence that you noted it."
+   },
+   "task_message": "The customer refused every proposal for the {{note_name}}. Call add_note for item_ref {{note_ref}} with code note_x. Do not make any proposal. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+   "tools": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "add_note",
+      "handler": "__function__:api_call",
+      "description": "Record that this item has no promise. CALL it once.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/add_note"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "item_ref": {
+           "type": "string",
+           "description": "The item_ref to note.",
+           "default": "{{item_ref}}"
+          },
+          "code": {
+           "type": "string",
+           "enum": [
+            "note_x"
+           ],
+           "description": "note_x: refused.",
+           "default": "{{code}}"
+          },
+          "text": {
+           "type": "string",
+           "description": "One short sentence.",
+           "default": "{{text}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "item_ref",
+          "code"
+         ]
+        }
+       }
+      }
+     },
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['note_count'] = str(int(vars.get('note_count') or 0) + 1)\n        vars['offer_answer'] = 'noted'  # the offer loop moves to the next item\n        d['what_to_do_next'] = 'Noted. Say in one short sentence that you noted it.'\n    elif isinstance(d, dict):\n        d['what_to_do_next'] = 'NOT noted. Call add_note once more with the same values.'\nexcept Exception:\n    pass\n"
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 10000
+     },
+     "function": {
+      "name": "end_call",
+      "handler": "__function__:end_call",
+      "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "message_mode": {
+         "type": "string",
+         "default": "none"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "max_node_turns": 4,
+   "max_turn_transition": "goodbye",
+   "transitions": [
+    {
+     "target_node": "next_offer",
+     "description": "Noted: next item",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "offer_answer",
+        "operator": "equals",
+        "operand": "noted"
        }
       ]
      }
@@ -1312,6 +1654,7 @@
     "account_error",
     "facts",
     "difficulty_prep",
+    "next_offer",
     "goodbye",
     "goodbye_short",
     "goodbye_failed",

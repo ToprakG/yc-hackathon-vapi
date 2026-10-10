@@ -126,15 +126,27 @@ def compare(review: dict, builder_rules) -> list[dict]:
     return findings
 
 
+MODEL_LIMIT = re.compile(r"left to the model|by the model|only (as|in) text|not counted|no code|in code", re.I)
+
+
+def priority(f: dict) -> tuple:
+    """Fix order: defects that leave a limit to the model first, then other defects, then unlisted rules."""
+    text = f"{f.get('defect', '')} {f.get('fix', '')}"
+    is_defect = f["kind"] != "unlisted_rule"
+    return (0 if is_defect and MODEL_LIMIT.search(text) else 1 if is_defect else 2, f.get("review_id", ""))
+
+
 def fix_prompt(findings: list[dict], minutes: float) -> str:
+    findings = sorted(findings, key=priority)
     lines = []
     for i, f in enumerate(findings, 1):
         where = ", ".join(f["node_ids"]) or "no node yet"
         lines.append(f"{i}. [{f['kind']}] rule: {f['rule'] or f['quote']}\n   quote: \"{f['quote']}\"\n   nodes: {where}\n"
                      f"   problem: {f['defect'] or 'not in your rules.json'}\n   suggested fix: {f['fix'] or 'implement the rule'}")
     return (f"An independent reviewer read the brief and your workflow (it did not see your rules.json). "
-            f"Fix these findings in out/workflow.json; add any rule missing from out/rules.json with its exact quote "
-            f"and location. Ignore a finding only if the brief clearly contradicts it, and say why in one line.\n\n"
+            f"Fix these findings in out/workflow.json, in the order given (the first ones matter most); add any rule "
+            f"missing from out/rules.json with its exact quote and location. Ignore a finding only if the brief clearly "
+            f"contradicts it, and say why in one line.\n\n"
             + "\n".join(lines) +
             f"\n\nTime budget: {minutes:g} minutes. Then run mcp__fb__lint_workflow and mcp__fb__check_coverage until both "
             f"report 0 errors. If time runs short, keep out/workflow.json lint-clean above all.")

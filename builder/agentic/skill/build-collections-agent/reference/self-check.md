@@ -42,8 +42,8 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
 
 - [ ] Every route where the brief makes the agent say or offer something first (sympathy + offer, explanation,
       question) enters a stage node that says it on entry; the ending depends only on the customer's answer there.
-- [ ] Persuasion attempts are counted in a code node per product, from an extracted answer enum; the model never
-      decides whether another attempt is allowed.
+- [ ] The brief's own proposal sequence (per product) runs in an offer loop: code picks each proposal, the agent
+      speaks it verbatim, a refusal goes back to code. A question the brief asks once is not repeated per product.
 - [ ] Every conversation node where the call can finish offers an `end_call` tool; completion flags count successes
       and do not depend on which product a single tool call was for.
 - [ ] Every offer the brief prescribes is a complete sentence in the facts (with all its required clauses) and the

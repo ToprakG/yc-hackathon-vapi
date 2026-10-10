@@ -109,7 +109,10 @@ Never end your turn before the three files exist and the last `lint_workflow` sh
 - A missing side route, so the agent improvises an outcome.
 - A side route that jumps to its ending on the trigger message, before the agent said the brief's required lines.
 - An offer worded by the model that drops a clause the brief requires.
-- Attempt limits left to the model, or a completion flag that depends on attributing each tool call: count in code.
+- Attempt limits or proposal order left to the model: run them in the offer loop. A completion flag that depends on
+  attributing each tool call: count successes instead.
+- A flow copied from an example instead of the brief's own sequence: the brief decides which questions and proposals
+  exist and in which order.
 - A final node with no `end_call` tool: one wrong flag and the agent says goodbye forever.
 - A close record that depends on the model's memory of the call.
 - A fixed sentence paraphrased instead of quoted.
