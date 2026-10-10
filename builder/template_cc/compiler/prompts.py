@@ -235,7 +235,34 @@ def human_task(policy: dict) -> str:
 NO_DISCOUNT = "I am not able to reduce the amount."
 
 
-def side_desc(f4: bool = True, refused: int = 0) -> str:
+# policy["intents"] name -> the value of the `side` extraction it defines
+INTENT_SIDE = {"hardship": "hardship", "dispute": "dispute", "paid_already": "paid_already", "restructuring": "restructuring",
+               "discount": "discount", "human": "human", "stop_talking": "stop_talking"}
+
+
+def intents_text(policy: dict, values) -> str:
+    """F16: the brief's own definitions, examples and near misses (policy["intents"]) for the side values in use."""
+    out = []
+    for name, val in INTENT_SIDE.items():
+        it = (policy.get("intents") or {}).get(name)
+        if val not in values or not isinstance(it, dict):
+            continue
+        parts = []
+        d = str(it.get("definition") or "").strip()
+        if d:
+            parts.append(f"{val} (the brief's definition): {d.rstrip('.')}.")
+        ex = [str(x).strip() for x in (it.get("examples") or []) if str(x).strip()][:3]
+        if ex:
+            parts.append("Examples: " + "; ".join(f'"{x}"' for x in ex) + ".")
+        nm = [str(x).strip() for x in (it.get("near_misses") or []) if str(x).strip()][:2]
+        if nm:
+            parts.append(f"NOT {val}: " + "; ".join(f'"{x}"' for x in nm) + ".")
+        if parts:
+            out.append(" ".join(parts))
+    return " ".join(out)
+
+
+def side_desc(f4: bool = True, refused: int = 0, intents: str = "") -> str:
     """The side description with the discount value (F4: asking to knock something off is not restructuring) and, for the
     router (F7), the refused_N values that replace the refusal tool transitions."""
     d = EXTRACT["side"]
@@ -247,7 +274,7 @@ def side_desc(f4: bool = True, refused: int = 0) -> str:
         d = d.replace("stop_talking = does not want to talk;", f"refused_1 .. refused_{refused} = the product at that position in the facts has "
                       "its persuasion attempts used up and the customer still refuses, or refused its last offer (a first flat "
                       "refusal is none); stop_talking = does not want to talk;", 1)
-    return d
+    return d + (" " + intents if intents else "")
 
 
 def resume_entry(policy: dict, f4: bool = False, routed: bool = False, scoped: bool = False) -> str:

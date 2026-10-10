@@ -148,11 +148,12 @@ class Graph:
         return {"type": "tts", "text": text}
 
     def extraction(self, stage: str, nid: str, fields: list[tuple[str, list[str]]], is_global: bool = False,
-                   descs: dict | None = None) -> list:
+                   descs: dict | None = None, budgets: dict | None = None) -> list:
         out = []
         for i, (name, values) in enumerate(fields):
             text = (descs or {}).get(name) or P.EXTRACT[name]
-            z = self.book.add(f"extract:{stage}/{name}/description", text, False, P.BUDGET["extract"],
+            z = self.book.add(f"extract:{stage}/{name}/description", text, False,
+                              max((budgets or {}).get(name, 0), P.BUDGET["extract"]),
                               "extraction field description (enum values locked)")
             self.book.target(self._ptr(nid, is_global) + f"/extraction_schema/{i}/description", "text", [{"zone": z}])
             item = {"name": name, "type": "string"}
@@ -977,7 +978,7 @@ ID_INIT        vars['cb_state'] = 'none'
                         [f"/nodes/{nid}/transitions/{k}/description", f"/nodes/{nid}/transitions/{k}/condition/description"], desc)
         return out
 
-    def _promise_nodes(self, cents: bool, fields: list, f4: bool):
+    def _promise_nodes(self, cents: bool, fields: list, f4: bool, side_descs=None, side_budget=None):
         """F11: the model only extracts what the customer said; code checks it against the product, the customer
         confirms a read-back, and the engine records the promise."""
         cp = self.p["tools"]["create_promise"]
@@ -1064,8 +1065,7 @@ ID_INIT        vars['cb_state'] = 'none'
         self.conv("promise_confirm", on_enter=self.tts("promise_confirm", text),
                   extraction=self.extraction("promise_confirm", "promise_confirm",
                                              [("rb_answer", ["yes", "no", "change", "other"])] + fields,
-                                             descs={"side": P.side_desc(f4, self.nmax if "f7_router" in self.f else 0)}
-                                             if (f4 or "f7_router" in self.f) else None),
+                                             descs=side_descs, budgets=side_budget),
                   transitions=[eq("promise_write", "a clear yes", "rb_answer", "yes"),
                                eq("promise_check", "a different amount or date", "rb_answer", "change"),
                                eq("negotiate_resume", "no", "rb_answer", "no")],
@@ -1218,7 +1218,10 @@ ID_INIT        vars['cb_state'] = 'none'
         f15 = "f15_hardship_terms" in self.f
         fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
                    + (["discount"] if f4 else []) + ([f"refused_{i}" for i in range(1, self.nmax + 1)] if f7 else []))]
-        side_descs = {"side": P.side_desc(f4, self.nmax if f7 else 0)} if (f4 or f7) else None
+        f16 = "f16_intents" in self.f
+        side_text = P.side_desc(f4, self.nmax if f7 else 0, P.intents_text(self.p, fields[0][1]) if f16 else "")
+        side_descs = {"side": side_text} if (f4 or f7 or f16) else None
+        side_budget = {"side": len(side_text) + 300} if f16 else None
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]
                            + (["none"] if "f11_promise_typed" in self.f else [])))
@@ -1235,7 +1238,7 @@ ID_INIT        vars['cb_state'] = 'none'
         for nid, entry in (("negotiate", self.tts("negotiate", "{{debt_statement}} {{first_ask_line}}")),
                            ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, sl, f7, f15)})):
             self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[] if f11 else [tool],
-                      extraction=self.extraction("negotiate", nid, fields, descs=side_descs),
+                      extraction=self.extraction("negotiate", nid, fields, descs=side_descs, budgets=side_budget),
                       transitions=self._side_transitions(nid),
                       max_turns=40, turn_target="wrap")
             if not f11:
@@ -1257,7 +1260,7 @@ ID_INIT        vars['cb_state'] = 'none'
             reset += ("vars['offer_intent'] = 'none'\n        vars['offer_amount_text'] = ''\n"
                       "        vars['offer_date_text'] = ''\n        ")
         if f11:
-            self._promise_nodes(cents, fields, f4)
+            self._promise_nodes(cents, fields, f4, side_descs, side_budget)
         if f4:
             nd = P.line(self.p, "no_discount") if f8 else ""
             nd = nd if nd and "{" not in nd else P.NO_DISCOUNT
