@@ -80,8 +80,9 @@ def runtime_cfg(policy: dict, api) -> dict:
 
 
 class Graph:
-    def __init__(self, policy: dict, api, close_form: str = "lifecycle"):
+    def __init__(self, policy: dict, api, close_form: str = "lifecycle", features=frozenset()):
         self.p, self.api, self.close_form = policy, api, close_form
+        self.f = frozenset(features)
         self.cfg = runtime_cfg(policy, api)
         self.book = ZoneBook()
         self.nodes: dict[str, dict] = {}

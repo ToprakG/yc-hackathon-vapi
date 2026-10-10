@@ -121,6 +121,7 @@ def parse_args(argv):
     ap.add_argument("--self-test-reps", type=int, default=1, help="runs per case in the self-test loop")
     ap.add_argument("--unit-gate", choices=("on", "off"), default="on", help="Freya unit tests as a gate before chats")
     ap.add_argument("--gate-p", type=float, default=0.1, help="sign-test p threshold of the gate")
+    ap.add_argument("--features", default=None, help="compiler fixes: all (default, or env BUILDER_FEATURES), none, f1,f3, all,-f2")
     ap.add_argument("--policy", help="skip extraction: compile from this policy.json (checked deterministically)")
     return ap.parse_args(argv)
 

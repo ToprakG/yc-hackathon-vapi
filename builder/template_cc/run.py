@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from builder.template_cc import audit, compiler, extract, io, judge, llm, loop, policy_check
+from builder.template_cc import features as feat
 from builder.template_cc.apimodel import ApiModel
 from builder.template_cc.io import REPO
 from builder.template_cc.trace import Trace
@@ -43,8 +44,8 @@ def _default_validate(wf, name):
     return validate.validate(wf, name)
 
 
-def compile_checked(policy, api, close_form, trace, label) -> tuple[dict | None, object, dict]:
-    wf, book = compiler.compile(policy, api, close_form)
+def compile_checked(policy, api, close_form, trace, label, features=None) -> tuple[dict | None, object, dict]:
+    wf, book = compiler.compile(policy, api, close_form, features)
     report = compiler.lint(wf, policy, api)
     trace.check(f"lint {label}", not report["errors"], f"{len(report['errors'])} error(s), {len(report['warnings'])} warning(s)")
     for e in report["errors"][:10]:
@@ -73,6 +74,9 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
         "self_test": args.self_test, "max_minutes": args.max_minutes, "close_form": args.close_form,
         "models": {k: v for k, v in vars(models).items() if k != "extra"}})
     report: dict = {"slot": slot, "status": "failed", "out": str(out), "trace": str(trace.dir)}
+    FEATURES = feat.parse(args.features)
+    report["features"] = feat.names(FEATURES)
+    trace.event("features", active=report["features"])
     exit_code = 1
     try:
         own_runner = None
@@ -115,7 +119,7 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
         _write(out / "policy.raw.json", policy)
 
         # baseline before any further LLM step: the fallback
-        best, best_book, lint_report = compile_checked(policy, api, args.close_form, trace, "baseline (extracted policy)")
+        best, best_book, lint_report = compile_checked(policy, api, args.close_form, trace, "baseline (extracted policy)", FEATURES)
         if best is None:
             raise RuntimeError("the compiled baseline does not lint: " + "; ".join(e["msg"] for e in lint_report["errors"][:3]))
         _write(out / "workflow.baseline.json", compiler.dump(best))
@@ -127,7 +131,7 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
                                            keep_workspace=args.keep_workspace, query_fn=query_fn, server=sdk_server)
             report["audit"] = {k: (len(v) if isinstance(v, list) else v) for k, v in rec.items() if k != "session"}
             if rec["applied"]:
-                wf2, book2, _ = compile_checked(audited, api, args.close_form, trace, "baseline (audited policy)")
+                wf2, book2, _ = compile_checked(audited, api, args.close_form, trace, "baseline (audited policy)", FEATURES)
                 if wf2 is not None:
                     policy, best, best_book = audited, wf2, book2
                     _write(out / "workflow.baseline.json", compiler.dump(best))

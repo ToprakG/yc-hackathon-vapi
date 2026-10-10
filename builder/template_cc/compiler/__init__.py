@@ -9,14 +9,16 @@ from __future__ import annotations
 import copy
 import json
 
+from builder.template_cc import features as feat
 from builder.template_cc import policy_check
 from builder.template_cc.compiler.graph import Graph
 from builder.template_cc.zones import ZoneBook, render_all
 
 
-def compile(policy: dict, api, close_form: str = "lifecycle") -> tuple[dict, ZoneBook]:  # noqa: A001 - the spec's name
+def compile(policy: dict, api, close_form: str = "lifecycle", features=None) -> tuple[dict, ZoneBook]:  # noqa: A001 - the spec's name
+    f = feat.parse(features) if features is None or isinstance(features, str) else frozenset(features)
     p = policy_check.complete(copy.deepcopy(policy), api)
-    wf, book = Graph(p, api, close_form).build()
+    wf, book = Graph(p, api, close_form, features=f).build()
     render_all(wf, book)
     return wf, book
 

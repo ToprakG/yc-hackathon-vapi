@@ -40,9 +40,9 @@ def compile_none(name, features=None):
 def test_features_none_is_byte_identical(name):
     if os.environ.get("GOLDEN_WRITE"):
         shutil.copy(INPUTS[name][0], policy_path(name))
-        text, _, _ = compile_none(name)
+        text, _, _ = compile_none(name, features="none")
         (GOLD / f"{name}.workflow.json").write_text(text, encoding="utf-8")
     gold = GOLD / f"{name}.workflow.json"
     assert gold.exists(), "golden missing; run with GOLDEN_WRITE=1 on the unchanged compiler"
-    text, _, _ = compile_none(name, features="none") if os.environ.get("GOLDEN_CHECK_NONE") else compile_none(name)
+    text, _, _ = compile_none(name, features="none")
     assert text == gold.read_text(encoding="utf-8")
