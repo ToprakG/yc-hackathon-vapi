@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import copy
 
-from builder.template_cc.compiler import snippets
 from builder.template_cc.policy_check import get_pointer, set_pointer
 
 MAX_GROWTH = 0.15
@@ -65,6 +64,7 @@ def render_target(book_zones: dict, t: dict, current=None):
                 chunks.append((f"## {p['title']}\n" if p.get("title") else "") + text)
         return "\n\n".join(chunks)
     if kind == "hook_msgs":
+        from builder.template_cc.compiler import snippets  # noqa: PLC0415 - avoids an import cycle
         msgs = {p["key"]: book_zones[p["zone"]]["text"] for p in t["parts"]}
         return snippets.replace_msgs(current, msgs)
     raise ZoneError(f"unknown target kind {kind}")
