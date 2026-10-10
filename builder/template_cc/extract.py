@@ -11,6 +11,7 @@ conservative default (policy_check.repair) and is logged. Every trace line says 
 from __future__ import annotations
 
 import json
+import re
 
 from builder.template_cc import brief_prep, extract_vote, policy_check
 from builder.template_cc.policy_check import (ATTEMPT_AMOUNTS, ATTEMPT_DATES, CANONICAL_NOTES, CANONICAL_OUTCOMES,
@@ -112,8 +113,12 @@ VERIFY_SCHEMA = {"type": "object", "required": ["answers"], "properties": {"answ
 QUOTE_MSG = "the number/date/time in _source differs from the value (fix the value or quote the right sentence)"
 
 
+# whether a persuasion date is capped at the deadline, and how many times a refused security question is explained
+CRITICAL_RE = (re.compile(r"^/attempt_plan/\d+/cap_at_deadline$"), re.compile(r"^/ask_limits/id_decline$"))
+
+
 def is_critical(ptr: str) -> bool:
-    return any(ptr == c or ptr.startswith(c + "/") for c in CRITICAL)
+    return any(ptr == c or ptr.startswith(c + "/") for c in CRITICAL) or any(r.match(ptr) for r in CRITICAL_RE)
 
 
 def _get(doc, ptr):

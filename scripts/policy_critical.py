@@ -57,7 +57,10 @@ def fields(p: dict) -> dict:
            "close_rule.order": _norm(_sub(p, "close_rule", "order")),
            "tools.create_promise.amount_unit": _norm(_sub(p, "tools", "create_promise", "amount_unit")),
            "tools.schedule_callback.mode": _norm(_sub(p, "tools", "schedule_callback", "mode")),
-           "tools.close_call.mode": _norm(_sub(p, "tools", "close_call", "mode"))}
+           "tools.close_call.mode": _norm(_sub(p, "tools", "close_call", "mode")),
+           # policy-only extensions (a testbed config has neither): compared between two policies (--diff), not against a config
+           "attempt_plan.cap_at_deadline": [_norm(a.get("cap_at_deadline")) for a in (p.get("attempt_plan") or []) if isinstance(a, dict)] or None,
+           "ask_limits.id_decline": _norm(_sub(p, "ask_limits", "id_decline"))}
     for i, b in enumerate(p.get("bands") or []):
         out[f"bands.{i}"] = _band(b)
     return out
@@ -85,6 +88,8 @@ def compare(policy: dict, config: dict, brief_text: str = "", api_text: str | No
         g = got.get(name)
         if name == "outcome_map" and not w:
             continue
+        if name in ("attempt_plan.cap_at_deadline", "ask_limits.id_decline") and w is None:
+            continue  # the config does not have it
         status = "MATCH" if g == w else "MISS"
         if status == "MISS" and name == "note_map" and notes_not_applicable(policy, brief_text, api_text):
             status = "N/A"

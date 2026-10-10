@@ -39,3 +39,18 @@ def test_single_and_first_non_paid_are_equivalent_for_one_product():
     assert status(pc.compare(multi, cfg), "close_rule.kind") == "MISS"
     other = dict(BASE, close_rule={"kind": "priority", "order": ["a"]})
     assert status(pc.compare(other, cfg), "close_rule.kind") == "MISS"
+
+
+def test_cap_at_deadline_and_id_decline_are_critical_between_two_policies():
+    a = dict(BASE, attempt_plan=[{"date": "deadline", "cap_at_deadline": True}, {"date": "today", "cap_at_deadline": True}],
+             ask_limits={"id_decline": 1})
+    b = dict(BASE, attempt_plan=[{"date": "deadline", "cap_at_deadline": True}, {"date": "today", "cap_at_deadline": False}],
+             ask_limits={"id_decline": 2})
+    assert pc.diff(a, b) == ["ask_limits.id_decline", "attempt_plan.cap_at_deadline"]
+    assert pc.diff(a, dict(a)) == []
+
+
+def test_a_config_without_them_does_not_make_them_misses():
+    got = dict(BASE, attempt_plan=[{"cap_at_deadline": True}], ask_limits={"id_decline": 1})
+    rows = pc.compare(got, dict(BASE))
+    assert "attempt_plan.cap_at_deadline" not in {r["field"] for r in rows} and "ask_limits.id_decline" not in {r["field"] for r in rows}
