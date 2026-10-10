@@ -378,7 +378,7 @@ def _check_extraction(wf, r: Report):
                           "extract a string and resolve it in a code node from vars['now']")
 
 
-def _check_api_tool(path, owner, tool, api, r: Report, names, prefixes, call_vars):
+def _check_api_tool(path, owner, tool, api, r: Report, names, prefixes, call_vars, placement="tools"):
     fn = _fn(tool)
     name = fn.get("name")
     props = _props(tool)
@@ -431,7 +431,8 @@ def _check_api_tool(path, owner, tool, api, r: Report, names, prefixes, call_var
         var = m.group(1).split(":")[0] if m else None
         if field in call_vars and default != "{{" + field + "}}":
             r.err(lp, f"{field} is a call variable; bake it with default '{{{{{field}}}}}'")
-        if var and leaf.get("description") and var not in call_vars and _is_set(var, names, prefixes):
+        model_facing = placement == "tools"  # engine-run calls (pre_actions, lifecycle) bake on purpose
+        if model_facing and var and leaf.get("description") and var not in call_vars and _is_set(var, names, prefixes):
             r.warn(lp, f"model-filled {field} uses {{{{{var}}}}}, which another step sets: it will be baked and the model never sees it")
     missing = [f for f in spec["required"] if f not in leaves]
     if missing:
@@ -440,9 +441,19 @@ def _check_api_tool(path, owner, tool, api, r: Report, names, prefixes, call_var
         r.warn(f"{path}.config.maxRetries", f"{name} writes data; maxRetries > 0 can record it twice")
 
 
+def _literal(node) -> bool:
+    try:
+        ast.literal_eval(node)
+        return True
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return False
+
+
 def _try_wrapped(tree: ast.Module) -> bool:
-    body = [n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom, ast.Expr))]
-    return bool(body) and all(isinstance(n, ast.Try) or isinstance(n, ast.FunctionDef) for n in body)
+    """Imports, docstrings, function definitions and literal assignments may sit outside the try; nothing else."""
+    rest = [n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom, ast.Expr, ast.FunctionDef))
+            and not (isinstance(n, ast.Assign) and _literal(n.value))]
+    return any(isinstance(n, ast.Try) for n in rest) and all(isinstance(n, ast.Try) for n in rest)
 
 
 def _check_snippet(path, code, r: Report, kind):
@@ -471,7 +482,7 @@ def _check_tools(wf, api, r: Report, names, prefixes, call_vars):
             continue
         handler = _handler(tool)
         if handler == API_CALL:
-            _check_api_tool(path, owner, tool, api, r, names, prefixes, call_vars)
+            _check_api_tool(path, owner, tool, api, r, names, prefixes, call_vars, placement)
         for hook in ("pre_process_code", "post_process_code"):
             if tool.get(hook):
                 if handler != API_CALL:  # tc "Pre and post Python hooks": stripped from other handlers

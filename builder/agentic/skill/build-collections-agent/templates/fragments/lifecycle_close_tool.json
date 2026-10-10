@@ -1,0 +1,72 @@
+{
+ "type": "function",
+ "config": {
+  "timeoutMs": 12000,
+  "maxRetries": 0,
+  "alwaysRunsAt": [
+   "end_of_call"
+  ]
+ },
+ "function": {
+  "name": "close_call",
+  "handler": "__function__:api_call",
+  "description": "Record how the call ended.",
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "default": "https://api.example-bank.invalid/v1/close_call"
+    },
+    "method": {
+     "type": "string",
+     "default": "POST"
+    },
+    "headers": {
+     "type": "object",
+     "properties": {
+      "Content-Type": {
+       "type": "string",
+       "default": "application/json"
+      }
+     }
+    },
+    "body": {
+     "type": "object",
+     "properties": {
+      "customer_id": {
+       "type": "string",
+       "default": "{{customer_id}}"
+      },
+      "outcome": {
+       "type": "string",
+       "enum": [
+        "outcome_x",
+        "outcome_y",
+        "outcome_z",
+        "outcome_w"
+       ],
+       "default": "{{close_outcome}}",
+       "description": "outcome_x: a promise was recorded. outcome_y: transferred or service error. outcome_z: identity failed. outcome_w: not reached."
+      },
+      "detail": {
+       "type": "string",
+       "enum": [
+        "detail_a",
+        "detail_b",
+        "detail_c",
+        "detail_d"
+       ],
+       "default": "{{close_detail}}",
+       "description": "Leave out for outcome_x."
+      }
+     },
+     "required": [
+      "outcome"
+     ]
+    }
+   }
+  }
+ },
+ "pre_process_code": "try:\n    b = config.get('body')\n    if isinstance(b, dict):\n        if int(vars.get('promise_count') or 0) > 0 and vars.get('call_state') != 'transferred':\n            b['outcome'] = 'outcome_x'\n        if b.get('outcome') in ('outcome_x',) or not b.get('detail'):\n            b.pop('detail', None)\nexcept Exception:\n    pass\n"
+}

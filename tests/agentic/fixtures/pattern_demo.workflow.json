@@ -1,0 +1,1125 @@
+{
+ "initial_node": "setup",
+ "system_prompt": "You are the automated assistant of Example Bank, calling a customer. Speak English, one or two short sentences per turn. Never mention money, an item or the reason for the call before identity is confirmed. Never invent amounts, dates or terms: use only the facts you are given. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+ "test_variables": {
+  "customer_id": "c_demo",
+  "first_name": "Sam",
+  "last_name": "Doe",
+  "title": "Mx",
+  "now": "2031-03-07T11:00"
+ },
+ "nodes": {
+  "setup": {
+   "name": "setup",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "opening",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef parse_now(value):\n    \"\"\"'2031-03-07T11:00', '2031-03-07 11:00:00', '2031-03-07T11:00:00Z' or '2031-03-07' -> datetime.\"\"\"\n    s = str(value or '').strip().replace(' ', 'T').rstrip('Z')\n    for fmt, size in (('%Y-%m-%dT%H:%M:%S', 19), ('%Y-%m-%dT%H:%M', 16), ('%Y-%m-%d', 10)):\n        try:\n            return datetime.datetime.strptime(s[:size], fmt)\n        except ValueError:\n            pass\n    raise ValueError('cannot read now: ' + s)\n\ndef parse_holidays(values):\n    \"\"\"ISO strings -> set of dates. Unreadable entries are skipped.\"\"\"\n    out = set()\n    for v in values or []:\n        try:\n            out.add(datetime.date.fromisoformat(str(v)[:10]))\n        except ValueError:\n            pass\n    return out\n\ndef is_business_day(d, holidays):\n    return d.weekday() < 5 and d not in holidays\n\ndef next_business_day(d, holidays, include_today=False):\n    \"\"\"The first business day after d (or d itself when include_today and d is one).\"\"\"\n    if include_today and is_business_day(d, holidays):\n        return d\n    d = d + datetime.timedelta(days=1)\n    while not is_business_day(d, holidays):\n        d = d + datetime.timedelta(days=1)\n    return d\n\ndef spoken_date(d):\n    \"\"\"'Friday 7 March'. Adapt the words to the brief's language.\"\"\"\n    return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()\n\ntry:\n    now = parse_now(vars.get('now'))\n    hol = parse_holidays(['2031-03-14', '2031-04-02'])\n    today = now.date()\n    vars['today_spoken'] = spoken_date(today)\n    nxt = next_business_day(today, hol)\n    same_day = 'yes' if is_business_day(today, hol) and now.hour < 17 else 'no'\n    days = ('today (' + spoken_date(today) + ') after ' + now.strftime('%H:%M') + ' and ') if same_day == 'yes' else ''\n    vars['callback_window_text'] = 'A callback can be booked ' + days + 'on ' + spoken_date(nxt) + ', from 09:00 to 17:00. Today is ' + spoken_date(today) + ', ' + now.strftime('%H:%M') + '.'\n    vars['callback_next_day_iso'] = nxt.isoformat()\n    vars['calendar_state'] = 'ok'\nexcept Exception:\n    vars['today_spoken'] = ''\n    vars['callback_window_text'] = 'Ask for a time tomorrow between 09:00 and 17:00.'\n    vars['calendar_state'] = 'error'\nvars['close_outcome'] = 'outcome_w'\nvars['close_detail'] = 'detail_c'\nvars['promise_count'] = '0'\nvars['call_state'] = 'open'\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "opening",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "opening": {
+   "name": "opening",
+   "node_type": "conversation",
+   "on_enter": {
+    "type": "tts",
+    "text": "Hello, this is the automated assistant of Example Bank, and this call is recorded. Am I speaking with {{title}} {{last_name}}?"
+   },
+   "on_enter_first_entry_only": true,
+   "task_message": "Find out whether you are speaking with {{title}} {{last_name}}. Only a clear yes or their own name confirms it. If the answer is unclear, ask once more. Say nothing about why you are calling. No tool call is allowed in this turn.",
+   "extraction_schema": [
+    {
+     "name": "who",
+     "type": "string",
+     "enum_values": [
+      "customer",
+      "someone_else",
+      "wrong_number",
+      "unclear"
+     ],
+     "description": "Who answered: customer (clear yes or own name), someone_else, wrong_number, unclear.",
+     "min_confidence": 0.6
+    }
+   ],
+   "max_node_turns": 3,
+   "max_turn_transition": "goodbye_short",
+   "transitions": [
+    {
+     "target_node": "identity",
+     "description": "The customer confirmed",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "who",
+        "operator": "equals",
+        "operand": "customer"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "third_party_prep",
+     "description": "Someone else answered",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "who",
+        "operator": "equals",
+        "operand": "someone_else"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "mark_wrong_number",
+     "description": "Wrong number",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "who",
+        "operator": "equals",
+        "operand": "wrong_number"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "mark_wrong_number": {
+   "name": "mark_wrong_number",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "goodbye_short",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "try:\n    vars['close_outcome'] = 'outcome_w'\n    vars['close_detail'] = 'detail_b'\nexcept Exception:\n    pass\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "goodbye_short",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "third_party_prep": {
+   "name": "third_party_prep",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "third_party",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "try:\n    vars['close_outcome'] = 'outcome_w'\n    vars['close_detail'] = 'detail_d'\nexcept Exception:\n    pass\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "third_party",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "third_party": {
+   "name": "third_party",
+   "node_type": "conversation",
+   "task_message": "You are not speaking with the customer. Do not say why you are calling. Ask when {{title}} {{last_name}} can be reached. {{callback_window_text}} When they give a time inside that window, call schedule_callback with it. If the time is outside it, ask once for another. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+   "tools": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "schedule_callback",
+      "handler": "__function__:api_call",
+      "description": "Book the callback. CALL it as soon as the person gives a time inside the window.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/schedule_callback"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "slot": {
+           "type": "string",
+           "description": "Agreed time as YYYY-MM-DDTHH:MM, inside the window.",
+           "default": "{{slot}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "slot"
+         ]
+        }
+       }
+      }
+     },
+     "pre_process_code": "try:\n    b = config.get('body')\n    if isinstance(b, dict) and isinstance(b.get('slot'), str):\n        b['slot'] = b['slot'].strip().replace(' ', 'T')[:16]\nexcept Exception:\n    pass\n",
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['close_detail'] = 'detail_a'\n        vars['call_state'] = 'callback_booked'\n        d['what_to_do_next'] = 'Booked. Thank them and say goodbye.'\n    elif isinstance(d, dict):\n        d['what_to_do_next'] = 'Not booked. Ask once for another time inside the window.'\nexcept Exception:\n    pass\n"
+    }
+   ],
+   "extraction_schema": [
+    {
+     "name": "third_party_done",
+     "type": "string",
+     "enum_values": [
+      "stay",
+      "no_time"
+     ],
+     "description": "no_time when the person gave no time inside the window after the second ask, else stay.",
+     "min_confidence": 0.7
+    }
+   ],
+   "max_node_turns": 6,
+   "max_turn_transition": "goodbye_short",
+   "transitions": [
+    {
+     "target_node": "goodbye_short",
+     "description": "Callback booked",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "call_state",
+        "operator": "equals",
+        "operand": "callback_booked"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "goodbye_short",
+     "description": "No time in the window",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "third_party_done",
+        "operator": "equals",
+        "operand": "no_time"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "identity": {
+   "name": "identity",
+   "node_type": "conversation",
+   "on_enter": {
+    "type": "tts",
+    "text": "Thank you. First, for security, what is your six-digit member code?"
+   },
+   "on_enter_first_entry_only": true,
+   "task_message": "Ask the security questions one at a time: first the member code, then the month of birth. Call verify_identity once for each answer, with question member_code or birth_month. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+   "tools": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "verify_identity",
+      "handler": "__function__:api_call",
+      "description": "Check one answer. CALL it every time the customer answers a security question.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/verify_identity"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "question": {
+           "type": "string",
+           "enum": [
+            "member_code",
+            "birth_month"
+           ],
+           "description": "Which question was answered.",
+           "default": "{{question}}"
+          },
+          "reply": {
+           "type": "string",
+           "description": "member_code: six digits. birth_month: 1-12.",
+           "default": "{{reply}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "question",
+          "reply"
+         ]
+        }
+       }
+      }
+     },
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict):\n        if str(d.get('all_passed')).lower() == 'true':\n            vars['id_state'] = 'passed'\n            d['what_to_do_next'] = 'Identity is confirmed. Say thank you in one short sentence.'\n        elif str(d.get('verified')).lower() == 'true':\n            d['what_to_do_next'] = 'Correct. Ask the next security question now.'\n        elif d.get('hint') == 'digits_missing':\n            d['what_to_do_next'] = 'Ask for all six digits again. This try does not count.'\n        elif str(d.get('tries_left')) == '0':\n            vars['id_state'] = 'failed'\n            d['what_to_do_next'] = 'The check failed. Do not mention the account.'\n        else:\n            d['what_to_do_next'] = 'That answer is wrong. Ask the same question once more.'\n    else:\n        result['what_to_do_next'] = 'The check did not work. Ask the same question again.'\nexcept Exception:\n    pass\n"
+    }
+   ],
+   "max_node_turns": 12,
+   "max_turn_transition": "goodbye_short",
+   "transitions": [
+    {
+     "target_node": "load_account",
+     "description": "Identity confirmed",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "id_state",
+        "operator": "equals",
+        "operand": "passed"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "id_failed",
+     "description": "Identity check failed",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "id_state",
+        "operator": "equals",
+        "operand": "failed"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "id_failed": {
+   "name": "id_failed",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "goodbye_failed",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "try:\n    vars['close_outcome'] = 'outcome_z'\n    vars['close_detail'] = 'detail_a'\nexcept Exception:\n    pass\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "goodbye_failed",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "load_account": {
+   "name": "load_account",
+   "node_type": "api_request",
+   "passthrough": true,
+   "passthrough_default_transition": "facts",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 1
+     },
+     "function": {
+      "name": "get_account",
+      "handler": "__function__:api_call",
+      "description": "Get the late items.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/get_account"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          }
+         },
+         "required": [
+          "customer_id"
+         ]
+        }
+       }
+      }
+     }
+    }
+   ],
+   "response_mapping": [
+    {
+     "path": "data.items",
+     "variable": "items"
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "account_error",
+     "description": "The lookup failed",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "load_account_failure_count",
+        "operator": "greater_than",
+        "operand": 0
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "facts",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "account_error": {
+   "name": "account_error",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "goodbye_error",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "try:\n    vars['close_outcome'] = 'outcome_y'\n    vars['close_detail'] = 'detail_c'\nexcept Exception:\n    pass\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "goodbye_error",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "facts": {
+   "name": "facts",
+   "node_type": "code",
+   "passthrough": true,
+   "passthrough_default_transition": "negotiate",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "pre_actions": [
+    {
+     "type": "function",
+     "function": {
+      "name": "code_exec",
+      "handler": "__function__:code_exec",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string",
+         "default": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef parse_now(value):\n    \"\"\"'2031-03-07T11:00', '2031-03-07 11:00:00', '2031-03-07T11:00:00Z' or '2031-03-07' -> datetime.\"\"\"\n    s = str(value or '').strip().replace(' ', 'T').rstrip('Z')\n    for fmt, size in (('%Y-%m-%dT%H:%M:%S', 19), ('%Y-%m-%dT%H:%M', 16), ('%Y-%m-%d', 10)):\n        try:\n            return datetime.datetime.strptime(s[:size], fmt)\n        except ValueError:\n            pass\n    raise ValueError('cannot read now: ' + s)\n\ndef parse_holidays(values):\n    \"\"\"ISO strings -> set of dates. Unreadable entries are skipped.\"\"\"\n    out = set()\n    for v in values or []:\n        try:\n            out.add(datetime.date.fromisoformat(str(v)[:10]))\n        except ValueError:\n            pass\n    return out\n\ndef is_business_day(d, holidays):\n    return d.weekday() < 5 and d not in holidays\n\ndef next_business_day(d, holidays, include_today=False):\n    \"\"\"The first business day after d (or d itself when include_today and d is one).\"\"\"\n    if include_today and is_business_day(d, holidays):\n        return d\n    d = d + datetime.timedelta(days=1)\n    while not is_business_day(d, holidays):\n        d = d + datetime.timedelta(days=1)\n    return d\n\ndef add_business_days(d, n, holidays):\n    \"\"\"The n-th business day after d (d itself not counted). n=0 returns d.\"\"\"\n    for _ in range(int(n)):\n        d = next_business_day(d, holidays)\n    return d\n\ndef week_monday(d):\n    return d - datetime.timedelta(days=d.weekday())\n\ndef last_business_day_of_week(d, holidays):\n    \"\"\"The last business day in d's Monday-Sunday week, or None when the week has none.\"\"\"\n    day = week_monday(d) + datetime.timedelta(days=4)\n    while day >= week_monday(d):\n        if is_business_day(day, holidays):\n            return day\n        day = day - datetime.timedelta(days=1)\n    return None\n\ndef spoken_date(d):\n    \"\"\"'Friday 7 March'. Adapt the words to the brief's language.\"\"\"\n    return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()\n\ndef money(amount, symbol=''):\n    \"\"\"1234.5 -> '1,234.50' (with an optional symbol in front). 1234.0 -> '1,234'.\"\"\"\n    v = round(float(amount), 2)\n    text = '{:,.0f}'.format(v) if v == int(v) else '{:,.2f}'.format(v)\n    return symbol + text\n\ndef as_list(value):\n    \"\"\"A mapped list may arrive as a list, a JSON string or a dict (tools-and-code.md): always return a list.\"\"\"\n    if isinstance(value, list):\n        return value\n    if isinstance(value, str):\n        try:\n            value = json.loads(value)\n        except ValueError:\n            return []\n    if isinstance(value, dict):\n        return [value]\n    return value if isinstance(value, list) else []\n\nBANDS = [(1, 20, 5, 1), (21, 60, 3, 2)]  # days_over from, to, deadline in business days, attempts (invented)\ntry:\n    now = parse_now(vars.get('now'))\n    hol = parse_holidays(['2031-03-14', '2031-04-02'])\n    today = now.date()\n    items = as_list(vars.get('items'))\n    lines, facts = [], []\n    for n, it in enumerate(items, 1):\n        days = int(it.get('days_over') or 0)\n        band = next((b for b in BANDS if b[0] <= days <= b[1]), BANDS[-1])\n        deadline = add_business_days(today, band[2], hol)\n        week_end = last_business_day_of_week(today, hol)\n        if week_end is None or week_end <= today:\n            week_end = last_business_day_of_week(today + datetime.timedelta(days=7), hol)\n        attempt1 = min(week_end, deadline) if week_end else deadline\n        name = 'item ending ' + str(it.get('ending')) if it.get('kind') == 'kind_a' else 'second item'\n        facts.append(dict(ref=it.get('item_ref'), name=name, overdue=it.get('overdue'), floor=it.get('floor_amount'),\n                          deadline=deadline.isoformat(), attempts=band[3], attempt1=attempt1.isoformat()))\n        lines.append(str(n) + '. ' + name + ' (item_ref ' + str(it.get('item_ref')) + '): ' + money(it.get('overdue') or 0) +\n                     ' overdue, ' + str(days) + ' days late. Lowest amount: ' + money(it.get('floor_amount') or 0) +\n                     '. Latest date: ' + spoken_date(deadline) + ' (' + deadline.isoformat() + '). Attempts: ' + str(band[3]) +\n                     '. Attempt 1 date: ' + spoken_date(attempt1) + ' (' + attempt1.isoformat() + ').')\n    vars['facts_text'] = 'Today is ' + spoken_date(today) + '.\\n' + '\\n'.join(lines)\n    vars['facts_json'] = json.dumps(facts)\n    vars['item_count'] = str(len(facts))\n    vars['facts_state'] = 'ok' if facts else 'empty'\nexcept Exception:\n    vars['facts_text'] = 'The account details could not be read.'\n    vars['facts_json'] = '[]'\n    vars['item_count'] = '0'\n    vars['facts_state'] = 'error'\n"
+        },
+        "timeout_ms": {
+         "type": "number",
+         "default": 10000
+        }
+       }
+      }
+     }
+    }
+   ],
+   "transitions": [
+    {
+     "target_node": "negotiate",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  },
+  "negotiate": {
+   "name": "negotiate",
+   "node_type": "conversation",
+   "on_enter": {
+    "type": "llm",
+    "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."
+   },
+   "on_enter_first_entry_only": true,
+   "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+   "tools": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "create_promise",
+      "handler": "__function__:api_call",
+      "description": "Record one promise. CALL it only after the customer said yes to the read-back.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/create_promise"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "item_ref": {
+           "type": "string",
+           "description": "item_ref from the facts, copied unchanged.",
+           "default": "{{item_ref}}"
+          },
+          "amount_minor": {
+           "type": "number",
+           "description": "Amount in currency units as read back, e.g. 412.50.",
+           "default": "{{amount_minor}}"
+          },
+          "pay_on": {
+           "type": "string",
+           "description": "Payment date as YYYY-MM-DD.",
+           "default": "{{pay_on}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "item_ref",
+          "amount_minor",
+          "pay_on"
+         ]
+        }
+       }
+      }
+     },
+     "pre_process_code": "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\nMONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\ndef to_cents(amount):\n    \"\"\"Major units -> integer minor units. round(), never int(): 19.99 * 100 is 1998.999...\"\"\"\n    return int(round(float(str(amount).replace(',', '')) * 100))\n\ntry:\n    b = config.get('body')\n    if isinstance(b, dict) and b.get('amount_minor') not in (None, ''):\n        b['amount_minor'] = to_cents(b['amount_minor'])\nexcept Exception:\n    pass\n",
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['promise_count'] = str(int(vars.get('promise_count') or 0) + 1)\n        vars['close_outcome'] = 'outcome_x'\n        vars['close_detail'] = ''\n        d['what_to_do_next'] = 'Recorded. Say: \"You will get a letter about this promise.\" Then move on.'\n    else:\n        tries = int(vars.get('promise_failures') or 0) + 1\n        vars['promise_failures'] = str(tries)\n        if isinstance(d, dict):\n            d['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\n        else:\n            result['what_to_do_next'] = 'NOT recorded. Try once more.' if tries < 2 else 'NOT recorded. Tell the customer it could not be recorded.'\nexcept Exception:\n    pass\n"
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "add_note",
+      "handler": "__function__:api_call",
+      "description": "Record why an item has no promise. CALL it once per item without a promise.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/add_note"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "item_ref": {
+           "type": "string",
+           "description": "item_ref from the facts.",
+           "default": "{{item_ref}}"
+          },
+          "code": {
+           "type": "string",
+           "enum": [
+            "note_x",
+            "note_y"
+           ],
+           "description": "note_x: refused. note_y: says already paid.",
+           "default": "{{code}}"
+          },
+          "text": {
+           "type": "string",
+           "description": "One short sentence.",
+           "default": "{{text}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "item_ref",
+          "code"
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 12000,
+      "maxRetries": 0
+     },
+     "function": {
+      "name": "transfer_to_agent",
+      "handler": "__function__:api_call",
+      "description": "Hand over to a person. CALL it when the customer insists on a person.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "url": {
+         "type": "string",
+         "default": "https://api.example-bank.invalid/v1/transfer_to_agent"
+        },
+        "method": {
+         "type": "string",
+         "default": "POST"
+        },
+        "headers": {
+         "type": "object",
+         "properties": {
+          "Content-Type": {
+           "type": "string",
+           "default": "application/json"
+          }
+         }
+        },
+        "body": {
+         "type": "object",
+         "properties": {
+          "customer_id": {
+           "type": "string",
+           "default": "{{customer_id}}"
+          },
+          "desk": {
+           "type": "string",
+           "enum": [
+            "desk_x"
+           ],
+           "description": "desk_x: a person.",
+           "default": "{{desk}}"
+          }
+         },
+         "required": [
+          "customer_id",
+          "desk"
+         ]
+        }
+       }
+      }
+     },
+     "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    ok = isinstance(d, dict) and str(d.get('ok')).lower() == 'true'\n    if ok:\n        vars['call_state'] = 'transferred'\n        vars['close_outcome'] = 'outcome_y'\n        vars['close_detail'] = 'detail_a' if vars.get('transfer_desk_wanted') != 'desk_y' else 'detail_b'\n    if isinstance(d, dict):\n        d['what_to_do_next'] = 'Say a colleague will take over, then say goodbye.' if ok else 'The transfer failed. Say so and offer to continue.'\nexcept Exception:\n    pass\n"
+    }
+   ],
+   "extraction_schema": [
+    {
+     "name": "wrap_up",
+     "type": "string",
+     "enum_values": [
+      "stay",
+      "finished"
+     ],
+     "description": "finished once every item has a promise or a note and you said goodbye, else stay.",
+     "min_confidence": 0.7
+    }
+   ],
+   "max_node_turns": 40,
+   "max_turn_transition": "goodbye",
+   "transitions": [
+    {
+     "target_node": "goodbye_transfer",
+     "description": "Transferred",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "call_state",
+        "operator": "equals",
+        "operand": "transferred"
+       }
+      ]
+     }
+    },
+    {
+     "target_node": "goodbye",
+     "description": "Everything handled",
+     "condition": {
+      "logic": "or",
+      "conditions": [
+       {
+        "variable": "wrap_up",
+        "operator": "equals",
+        "operand": "finished"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "goodbye": {
+   "name": "goodbye",
+   "node_type": "end_call",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "transitions": [],
+   "terminal": {
+    "type": "function",
+    "function": {
+     "name": "call_finished",
+     "handler": "__function__:end_call",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "message_mode": {
+        "type": "string",
+        "default": "none"
+       }
+      }
+     }
+    }
+   }
+  },
+  "goodbye_short": {
+   "name": "goodbye_short",
+   "node_type": "end_call",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "transitions": [],
+   "terminal": {
+    "type": "function",
+    "function": {
+     "name": "not_reached_end",
+     "handler": "__function__:end_call",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "message_mode": {
+        "type": "string",
+        "default": "custom"
+       },
+       "spoken_message": {
+        "type": "string",
+        "default": "Thank you for your time. Goodbye."
+       }
+      }
+     }
+    }
+   }
+  },
+  "goodbye_failed": {
+   "name": "goodbye_failed",
+   "node_type": "end_call",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "transitions": [],
+   "terminal": {
+    "type": "function",
+    "function": {
+     "name": "identity_failed",
+     "handler": "__function__:end_call",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "message_mode": {
+        "type": "string",
+        "default": "custom"
+       },
+       "spoken_message": {
+        "type": "string",
+        "default": "For your security, please visit a branch of Example Bank. Goodbye."
+       }
+      }
+     }
+    }
+   }
+  },
+  "goodbye_error": {
+   "name": "goodbye_error",
+   "node_type": "end_call",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "transitions": [],
+   "terminal": {
+    "type": "function",
+    "function": {
+     "name": "service_error",
+     "handler": "__function__:end_call",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "message_mode": {
+        "type": "string",
+        "default": "custom"
+       },
+       "spoken_message": {
+        "type": "string",
+        "default": "I am sorry, I cannot see your details right now. We will call again. Goodbye."
+       }
+      }
+     }
+    }
+   }
+  },
+  "goodbye_transfer": {
+   "name": "goodbye_transfer",
+   "node_type": "end_call",
+   "on_enter": {
+    "type": "silent"
+   },
+   "disable_inactivity_monitor": true,
+   "transitions": [],
+   "terminal": {
+    "type": "function",
+    "function": {
+     "name": "transferred",
+     "handler": "__function__:end_call",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "message_mode": {
+        "type": "string",
+        "default": "none"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "global_nodes": {
+  "asks_robot": {
+   "name": "asks_robot",
+   "node_type": "conversation",
+   "description": "The customer asks whether they talk to a robot",
+   "condition": {
+    "operator": "matches_intent",
+    "description": "The user asks whether they are talking to a robot, a machine or an AI"
+   },
+   "task_message": "Say you are Example Bank's automated assistant.",
+   "on_enter": {
+    "type": "tts",
+    "text": "I am Example Bank's automated assistant."
+   },
+   "passthrough": true,
+   "passthrough_default_transition": "__previous__",
+   "excluded_nodes": [
+    "setup",
+    "mark_wrong_number",
+    "third_party_prep",
+    "id_failed",
+    "load_account",
+    "account_error",
+    "facts",
+    "goodbye",
+    "goodbye_short",
+    "goodbye_failed",
+    "goodbye_error",
+    "goodbye_transfer"
+   ],
+   "transitions": [
+    {
+     "target_node": "__previous__",
+     "description": "always",
+     "condition": {
+      "operator": "always"
+     }
+    }
+   ]
+  }
+ },
+ "tools": [
+  {
+   "type": "function",
+   "config": {
+    "timeoutMs": 12000,
+    "maxRetries": 0,
+    "alwaysRunsAt": [
+     "end_of_call"
+    ]
+   },
+   "function": {
+    "name": "close_call",
+    "handler": "__function__:api_call",
+    "description": "Record how the call ended.",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "url": {
+       "type": "string",
+       "default": "https://api.example-bank.invalid/v1/close_call"
+      },
+      "method": {
+       "type": "string",
+       "default": "POST"
+      },
+      "headers": {
+       "type": "object",
+       "properties": {
+        "Content-Type": {
+         "type": "string",
+         "default": "application/json"
+        }
+       }
+      },
+      "body": {
+       "type": "object",
+       "properties": {
+        "customer_id": {
+         "type": "string",
+         "default": "{{customer_id}}"
+        },
+        "outcome": {
+         "type": "string",
+         "enum": [
+          "outcome_x",
+          "outcome_y",
+          "outcome_z",
+          "outcome_w"
+         ],
+         "default": "{{close_outcome}}",
+         "description": "outcome_x: a promise was recorded. outcome_y: transferred or service error. outcome_z: identity failed. outcome_w: not reached."
+        },
+        "detail": {
+         "type": "string",
+         "enum": [
+          "detail_a",
+          "detail_b",
+          "detail_c",
+          "detail_d"
+         ],
+         "default": "{{close_detail}}",
+         "description": "Leave out for outcome_x."
+        }
+       },
+       "required": [
+        "outcome"
+       ]
+      }
+     }
+    }
+   },
+   "pre_process_code": "try:\n    b = config.get('body')\n    if isinstance(b, dict):\n        if int(vars.get('promise_count') or 0) > 0 and vars.get('call_state') != 'transferred':\n            b['outcome'] = 'outcome_x'\n        if b.get('outcome') in ('outcome_x',) or not b.get('detail'):\n            b.pop('detail', None)\nexcept Exception:\n    pass\n"
+  }
+ ]
+}

@@ -1,0 +1,173 @@
+# Business-day and money helpers to paste into a code node or hook.
+#
+# Standard library only (json, re, datetime: the modules verified on the platform). No double braces anywhere:
+# the platform may template the code field. Paste the functions you need above your snippet, then call them inside
+# try/except. Every date rule must start from vars['now'], never from the real clock.
+#
+#   import datetime, json, re
+#   <helpers>
+#   try:
+#       now = parse_now(vars.get('now'))
+#       hol = parse_holidays(['2031-03-14', '2031-04-02'])        # the brief's own holidays
+#       deadline = add_business_days(now.date(), 6, hol)
+#       vars['deadline_spoken'] = spoken_date(deadline)
+#       vars['deadline_iso'] = deadline.isoformat()
+#       vars['calendar_state'] = 'ok'
+#   except Exception:
+#       vars['calendar_state'] = 'error'
+import datetime
+import json
+import re
+
+WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october',
+          'november', 'december']
+
+
+def parse_now(value):
+    """'2031-03-07T11:00', '2031-03-07 11:00:00', '2031-03-07T11:00:00Z' or '2031-03-07' -> datetime."""
+    s = str(value or '').strip().replace(' ', 'T').rstrip('Z')
+    for fmt, size in (('%Y-%m-%dT%H:%M:%S', 19), ('%Y-%m-%dT%H:%M', 16), ('%Y-%m-%d', 10)):
+        try:
+            return datetime.datetime.strptime(s[:size], fmt)
+        except ValueError:
+            pass
+    raise ValueError('cannot read now: ' + s)
+
+
+def parse_holidays(values):
+    """ISO strings -> set of dates. Unreadable entries are skipped."""
+    out = set()
+    for v in values or []:
+        try:
+            out.add(datetime.date.fromisoformat(str(v)[:10]))
+        except ValueError:
+            pass
+    return out
+
+
+def is_business_day(d, holidays):
+    return d.weekday() < 5 and d not in holidays
+
+
+def next_business_day(d, holidays, include_today=False):
+    """The first business day after d (or d itself when include_today and d is one)."""
+    if include_today and is_business_day(d, holidays):
+        return d
+    d = d + datetime.timedelta(days=1)
+    while not is_business_day(d, holidays):
+        d = d + datetime.timedelta(days=1)
+    return d
+
+
+def add_business_days(d, n, holidays):
+    """The n-th business day after d (d itself not counted). n=0 returns d."""
+    for _ in range(int(n)):
+        d = next_business_day(d, holidays)
+    return d
+
+
+def nth_business_day_after(d, n, holidays):
+    return add_business_days(d, n, holidays)
+
+
+def business_days_between(a, b, holidays):
+    """Business days in (a, b]. 0 when b <= a."""
+    count, d = 0, a
+    while d < b:
+        d = d + datetime.timedelta(days=1)
+        if is_business_day(d, holidays):
+            count += 1
+    return count
+
+
+def week_monday(d):
+    return d - datetime.timedelta(days=d.weekday())
+
+
+def last_business_day_of_week(d, holidays):
+    """The last business day in d's Monday-Sunday week, or None when the week has none."""
+    day = week_monday(d) + datetime.timedelta(days=4)
+    while day >= week_monday(d):
+        if is_business_day(day, holidays):
+            return day
+        day = day - datetime.timedelta(days=1)
+    return None
+
+
+def weekday_in_week(d, weekday_name, weeks_ahead=0):
+    """The named weekday in d's week (weeks_ahead=0) or a later calendar week (1 = the following week)."""
+    idx = WEEKDAYS.index(str(weekday_name).strip().lower())
+    return week_monday(d) + datetime.timedelta(days=7 * int(weeks_ahead) + idx)
+
+
+def first_business_day_on_or_after(d, holidays):
+    return next_business_day(d, holidays, include_today=True)
+
+
+def parse_date_words(text, today):
+    """'2031-03-07', '07/03/2031' (day first), '7 March', 'March 7th' -> date, or None. The year defaults to the
+    next occurrence on or after today. Weekday words are not handled here: use weekday_in_week."""
+    s = str(text or '').strip().lower()
+    m = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})', s)
+    if m:
+        return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = re.search(r'\b(\d{1,2})[./](\d{1,2})[./](\d{2,4})\b', s)
+    if m:
+        y = int(m.group(3))
+        return datetime.date(y + 2000 if y < 100 else y, int(m.group(2)), int(m.group(1)))
+    for i, name in enumerate(MONTHS):
+        m = re.search(r'\b(\d{1,2})(st|nd|rd|th)?\s+(of\s+)?' + name[:3] + r'[a-z]*\b', s) or \
+            re.search(r'\b' + name[:3] + r'[a-z]*\s+(the\s+)?(\d{1,2})(st|nd|rd|th)?\b', s)
+        if m:
+            day = int(m.group(1) if m.group(1) and m.group(1).isdigit() else m.group(2))
+            cand = datetime.date(today.year, i + 1, day)
+            return cand if cand >= today else datetime.date(today.year + 1, i + 1, day)
+    return None
+
+
+def spoken_date(d):
+    """'Friday 7 March'. Adapt the words to the brief's language."""
+    return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()
+
+
+def parse_hhmm(text):
+    m = re.match(r'^\s*(\d{1,2})[:.h]?(\d{2})?\s*$', str(text or ''))
+    if not m:
+        raise ValueError('cannot read time: ' + str(text))
+    return datetime.time(int(m.group(1)), int(m.group(2) or 0))
+
+
+def in_window(t, start, end):
+    """start <= t <= end, both ends included. All datetime.time."""
+    return start <= t <= end
+
+
+def to_cents(amount):
+    """Major units -> integer minor units. round(), never int(): 19.99 * 100 is 1998.999..."""
+    return int(round(float(str(amount).replace(',', '')) * 100))
+
+
+def from_cents(cents):
+    return round(int(cents) / 100.0, 2)
+
+
+def money(amount, symbol=''):
+    """1234.5 -> '1,234.50' (with an optional symbol in front). 1234.0 -> '1,234'."""
+    v = round(float(amount), 2)
+    text = '{:,.0f}'.format(v) if v == int(v) else '{:,.2f}'.format(v)
+    return symbol + text
+
+
+def as_list(value):
+    """A mapped list may arrive as a list, a JSON string or a dict (tools-and-code.md): always return a list."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return []
+    if isinstance(value, dict):
+        return [value]
+    return value if isinstance(value, list) else []

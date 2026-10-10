@@ -59,3 +59,33 @@ def test_bad_addresses(base_agent):
     assert "no tool" in run_snippet(base_agent, "identity", {}, kind="post_hook", tool="get_account")["error"]
     assert "no pre_hook" in run_snippet(base_agent, "identity", {}, kind="pre_hook", tool="verify_identity")["error"]
     assert json.dumps(CODE_NODE)  # the shared fixture stays serialisable
+
+
+def _demo():
+    from tests.agentic.conftest import REPO
+
+    return json.loads((REPO / "tests" / "agentic" / "fixtures" / "pattern_demo.workflow.json").read_text())
+
+
+ITEMS = [{"item_ref": "r1", "kind": "kind_a", "ending": "1234", "overdue": 412.5, "days_over": 25, "floor_amount": 80},
+         {"item_ref": "r2", "kind": "kind_b", "overdue": 1000, "days_over": 3, "floor_amount": 100}]
+
+
+def test_calendar_code_node_on_a_friday_before_a_holiday_week():
+    facts = json.loads(run_snippet(_demo(), "facts", {"items": ITEMS, "now": "2031-03-07T11:00"})["vars_written"]["facts_json"])
+    # Friday 7 March: attempt 1 moves to next week; next Friday (14th) is a holiday, so Thursday 13th
+    assert [f["deadline"] for f in facts] == ["2031-03-12", "2031-03-17"]  # 3 and 5 business days, skipping the 14th
+    assert [f["attempt1"] for f in facts] == ["2031-03-12", "2031-03-13"]  # capped at the deadline / holiday Friday
+    assert [f["attempts"] for f in facts] == [2, 1]
+
+
+def test_calendar_code_node_with_json_string_list_late_in_the_week():
+    res = run_snippet(_demo(), "facts", {"items": json.dumps(ITEMS[:1]), "now": "2031-03-13T16:00"})
+    facts = json.loads(res["vars_written"]["facts_json"])
+    assert facts[0]["deadline"] == "2031-03-19" and facts[0]["attempt1"] == "2031-03-19"
+    assert res["vars_written"]["item_count"] == "1" and "Thursday 13 March" in res["vars_written"]["facts_text"]
+
+
+def test_setup_node_callback_window_after_cutoff():
+    out = run_snippet(_demo(), "setup", {"now": "2031-03-13T17:30"})["vars_written"]
+    assert "today" not in out["callback_window_text"].split("Today")[0] and out["callback_next_day_iso"] == "2031-03-17"

@@ -1,0 +1,70 @@
+{
+ "name": "opening",
+ "node_type": "conversation",
+ "on_enter": {
+  "type": "tts",
+  "text": "Hello, this is the automated assistant of Example Bank, and this call is recorded. Am I speaking with {{title}} {{last_name}}?"
+ },
+ "on_enter_first_entry_only": true,
+ "task_message": "Find out whether you are speaking with {{title}} {{last_name}}. Only a clear yes or their own name confirms it. If the answer is unclear, ask once more. Say nothing about why you are calling. No tool call is allowed in this turn.",
+ "extraction_schema": [
+  {
+   "name": "who",
+   "type": "string",
+   "enum_values": [
+    "customer",
+    "someone_else",
+    "wrong_number",
+    "unclear"
+   ],
+   "description": "Who answered: customer (clear yes or own name), someone_else, wrong_number, unclear.",
+   "min_confidence": 0.6
+  }
+ ],
+ "max_node_turns": 3,
+ "max_turn_transition": "goodbye_short",
+ "transitions": [
+  {
+   "target_node": "identity",
+   "description": "The customer confirmed",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "who",
+      "operator": "equals",
+      "operand": "customer"
+     }
+    ]
+   }
+  },
+  {
+   "target_node": "third_party_prep",
+   "description": "Someone else answered",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "who",
+      "operator": "equals",
+      "operand": "someone_else"
+     }
+    ]
+   }
+  },
+  {
+   "target_node": "mark_wrong_number",
+   "description": "Wrong number",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "who",
+      "operator": "equals",
+      "operand": "wrong_number"
+     }
+    ]
+   }
+  }
+ ]
+}
