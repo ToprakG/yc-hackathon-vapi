@@ -1,0 +1,138 @@
+[
+  {
+    "name": "verify_identity",
+    "description": "Verify the caller's identity with the last four digits of the national id and a birth date.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id_last4": {
+          "type": "string",
+          "description": "Last four digits."
+        },
+        "birth_date": {
+          "type": "string",
+          "description": "Birth date, YYYY-MM-DD."
+        }
+      },
+      "required": [
+        "id_last4",
+        "birth_date"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "get_account",
+    "description": "Read the account balance and the amount due after identity verification.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "Account id returned by verification."
+        }
+      },
+      "required": [
+        "account_id"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "log_promise_to_pay",
+    "description": "Log a promise to pay on a stated date for a stated amount.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pay_date": {
+          "type": "string",
+          "description": "Payment date, YYYY-MM-DD."
+        },
+        "pay_amount": {
+          "type": "number",
+          "description": "Amount the caller agreed, as a number."
+        }
+      },
+      "required": [
+        "pay_date",
+        "pay_amount"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "log_dispute",
+    "description": "Log a dispute of the debt.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "The caller's reason."
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "schedule_callback",
+    "description": "Schedule a callback at a time the caller states.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "when": {
+          "type": "string",
+          "description": "Callback time the caller stated."
+        }
+      },
+      "required": [
+        "when"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "mark_do_not_call",
+    "description": "Mark the account do not call.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "Account id."
+        }
+      },
+      "required": [
+        "account_id"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "transfer_to_human",
+    "description": "Transfer the call to a human agent.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Why the call is transferred."
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  }
+]

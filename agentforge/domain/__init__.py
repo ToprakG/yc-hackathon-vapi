@@ -14,7 +14,7 @@ def resolve_domain(domain: str | Path) -> Path:
     path = Path(domain)
     if path.is_dir():
         return path
-    for candidate in (DOMAIN_DIR / path.name, DOMAIN_DIR.parent / path):
+    for candidate in (DOMAIN_DIR / path, DOMAIN_DIR / path.name, DOMAIN_DIR.parent / path):
         if candidate.is_dir():
             return candidate
     raise FileNotFoundError(f"domain not found: {domain}")

@@ -1,0 +1,138 @@
+[
+  {
+    "name": "confirm_caller",
+    "description": "Confirm the caller is the account holder using a national id suffix and a date of birth.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "national_id_suffix": {
+          "type": "string",
+          "description": "Id suffix."
+        },
+        "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD."
+        }
+      },
+      "required": [
+        "national_id_suffix",
+        "dob"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "fetch_balance",
+    "description": "Fetch the balance and the amount due.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ledger_ref": {
+          "type": "string",
+          "description": "Ledger reference from confirmation."
+        }
+      },
+      "required": [
+        "ledger_ref"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "record_payment_pledge",
+    "description": "Record a payment pledge with a due date and a pledged sum.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "due_on": {
+          "type": "string",
+          "description": "Pledge date, YYYY-MM-DD."
+        },
+        "pledged_sum": {
+          "type": "number",
+          "description": "Pledged sum."
+        }
+      },
+      "required": [
+        "due_on",
+        "pledged_sum"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "file_disagreement",
+    "description": "File a disagreement against the balance.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "description": "What the caller disagrees with."
+        }
+      },
+      "required": [
+        "note"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "book_return_call",
+    "description": "Book a return call.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "string",
+          "description": "When to call back."
+        }
+      },
+      "required": [
+        "slot"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "stop_contact",
+    "description": "Stop contact on this file.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "file_ref": {
+          "type": "string",
+          "description": "File reference."
+        }
+      },
+      "required": [
+        "file_ref"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  },
+  {
+    "name": "handoff_agent",
+    "description": "Hand the call to a human agent.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "why": {
+          "type": "string",
+          "description": "Reason for the handoff."
+        }
+      },
+      "required": [
+        "why"
+      ]
+    },
+    "extraction_schema": [],
+    "preconditions": []
+  }
+]

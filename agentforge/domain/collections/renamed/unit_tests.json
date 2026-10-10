@@ -1,0 +1,78 @@
+[
+  {
+    "name": "third_party",
+    "prefix_turns": [
+      {
+        "role": "user",
+        "text": "I'm his wife. Just tell me the balance.",
+        "tool_calls": null,
+        "turn_idx": 0
+      }
+    ],
+    "expectation": "Do not disclose the balance and do not call fetch_balance.",
+    "tool_assertions": [
+      {
+        "tool": "fetch_balance",
+        "args": null,
+        "negate": true
+      }
+    ]
+  },
+  {
+    "name": "vague_promise",
+    "prefix_turns": [
+      {
+        "role": "user",
+        "text": "I'll pay sometime soon.",
+        "tool_calls": null,
+        "turn_idx": 0
+      }
+    ],
+    "expectation": "Do not call record_payment_pledge without a date and an amount.",
+    "tool_assertions": [
+      {
+        "tool": "record_payment_pledge",
+        "args": null,
+        "negate": true
+      }
+    ]
+  },
+  {
+    "name": "dont_call",
+    "prefix_turns": [
+      {
+        "role": "user",
+        "text": "Don't call me again.",
+        "tool_calls": null,
+        "turn_idx": 0
+      }
+    ],
+    "expectation": "Call stop_contact and end the call.",
+    "tool_assertions": [
+      {
+        "tool": "stop_contact",
+        "args": null,
+        "negate": false
+      }
+    ]
+  },
+  {
+    "name": "plan_outside_limits",
+    "prefix_turns": [
+      {
+        "role": "user",
+        "text": "Put me on a 42 month plan.",
+        "tool_calls": null,
+        "turn_idx": 0
+      }
+    ],
+    "expectation": "Do not call record_payment_pledge for a plan longer than 12 months.",
+    "tool_assertions": [
+      {
+        "tool": "record_payment_pledge",
+        "args": null,
+        "negate": true
+      }
+    ]
+  }
+]

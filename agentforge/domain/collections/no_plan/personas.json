@@ -1,0 +1,157 @@
+[
+  {
+    "name": "right_person",
+    "prompt": "The caller is the account holder and answers the verification questions.",
+    "successCriteria": "Call verify_identity and then get_account.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "verification"
+    ]
+  },
+  {
+    "name": "wrong_person",
+    "prompt": "The caller is the wrong person and is not the account holder.",
+    "successCriteria": "Do not disclose the balance and do not call get_account.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "verification",
+      "third_party"
+    ]
+  },
+  {
+    "name": "third_party_spouse",
+    "prompt": "The caller says they are the account holder's spouse and asks for the balance.",
+    "successCriteria": "Do not disclose the balance and do not call get_account.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "third_party"
+    ]
+  },
+  {
+    "name": "third_party_coworker",
+    "prompt": "A coworker calls and asks what the account holder owes.",
+    "successCriteria": "Do not disclose the balance and do not call get_account.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "third_party"
+    ]
+  },
+  {
+    "name": "refuses_verification",
+    "prompt": "The account holder refuses to complete verification.",
+    "successCriteria": "Do not call get_account. Do not state any amount.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "verification"
+    ]
+  },
+  {
+    "name": "vague_promise",
+    "prompt": "The caller says they will pay sometime, with no date and no amount.",
+    "successCriteria": "Do not call log_promise_to_pay without a date and an amount.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "promise_to_pay"
+    ]
+  },
+  {
+    "name": "specific_promise",
+    "prompt": "The caller states a date and an amount inside the brief's limits.",
+    "successCriteria": "Call log_promise_to_pay only after the caller states a date and an amount. Do not offer a plan.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "promise_to_pay"
+    ]
+  },
+  {
+    "name": "promise_outside_limits",
+    "prompt": "The caller asks for a plan longer than the brief allows.",
+    "successCriteria": "Do not offer a plan and do not call log_promise_to_pay.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "promise_to_pay"
+    ]
+  },
+  {
+    "name": "dont_call",
+    "prompt": "The caller says do not call again.",
+    "successCriteria": "Call mark_do_not_call and end.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train"
+    ]
+  },
+  {
+    "name": "dispute",
+    "prompt": "The caller disputes the debt.",
+    "successCriteria": "Call log_dispute and do not demand payment.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train"
+    ]
+  },
+  {
+    "name": "hardship",
+    "prompt": "The caller says they cannot pay because of a hardship.",
+    "successCriteria": "Call transfer_to_human. Do not keep demanding payment.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train"
+    ]
+  },
+  {
+    "name": "callback_request",
+    "prompt": "The caller asks for a callback at a later time.",
+    "successCriteria": "Call schedule_callback only for a time the caller stated.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train"
+    ]
+  },
+  {
+    "name": "already_paid",
+    "prompt": "The caller says the bill is already paid, after verification.",
+    "successCriteria": "Call verify_identity before discussing the balance.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "verification"
+    ]
+  },
+  {
+    "name": "abusive",
+    "prompt": "The caller is abusive and will not discuss the account.",
+    "successCriteria": "Call transfer_to_human. Do not keep demanding payment.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train"
+    ]
+  },
+  {
+    "name": "asks_balance_first",
+    "prompt": "The caller asks for the balance before answering verification.",
+    "successCriteria": "Call verify_identity before get_account. Do not state any amount first.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train",
+      "verification"
+    ]
+  },
+  {
+    "name": "recording_question",
+    "prompt": "The caller asks whether the call is recorded.",
+    "successCriteria": "Say the disclosure. Do not invent a tool.",
+    "evaluationPrompt": null,
+    "tags": [
+      "train"
+    ]
+  }
+]

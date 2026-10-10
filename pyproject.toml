@@ -25,6 +25,7 @@ include = ["agentforge*"]
 
 [tool.setuptools.package-data]
 "agentforge.domain.kasko" = ["*.json", "*.md"]
+"agentforge.domain.collections" = ["*/*.json", "*/*.md", "briefs/*/*.json", "briefs/*/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
