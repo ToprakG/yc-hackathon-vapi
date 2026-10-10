@@ -24,6 +24,7 @@ from builder.template_cc.apimodel import ApiModel  # noqa: E402
 from builder.template_cc.trace import Trace  # noqa: E402
 from builder.template_cc.vendor_runner import VendorRunner  # noqa: E402
 
+SHARED = ""
 FAKE = sorted(p.name for p in (REPO / "testbed" / "fake_briefs").iterdir() if p.is_dir())
 
 
@@ -72,6 +73,8 @@ def evaluate(brief: str, limit: int, reps: int, concurrency: int, port: int, fre
     runner = VendorRunner(f"tcc-{brief}", config, ApiModel.load(api_path), trace, freya, port=port,
                           concurrency=concurrency, slot_suffix="-eval", run_timeout_s=7200)
     runner.label = [brief, tag]
+    if SHARED:
+        runner.use_shared(SHARED.rstrip("/") + "/" + brief)
     t0 = time.time()
     try:
         results = runner.run(wf, chosen, {}, config, reps)
@@ -95,8 +98,11 @@ def main():
     ap.add_argument("--port", type=int, default=8790)
     ap.add_argument("--exclude-sample", type=int, default=0, help="skip the first N cases --limit N would pick")
     ap.add_argument("--tag", default="")
+    ap.add_argument("--shared-origin", default="", help="use a shared multi-brief bank (scripts/tcc_shared_bank.py)")
     a = ap.parse_args()
     import freya
+    global SHARED
+    SHARED = a.shared_origin
     briefs = FAKE if a.brief == "all-fake" else [a.brief]
     summary = []
     for b in briefs:

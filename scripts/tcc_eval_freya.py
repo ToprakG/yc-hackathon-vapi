@@ -35,6 +35,7 @@ from builder.template_cc.trace import Trace  # noqa: E402
 from builder.template_cc.vendor_runner import VendorRunner, point_at  # noqa: E402
 
 ALL = ["brief-a", "brief-b"] + sorted(p.name for p in (REPO / "testbed" / "fake_briefs").iterdir() if p.is_dir())
+SHARED = ""
 OUT = REPO / "out" / "template_cc" / "eval" / "freya"
 PERSONAS = OUT / "personas.json"  # our own persona cache (the kit's .personas.json belongs to other runs)
 
@@ -118,6 +119,8 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag):
     chosen = pick(cases, limit, skip)
     trace = Trace(REPO / "traces" / f"tcc-eval-freya-{brief}-{time.strftime('%Y%m%d-%H%M%S')}", {"brief": brief, "cases": len(chosen)})
     runner = VendorRunner(f"tcc-{brief}", config, ApiModel.load(api_path), trace, freya, port=port, slot_suffix="-eval")
+    if SHARED:
+        runner.use_shared(SHARED.rstrip("/") + "/" + brief)
     t0 = time.time()
     try:
         runner._ensure(chosen)  # the vendor mock bank with these cases, behind a tunnel
@@ -173,7 +176,10 @@ def main():
     ap.add_argument("--concurrency", type=int, default=10, help="parallel calls inside one Freya simulation")
     ap.add_argument("--port", type=int, default=8830)
     ap.add_argument("--tag", default="s10")
+    ap.add_argument("--shared-origin", default="")
     a = ap.parse_args()
+    global SHARED
+    SHARED = a.shared_origin
     budget = Budget(a.or_budget)
     print(f"OpenRouter usage at start: {budget.start}; local-judge budget ${a.or_budget}", flush=True)
     for b in (ALL if a.brief == "all" else a.brief.split(",")):
