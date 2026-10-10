@@ -9,15 +9,17 @@ set -a; [ -f .env ] && . ./.env; set +a
 export FREYA_STATE_FILE=${FREYA_STATE_FILE:-.freya-agents.newkey.json}
 OUT=out/template_cc/eval; LOG=$OUT/night_queue.log
 BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
-QUEUE="f149b:f149br p2:p2r p3:p3r p4:p4r"
-REPS=2; TOTAL=72
+# set:tag-prefix:reps. Order: the baseline (1 rep), the full candidate p4 (2 reps), then, if time remains, p2 and p3 (2 reps each)
+QUEUE="f149b:f149br:1 p4:p4r:2 p2:p2r:2 p3:p3r:2"
+TOTAL=63
 DEADLINE=$(date -j -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) 09:00" +%s)
 [ "$DEADLINE" -le "$(date +%s)" ] && DEADLINE=$((DEADLINE + 86400))
 BLOCKED_SINCE=0; SWITCHED=0
 log() { echo "$(date +%m-%d\ %H:%M:%S) $*" >> "$LOG"; }
 
-done_count() { n=0; for q in $QUEUE; do p=${q#*:}; for r in $(seq 1 $REPS); do for b in $BRIEFS; do [ -f "$OUT/freya/$b.$p$r.json" ] && n=$((n+1)); done; done; done; echo $n; }
-set_done() { p=$2; for r in $(seq 1 $REPS); do for b in $BRIEFS; do [ -f "$OUT/freya/$b.$p$r.json" ] || return 1; done; done; return 0; }
+qset() { echo "${1%%:*}"; }; qpre() { x=${1#*:}; echo "${x%%:*}"; }; qreps() { echo "${1##*:}"; }
+done_count() { n=0; for q in $QUEUE; do p=$(qpre $q); for r in $(seq 1 $(qreps $q)); do for b in $BRIEFS; do [ -f "$OUT/freya/$b.$p$r.json" ] && n=$((n+1)); done; done; done; echo $n; }
+set_done() { p=$(qpre $1); for r in $(seq 1 $(qreps $1)); do for b in $BRIEFS; do [ -f "$OUT/freya/$b.$p$r.json" ] || return 1; done; done; return 0; }
 tunnel_ok() { o=$(cat $OUT/shared_origin.txt 2>/dev/null); [ -n "$o" ] && curl -s -m 15 "$o/brief-a/openapi.json" | grep -q '"openapi"'; }
 
 restart_bank() {
@@ -47,9 +49,9 @@ while [ "$(date +%s)" -lt "$DEADLINE" ] && [ "$(done_count)" -lt "$TOTAL" ]; do
   if pgrep -f "scripts/eval_chain.sh" > /dev/null || pgrep -f "scripts/tcc_eval_freya.py" > /dev/null; then
     log "done $(done_count)/$TOTAL: a chain is running"
   else
-    NEXT=""; for q in $QUEUE; do set_done ${q%:*} ${q#*:} || { NEXT=$q; break; }; done
+    NEXT=""; for q in $QUEUE; do set_done $q || { NEXT=$q; break; }; done
     if [ -z "$NEXT" ]; then break; fi
-    S=${NEXT%:*}; P=${NEXT#*:}
+    S=$(qset $NEXT); P=$(qpre $NEXT); R=$(qreps $NEXT)
     if [ -f "$OUT/chain-$P.log" ] && tail -n 1 "$OUT/chain-$P.log" | grep -q "another simulation"; then
       [ "$BLOCKED_SINCE" -eq 0 ] && BLOCKED_SINCE=$(date +%s)
       MIN=$(( ($(date +%s) - BLOCKED_SINCE) / 60 ))
@@ -60,9 +62,9 @@ while [ "$(date +%s)" -lt "$DEADLINE" ] && [ "$(done_count)" -lt "$TOTAL" ]; do
       fi
     else
       BLOCKED_SINCE=0
-      log "done $(done_count)/$TOTAL: starting chain $S $P x$REPS"
+      log "done $(done_count)/$TOTAL: starting chain $S $P x$R"
     fi
-    nohup scripts/eval_chain.sh "$S" "$P" $REPS >> "$OUT/night_chains.out" 2>&1 < /dev/null &
+    nohup scripts/eval_chain.sh "$S" "$P" $R >> "$OUT/night_chains.out" 2>&1 < /dev/null &
   fi
   sleep 300
 done
