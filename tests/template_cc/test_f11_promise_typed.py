@@ -144,15 +144,16 @@ def test_multi_product_resets_side_product_inside_its_enum():
             assert val in enum, (nid, val)
 
 
-def test_an_unreadable_amount_is_asked_never_guessed(a):
+def test_an_unreadable_amount_is_asked_once_per_offer_never_guessed(a):
     wf, _, _, v = a
     o = check(wf, v, "", "the sixth of March", "accepts_offer")
     assert o["cp_route"] == "back" and "which amount" in o["say_line"].lower() and not o.get("rb_amount")
-    o = check(wf, o, "um, whatever works", "the sixth of March", "accepts_offer")
-    assert o["cp_route"] == "back" and not o.get("rb_amount") and o["amt_ask_n"] == "2"
-    for _ in range(3):  # after three questions it stops asking, but never records a guess
-        o = check(wf, o, "", "the sixth of March", "accepts_offer")
-    assert o["cp_route"] == "back" and o["say_line"] == "" and not o.get("rb_amount")
+    o = check(wf, o, "um, whatever works", "the sixth of March", "accepts_offer")  # still unreadable: not asked again
+    assert o["cp_route"] == "back" and o["say_line"] == "" and not o.get("rb_amount") and o["amt_ask_n"] == "2"
+    o = check(wf, o, "three hundred", "the sixth of March")  # a readable amount resets the question for the next offer
+    assert o["cp_route"] == "confirm" and o["amt_ask_n"] == "0"
+    o = check(wf, o, "", "the sixth of March", "accepts_offer")
+    assert "which amount" in o["say_line"].lower()
 
 
 def _with_offer(mode):

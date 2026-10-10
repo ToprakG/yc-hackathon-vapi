@@ -1020,9 +1020,10 @@ ID_INIT        vars['cb_state'] = 'none'
             elif amt is None:
                 n = int(num(vars.get('amt_ask_n'))) + 1
                 vars['amt_ask_n'] = str(n)
-                say = 'Which amount would you like to pay?' if n <= 3 else ''
+                say = 'Which amount would you like to pay?' if n == 1 else ''
             else:
                 amt = float(amt)
+                vars['amt_ask_n'] = '0'
                 d = datetime.date.fromisoformat(d_iso)
                 if amt < floor - 0.005:
                     say = 'I cannot record less than ' + money(floor) + '. Could you pay that amount?'
@@ -1117,6 +1118,7 @@ ID_INIT        vars['cb_state'] = 'none'
                   "key": k} for k, v in msgs.items()]
         self.book.target("/nodes/promise_write/pre_actions/0/post_process_code", "hook_msgs", parts)
         self.code("after_promise", """
+        vars['amt_ask_n'] = '0'
         neg_flag(vars)
         refresh_close(vars, CFG)
         """, [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")],
