@@ -1,8 +1,8 @@
 #!/bin/bash
 # Morning summary of the overnight eval queue (no LLM). Writes results/ablation/NIGHT_SUMMARY.md and prints it.
-# Env: LADDER="f149br:f149b:1 p4r:p4:2 p2r:p2:2 p3r:p3:2"  (tag prefix : set directory under out/template_cc/ or "-" : reps)  REPS=default reps (2)
-# The first entry is the baseline. p4 (all flags) is judged against it first; only when p4 is REJECT are p2 and p3 judged (each against the
-# last ACCEPTED step). After an ACCEPT the later steps are not needed.
+# Env: LADDER="f149br:f149b:1 p4r:p4:2 p4xr:p4x:2 p5r:p5:2 p2r:p2:2 p3r:p3:2"  (tag prefix : set directory under out/template_cc/ or "-" : reps)  REPS=default reps (2)
+# The first entry is the baseline. A: baseline -> p4r (the verdict). B: p4r -> p4xr (cost of a fresh extraction) and C: p4xr -> p5r (effect of
+# the intents) are information. p2r and p3r are judged (each against the last ACCEPTED step) only when p4r is REJECT.
 cd "$(dirname "$0")/.." || exit 2
 exec python3 - "$@" <<'PY'
 import glob, json, os, re, subprocess, sys
@@ -11,7 +11,7 @@ from pathlib import Path
 REPO = Path.cwd()
 EV = REPO / "out/template_cc/eval/freya"
 REPS = int(os.environ.get("REPS", "2"))  # 0 = tags without a rep number (s10, f14)
-LADDER = [(x.split(":") + [str(REPS)])[:3] for x in os.environ.get("LADDER", "f149br:f149b:1 p4r:p4:2 p2r:p2:2 p3r:p3:2").split()]
+LADDER = [(x.split(":") + [str(REPS)])[:3] for x in os.environ.get("LADDER", "f149br:f149b:1 p4r:p4:2 p4xr:p4x:2 p5r:p5:2 p2r:p2:2 p3r:p3:2").split()]
 NREPS = {pre: int(n) for pre, _, n in LADDER}
 def rl(pre): return [""] if REPS == 0 else [str(r) for r in range(1, NREPS[pre] + 1)]
 LADDER = [(pre, setdir) for pre, setdir, _ in LADDER]
@@ -56,38 +56,64 @@ def grew(base, new):
             cur = None
     return "\n".join("\n".join(c[:3]) for c in keep) or "(no cluster grew)"
 
-say(); say("## 3. Ladder: each step against the last ACCEPTED step"); say()
-kept = LADDER[0] if complete.get(LADDER[0][0]) else None
-if kept is None:
-    say(f"Baseline {LADDER[0][0]} is incomplete: no verdicts possible.")
-decisions = []
-accepted_candidate = False
-for pre, setdir in LADDER[1:]:
-    if accepted_candidate:
-        say(f"- {pre}: not needed (a fuller flag set was already accepted)"); continue
-    if kept is None:
-        say(f"- {pre}: SKIPPED (no complete base)"); continue
-    if not complete[pre]:
-        say(f"- {pre}: INCOMPLETE ({'/'.join(str(sum((EV / f'{b}.{pre}{r}.json').exists() for b in BRIEFS)) for r in rl(pre))} briefs per rep), no verdict"); continue
-    base = ",".join(f"{kept[0]}{r}" for r in rl(kept[0])); new = ",".join(f"{pre}{r}" for r in rl(pre))
-    txt = run("scripts/stability.py", "--base", base, "--new", new)
-    verdict = "ACCEPT" if re.search(r"^ACCEPT", txt, re.M) else "REJECT"
-    say(f"### {pre} vs {kept[0]}: **{verdict}**"); say("```"); say(txt); say("```")
-    say("Clusters that grew (rep 1):"); say("```"); say(grew(f"{kept[0]}{rl(kept[0])[0]}", f"{pre}{rl(pre)[0]}")); say("```")
-    decisions.append((pre, verdict))
-    if verdict == "ACCEPT":
-        kept = [pre, setdir]
-        accepted_candidate = True
+def verdict_of(base_pre, new_pre):
+    txt = run("scripts/stability.py", "--base", ",".join(f"{base_pre}{r}" for r in rl(base_pre)), "--new", ",".join(f"{new_pre}{r}" for r in rl(new_pre)))
+    return ("ACCEPT" if re.search(r"^ACCEPT", txt, re.M) else "REJECT"), txt
+
+def step(title, base_pre, new_pre, note=""):
+    """One comparison; prints the stability output and the clusters that grew (rep 1). Returns the verdict or None if incomplete."""
+    if not complete.get(base_pre) or not complete.get(new_pre):
+        missing = [p for p in (base_pre, new_pre) if not complete.get(p)]
+        say(f"### {title}: INCOMPLETE ({', '.join(missing)} not finished), no verdict"); return None
+    verdict, txt = verdict_of(base_pre, new_pre)
+    say(f"### {title}: **{verdict}**" + (f"  ({note})" if note else "")); say("```"); say(txt); say("```")
+    say("Clusters that grew (rep 1):"); say("```"); say(grew(f"{base_pre}{rl(base_pre)[0]}", f"{new_pre}{rl(new_pre)[0]}")); say("```")
+    return verdict
+
+say(); say("## 3. Comparisons"); say()
+names = [pre for pre, _ in LADDER]
+setdir = dict(LADDER)
+base, p4, p4x, p5 = (names + [None] * 4)[0], None, None, None
+get = lambda n: n if n in names else None
+base, p4, p4x, p5, p2, p3 = (get(n) for n in ("f149br", "p4r", "p4xr", "p5r", "p2r", "p3r"))
+base = base or names[0]
+decisions = {}
+if p4:
+    decisions["A"] = step("A. baseline -> p4 (all flags, cached policies)", base, p4)
+if p4 and p4x:
+    decisions["B"] = step("B. p4 -> p4x (cost of a fresh extraction: same flags, x1 policies)", p4, p4x, "information")
+if p4x and p5:
+    decisions["C"] = step("C. p4x -> p5 (effect of the intents, f16_intents)", p4x, p5, "information")
+kept = p4 if decisions.get("A") == "ACCEPT" else None
+if decisions.get("A") == "REJECT":
+    say(); say("p4 is REJECT: judging the earlier flag sets against the baseline."); say()
+    kept = base
+    for pre in (p2, p3):
+        if pre:
+            v = step(f"D. {kept} -> {pre}", kept, pre)
+            decisions[pre] = v
+            if v == "ACCEPT":
+                kept = pre
+elif decisions.get("A") == "ACCEPT":
+    say(); say("p4 is ACCEPT: p2 and p3 are not needed.")
 
 say(); say("## 4. Kept flags"); say()
-if kept is None:
-    say("none (no complete baseline)")
+if decisions.get("A") is None:
+    say("No verdict on p4 yet (incomplete)."); kept_set = None
 else:
-    rep = REPO / "out/template_cc" / kept[1] / "brief-a/build_report.json"
-    feats = json.loads(rep.read_text()).get("features") if kept[1] != "-" and rep.exists() else None
-    say(f"Last accepted step: **{kept[0]}** (set {kept[1]})")
+    kept_set = kept
+    if kept == p4 and decisions.get("C") == "ACCEPT" and p5:
+        kept_set = p5
+        say(f"p5 (p4 + intents) beats p4x too, so the intents stay on.")
+    elif kept == p4 and decisions.get("B") == "REJECT":
+        say("Note: p4x (fresh extraction) is worse than p4 (cached policies): the extraction costs score; look at section B.")
+if kept_set:
+    sd = setdir.get(kept_set, "-")
+    rep = REPO / "out/template_cc" / sd / "brief-a/build_report.json"
+    feats = json.loads(rep.read_text()).get("features") if sd != "-" and rep.exists() else None
+    say(f"Last accepted step: **{kept_set}** (set {sd})")
     say(f"Flags: `{','.join(feats)}`" if feats else "Flags: (no build report for this set)")
-    say(); say("Decisions: " + (", ".join(f"{p}={v}" for p, v in decisions) or "none"))
+say(); say("Decisions: " + (", ".join(f"{k}={v}" for k, v in decisions.items()) or "none"))
 (REPO / "results/ablation").mkdir(parents=True, exist_ok=True)
 (REPO / "results/ablation/NIGHT_SUMMARY.md").write_text("\n".join(out) + "\n")
 PY

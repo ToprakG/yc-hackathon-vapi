@@ -9,9 +9,10 @@ set -a; [ -f .env ] && . ./.env; set +a
 export FREYA_STATE_FILE=${FREYA_STATE_FILE:-.freya-agents.newkey.json}
 OUT=out/template_cc/eval; LOG=$OUT/night_queue.log
 BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
-# set:tag-prefix:reps. Order: the baseline (1 rep), the full candidate p4 (2 reps), then, if time remains, p2 and p3 (2 reps each)
-QUEUE="f149b:f149br:1 p4:p4r:2 p2:p2r:2 p3:p3r:2"
-TOTAL=63
+# set:tag-prefix:reps. Order: p4 (all flags, cached policies), p4x (the same flags on fresh x1 policies), p5 (p4x + intents), then p2, p3.
+# The baseline f149br was run once already (f149br1 complete).
+QUEUE="p4:p4r:2 p4x:p4xr:2 p5:p5r:2 p2:p2r:2 p3:p3r:2"
+TOTAL=90
 DEADLINE=$(date -j -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) 09:00" +%s)
 [ "$DEADLINE" -le "$(date +%s)" ] && DEADLINE=$((DEADLINE + 86400))
 BLOCKED_SINCE=0; SWITCHED=0
@@ -20,11 +21,14 @@ log() { echo "$(date +%m-%d\ %H:%M:%S) $*" >> "$LOG"; }
 qset() { echo "${1%%:*}"; }; qpre() { x=${1#*:}; echo "${x%%:*}"; }; qreps() { echo "${1##*:}"; }
 done_count() { n=0; for q in $QUEUE; do p=$(qpre $q); for r in $(seq 1 $(qreps $q)); do for b in $BRIEFS; do [ -f "$OUT/freya/$b.$p$r.json" ] && n=$((n+1)); done; done; done; echo $n; }
 set_done() { p=$(qpre $1); for r in $(seq 1 $(qreps $1)); do for b in $BRIEFS; do [ -f "$OUT/freya/$b.$p$r.json" ] || return 1; done; done; return 0; }
+# a REAL process: the pattern is anchored at the start of the command line, so a shell whose command text merely mentions the script
+# (like the one that launched this queue) does not count
+running() { pgrep -f "^(/bin/bash )?scripts/eval_chain\.sh " > /dev/null || pgrep -f "^[^ ]*python[^ ]* scripts/tcc_eval_freya\.py" > /dev/null; }
 tunnel_ok() { o=$(cat $OUT/shared_origin.txt 2>/dev/null); [ -n "$o" ] && curl -s -m 15 "$o/brief-a/openapi.json" | grep -q '"openapi"'; }
 
 restart_bank() {
   log "tunnel dead: restarting the bank and tunnel"
-  pkill -f "eval_chain.sh" 2>/dev/null; pkill -f "scripts/tcc_eval_freya.py" 2>/dev/null
+  pkill -f "^(/bin/bash )?scripts/eval_chain\.sh " 2>/dev/null; pkill -f "^[^ ]*python[^ ]* scripts/tcc_eval_freya\.py" 2>/dev/null
   # only what this project started: the shared bank script, its cloudflared, the ssh tunnel to 8860, and whatever holds port 8860
   pkill -f "scripts/tcc_shared_bank.py" 2>/dev/null; pkill -f "cloudflared tunnel --url http://127.0.0.1:8860" 2>/dev/null
   pkill -f "ssh .* -R 80:localhost:8860 " 2>/dev/null; sleep 2
@@ -46,7 +50,7 @@ restart_bank() {
 log "night queue start (deadline $(date -r $DEADLINE +%H:%M)), done $(done_count)/$TOTAL"
 while [ "$(date +%s)" -lt "$DEADLINE" ] && [ "$(done_count)" -lt "$TOTAL" ]; do
   tunnel_ok || restart_bank
-  if pgrep -f "scripts/eval_chain.sh" > /dev/null || pgrep -f "scripts/tcc_eval_freya.py" > /dev/null; then
+  if running; then
     log "done $(done_count)/$TOTAL: a chain is running"
   else
     NEXT=""; for q in $QUEUE; do set_done $q || { NEXT=$q; break; }; done
