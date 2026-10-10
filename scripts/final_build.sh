@@ -13,7 +13,7 @@ echo "features: $FEATURES"
 env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
   --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))
-python3 - "$OUT" "$RC" "$WALL" "$API" "${CONFIG:-}" <<'PY'
+BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}") python3 - "$OUT" "$RC" "$WALL" "$API" "${CONFIG:-}" <<'PY'
 import json, re, subprocess, sys
 from pathlib import Path
 out, rc, wall, api, config = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
@@ -39,6 +39,6 @@ if (rep.get("extract") or {}).get("repairs"): human.append("policy defaults were
 if any("policy default" in l for _, l in t): human.append("policy_check could not validate some fields")
 print("needed a human:", "; ".join(human) if human else "no")
 if config:
-    r = subprocess.run(["python3", "scripts/policy_critical.py", str(out / "policy.json"), config, "--api", api], capture_output=True, text=True)
+    r = subprocess.run(["python3", "scripts/policy_critical.py", str(out / "policy.json"), config, "--api", api] + sum([["--brief", b] for b in __import__("os").environ.get("BRIEFS_CSV", "").split(",") if b], []), capture_output=True, text=True)
     print("policy_critical:", r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[:200])
 PY
