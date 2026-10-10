@@ -126,11 +126,27 @@ def run_case(workflow: dict, case: dict, config: dict, bank, style: str | None =
             "turns": engine.turn_log if not (led["pass"] and judged.get("pass") is True and not error) else []}
 
 
+CASE_LIMIT_S = float(os.environ.get("LOCALSIM_CASE_LIMIT_S", "420"))
+
+
 def run_cases(workflow: dict, cases: list[dict], config: dict, parallel: int = 4, hard: bool = True) -> list[dict]:
     bank = vendor()["mockbank"].Bank(cases, config)
     styles = [c.get("style") or (HARD_STYLES[i % len(HARD_STYLES)] if hard else None) for i, c in enumerate(cases)]
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-        return list(pool.map(lambda pair: run_case(workflow, pair[0], config, bank, pair[1]), zip(cases, styles)))
+        return list(pool.map(lambda pair: _bounded(workflow, pair[0], config, bank, pair[1]), zip(cases, styles)))
+
+
+def _bounded(workflow, case, config, bank, style, limit_s: float = CASE_LIMIT_S) -> dict:
+    """run_case with a wall-clock limit. OpenRouter keeps a slow request alive with whitespace, so socket timeouts
+    alone never fire and one stuck case would hold the whole run; past the limit the case counts as an error."""
+    box = {}
+    worker = threading.Thread(target=lambda: box.update(r=run_case(workflow, case, config, bank, style)), daemon=True)
+    worker.start()
+    worker.join(limit_s)
+    if "r" in box:
+        return box["r"]
+    return {"id": case.get("id"), "family": case.get("family"), "pass": False, "error": f"case took over {int(limit_s)} s",
+            "turns": [], "failed_checks": [], "ledger_failed": []}
 
 
 def derive_tests(results: list[dict], workflow: dict, per_case: int = 2, total: int = 8) -> list[dict]:
