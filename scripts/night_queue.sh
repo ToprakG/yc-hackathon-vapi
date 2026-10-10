@@ -11,8 +11,8 @@ OUT=out/template_cc/eval; LOG=$OUT/night_queue.log
 BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
 # set:tag-prefix:reps. Order: p4 (all flags, cached policies), p4x (the same flags on fresh x1 policies), p5 (p4x + intents), then p2, p3.
 # The baseline f149br was run once already (f149br1 complete).
-QUEUE="p4:p4r:2 p4x:p4xr:2 p5:p5r:2 p2:p2r:2 p3:p3r:2"
-TOTAL=90
+QUEUE="p6:p6r:2 p6x:p6xr:2 p7:p7r:2 p4:p4r:2 p2:p2r:2 p3:p3r:2"  # p6 = p4 flags + the fixes of the p4r1 run (p4 had known bugs); p6x = x1 policies; p7 = p6x + intents
+TOTAL=108
 DEADLINE=$(date -j -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) 09:00" +%s)
 [ "$DEADLINE" -le "$(date +%s)" ] && DEADLINE=$((DEADLINE + 86400))
 BLOCKED_SINCE=0; SWITCHED=0
