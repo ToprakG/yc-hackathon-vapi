@@ -30,6 +30,10 @@ def helpers(*names):
         wanted.add(name)
         todo += [x.id for x in ast.walk(defs[name]) if isinstance(x, ast.Name) and x.id in defs]
     keep = [ast.get_source_segment(src, n) for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+    used = {x.id for name in wanted for x in ast.walk(defs[name]) if isinstance(x, ast.Name)}
+    consts = [ast.get_source_segment(src, n) for n in tree.body if isinstance(n, ast.Assign)
+              and any(isinstance(t, ast.Name) and t.id in used and t.id not in ("WEEKDAYS", "MONTHS") for t in n.targets)]
+    keep = consts + keep
     return "import datetime\nimport json\nimport re\n\nWEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']\n" \
            "MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']\n\n" \
            + "\n\n".join(keep) + "\n\n"

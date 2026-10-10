@@ -126,13 +126,46 @@ def parse_date_words(text, today):
     return None
 
 
+ORDINAL_WORDS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth',
+                 'eleventh', 'twelfth', 'thirteenth', 'fourteenth', 'fifteenth', 'sixteenth', 'seventeenth',
+                 'eighteenth', 'nineteenth', 'twentieth']
+
+
+def ordinals_to_digits(text):
+    """'the thirtieth', 'twenty-first', 'twenty first' -> '30th', '21th' (digits + th), so the date rules can read them."""
+    s = str(text or '').lower()
+    s = re.sub(r'\bthirty[\s-]+first\b', '31th', s)
+    s = re.sub(r'\bthirtieth\b', '30th', s)
+    for i, w in enumerate(ORDINAL_WORDS[:9], 1):
+        s = re.sub(r'\btwenty[\s-]+' + w + r'\b', str(20 + i) + 'th', s)
+    for i, w in enumerate(ORDINAL_WORDS, 1):
+        s = re.sub(r'\b' + w + r'\b', str(i) + 'th', s)
+    return s
+
+
 def resolve_date_words(text, today, next_weekday_weeks=1):
-    """The customer's date words -> date, or None when vague. Handles ISO and numeric dates, '7 March', 'today',
-    'tomorrow', 'day after tomorrow', '<weekday>', 'this <weekday>', 'next <weekday>'. A bare weekday is the next one
-    on or after today. next_weekday_weeks sets what 'next <weekday>' means: 1 = that weekday in the following calendar
-    week. Set it from the brief; if the brief defines it otherwise, change it."""
-    s = str(text or '').strip().lower()
+    """The customer's date words -> date, or None when vague. Handles ISO and numeric dates, '7 March',
+    'the thirtieth of October', 'Monday the 26th', 'the 26th', 'today', 'tomorrow', 'day after tomorrow', '<weekday>',
+    'this <weekday>', 'next <weekday>'. An explicit day of the month always wins over a weekday name. A bare weekday
+    is the next one on or after today. next_weekday_weeks sets what 'next <weekday>' means: 1 = that weekday in the
+    following calendar week. Set it from the brief; if the brief defines it otherwise, change it."""
+    s = ordinals_to_digits(str(text or '').strip().lower())
     if not s:
+        return None
+    explicit = parse_date_words(s, today)
+    if explicit is not None:
+        return explicit
+    m = re.search(r'\b(\d{1,2})(st|nd|rd|th)\b', s)
+    if m:  # a day of the month without a month: this month if still ahead, else next month
+        day = int(m.group(1))
+        for k in range(0, 3):
+            y, mo = today.year + (today.month - 1 + k) // 12, (today.month - 1 + k) % 12 + 1
+            try:
+                cand = datetime.date(y, mo, day)
+            except ValueError:
+                continue
+            if cand >= today:
+                return cand
         return None
     if 'day after tomorrow' in s:
         return today + datetime.timedelta(days=2)

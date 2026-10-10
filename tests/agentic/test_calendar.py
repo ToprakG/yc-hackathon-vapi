@@ -95,3 +95,14 @@ def test_resolve_date_words():
     assert cal.resolve_date_words("on Tuesday", fri) == D("2031-03-11")
     assert cal.resolve_date_words("the 20th of March", fri) == D("2031-03-20")
     assert cal.resolve_date_words("when I get paid", fri) is None and cal.resolve_date_words("", fri) is None
+
+
+def test_resolve_explicit_day_wins_and_ordinal_words():
+    wed = D("2031-03-12")  # a Wednesday
+    assert cal.resolve_date_words("Monday the 24th", wed) == D("2031-03-24")  # not this week's Monday
+    assert cal.resolve_date_words("the thirtieth of March", wed) == D("2031-03-30")
+    assert cal.resolve_date_words("on the twenty-first", wed) == D("2031-03-21")
+    assert cal.resolve_date_words("the twenty first of April", wed) == D("2031-04-21")
+    assert cal.resolve_date_words("the 3rd", wed) == D("2031-04-03")  # day already past this month: next month
+    assert cal.resolve_date_words("first of April", wed) == D("2031-04-01")
+    assert cal.ordinals_to_digits("thirty-first") == "31th"

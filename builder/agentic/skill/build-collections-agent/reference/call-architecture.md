@@ -116,6 +116,12 @@ handled, and when a refusal ends the negotiation. Write the brief's own sequence
   own date, and sent a note for the wrong product. Fragments: `offer_loop_code_node.json`, `offer_node.json`,
   `agreement_code_node.json`, `readback_node.json`, `engine_write_node.json`; the full loop is in
   `examples/pattern_demo.workflow.json`.
+- **Corrections follow the brief's limits too.** If the brief allows an offer once (e.g. a lower amount), the code
+  keeps track of what was already offered for each product; a correction never repeats it, and the customer turning
+  it down again counts as the brief says (often a refusal). Seen in a practice run: a minimum-amount correction
+  re-offered a floor the customer had already been offered, and the judge failed the call.
+- **Date words:** use `resolve_date_words` for the customer's own day; an explicit day of the month ("Monday the
+  26th", "the thirtieth") always wins over a weekday name. Test it with spoken ordinals before you rely on it.
 - **A question the brief asks once** (e.g. an opening question covering every product) lives in its own node before
   the loop and is never part of the per-product steps.
 - **Adapt the loop to the brief:** single or several products, one read-back per product or one joint read-back, the
