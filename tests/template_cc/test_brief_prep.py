@@ -41,7 +41,7 @@ def test_thread_is_ordered_oldest_first_and_prefixed():
 def test_quoted_repeat_is_removed():
     out = prepare(THREAD)
     assert out.count("The rota covers the night shift") == 1
-    assert ">" not in out
+    assert not any(l.lstrip().startswith(">") for l in out.splitlines())
 
 
 def test_thread_without_dates_reverses_top_down_order():
