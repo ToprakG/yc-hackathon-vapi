@@ -190,4 +190,6 @@ whose `on_enter` speaks first; its own enum (`stay` / `accepted` / `declined`) d
 | bare data as a tool result | the model goes silent: add `what_to_do_next` |
 | an extraction value that ends the call, set on the trigger message ("hardship, declined") | the agent never says the brief's lines: route the trigger to a stage node that speaks on entry, end on the answer |
 | offers worded by the model | clauses get dropped: write each offer sentence in the facts node, say it verbatim |
+| a completion flag set by attributing each tool call to a product | several calls in one message break it: count successes; add an `end_call` tool as a safety net |
+| attempt limits stated only in text | the model exceeds them: count refusals in a code node |
 | a mapped list read as `vars['x']` | unset on the platform: rebuild it with `list_from_vars` from the flattened keys |

@@ -277,6 +277,12 @@ except Exception:
     pass
 """
 
+# Safety net: the agent ends the call itself right after its goodbye, even if a state flag is wrong.
+END_CALL_TOOL = {"type": "function", "config": {"timeoutMs": 10000},
+                 "function": {"name": "end_call", "handler": "__function__:end_call",
+                              "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+                              "parameters": {"type": "object", "properties": {"message_mode": {"type": "string", "default": "none"}}}}}
+
 AFTER_TOOL = ("After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. "
               "Call one tool per message. Follow what_to_do_next in a tool result.")
 
@@ -344,7 +350,7 @@ WF = {
             "name": "negotiate", "node_type": "conversation",
             "on_enter": {"type": "llm", "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."},
             "on_enter_first_entry_only": True,
-            "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. " + AFTER_TOOL,
+            "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. When everything is handled, say goodbye and then call end_call. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. " + AFTER_TOOL,
             "tools": [
                 api_tool("create_promise", {
                     "customer_id": {"type": "string", "default": "{{customer_id}}"},
@@ -362,7 +368,8 @@ WF = {
                 api_tool("transfer_to_agent", {
                     "customer_id": {"type": "string", "default": "{{customer_id}}"},
                     "desk": {"type": "string", "enum": ["desk_x"], "description": "desk_x: a person.", "default": "{{desk}}"}},
-                    "Hand over to a person. CALL it when the customer insists on a person.", post_process_code=TRANSFER_POST)],
+                    "Hand over to a person. CALL it when the customer insists on a person.", post_process_code=TRANSFER_POST),
+                END_CALL_TOOL],
             "extraction_schema": [{"name": "wrap_up", "type": "string", "enum_values": ["stay", "finished"],
                                    "description": "finished once every item has a promise or a note and you said goodbye, else stay.",
                                    "min_confidence": 0.7},

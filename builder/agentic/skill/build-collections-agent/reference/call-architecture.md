@@ -97,8 +97,12 @@ Implement the brief's flow, typically:
 - A date or amount the customer proposes is not a refusal: check it against the date table and the floor.
   Weekend/holiday → next business day; after the deadline → offer the deadline; vague → ask once, then propose the
   deadline. Amount between floor and full → accept; below the floor → offer the floor once; too much → the floor once.
-- Flat refusals use persuasion attempts, counted per product. Attempt proposals come from the facts. When attempts are
-  used up: stop, do not repeat a refused offer, take the refusal ending.
+- Flat refusals use persuasion attempts, counted per product. **Count them in code, never in the model** (seen in a
+  practice run: the facts said "no attempt 2", the model made one anyway). Pattern: the negotiation node extracts the
+  customer's answer to the current proposal (`agreed` / `refused` / `other`, default `other`); `refused` routes to a
+  code node that increments the current product's attempt counter and writes either the next proposal sentence or
+  `out_of_attempts`; it routes back to the negotiation node (with `on_enter_first_entry_only`) or to the
+  no-promise handling for that product. When attempts are used up: stop, do not repeat a refused offer.
 - Read back what the brief lists (product, amount, date) with its confirmation question; call `create_promise` only on
   a clear yes. A changed value is re-checked and read back again.
 - `create_promise` post-hook: on success count it, set the close state, and tell the model to say the brief's
@@ -145,6 +149,15 @@ Map each to the brief's handling, its sentence and its close row:
 - forbidden offers: no discounts, waivers, plans or terms the brief does not list.
 
 ## Stage 7: closing
+
+- **End deterministically, with a safety net.** Route to the end node on state, and also give every conversation node
+  where the call can finish an `end_call` tool (handler `__function__:end_call`, `message_mode: "none"`) that the
+  agent calls right after its goodbye. Seen in a practice run: a completion flag that never turned true left the agent
+  saying goodbye in a loop until the turn cap. Set `max_node_turns` + `max_turn_transition` on long nodes too.
+- **Completion state must not depend on attributing each tool call.** The model may make several calls of one tool in
+  one message; `<tool>_args` then holds only one call's values and a "pending product" variable goes stale (seen in a
+  practice run). Count outcomes instead (promises recorded + notes added >= product count), or keep a queue: the
+  pre-hook appends the product id from `config['body']`, the post-hook pops the oldest.
 
 - Thank and say goodbye **before** the close record when the brief asks it.
 - The close record: exactly one, last, with the brief's outcome/reason (or code). Compute it deterministically:
