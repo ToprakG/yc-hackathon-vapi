@@ -86,8 +86,6 @@ def check_text(zid: str, zone: dict, new_text: str):
         raise ZoneError(f"zone {zid} is locked")
     if zone.get("max_chars") and len(new_text) > zone["max_chars"]:
         raise ZoneError(f"zone {zid}: {len(new_text)} chars > budget {zone['max_chars']}")
-    if "{{" in new_text or "}}" in new_text:
-        raise ZoneError(f"zone {zid}: double braces are not allowed in patch text")
     if zid.startswith("hook:") and ("{" in new_text or "}" in new_text):
         raise ZoneError(f"zone {zid}: braces are not allowed in hook messages")
 

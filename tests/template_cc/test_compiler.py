@@ -312,8 +312,6 @@ def test_zone_budgets_and_braces():
     with pytest.raises(ZoneError):
         zones.apply(wf, book, "hook:create_promise/msg/recorded", "Recorded {ok}")
     with pytest.raises(ZoneError):
-        zones.apply(wf, book, "node:negotiate/rules", "Say {{amount}}")
-    with pytest.raises(ZoneError):
         zones.apply(wf, book, "no/such/zone", "x")
 
 
