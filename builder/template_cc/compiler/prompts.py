@@ -215,8 +215,7 @@ def negotiate_tool_hint(policy: dict, unit_cents: bool) -> str:
 
 def hardship_task(policy: dict, has_support: bool, said: str = "") -> str:
     if said:  # F8: the sympathy line is spoken by the step itself, word for word
-        ask = "" if "?" in said else (" Offer to connect them with the support team, and ask whether they want that."
-                                       if has_support else " Do not offer a transfer.")
+        ask = " Do not offer a transfer." if not has_support else ""  # with support, the fixed line already makes the offer
         return ("You have just said your sympathy line. Do not say it again. Make no persuasion attempt." + ask +
                 " If the customer still names a date or an amount themselves, say you can record it. No tool call is "
                 "allowed in this turn.")

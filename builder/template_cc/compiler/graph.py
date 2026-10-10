@@ -663,7 +663,9 @@ ID_INIT        vars['cb_state'] = 'none'
         descs = {"id_intent": P.id_intent_desc(f2, f3)}
         fields = [("id_intent", vals)] + ([("id_answer_text", None)] if f1 else [])
         refusal = ("refuses", "asks_question") if f2 else ("declines", "asks_purpose")
-        trs = ([eq("id_check", "the customer gave an answer", "id_intent", "answer")] if f1 else self._id_state_transitions())
+        trs = ([any_of("id_check", "the customer gave an answer", [leaf("id_intent", "equals", "answer"),
+                                                                    leaf("id_answer_text", "not_equals", "")])] if f1
+               else self._id_state_transitions())
         trs = ([eq("human_offer", "asks for a person", "id_intent", "wants_human")] if f3 else []) + trs \
             + [eq("id_refusal_count", "the customer declines or does not answer", "id_intent", *refusal)]
         tools = [] if f1 else [tool]
@@ -990,8 +992,8 @@ ID_INIT        vars['cb_state'] = 'none'
         if op and pid not in op:
             pid = op[0]
         row = [r for r in rows if r['pid'] == pid]
-        at = str(vars.get('offer_amount_text') or '').strip()
-        dt = str(vars.get('offer_date_text') or '').strip()
+        at = str(vars.get('offer_amount_text') or '').strip() or str(vars.get('pend_amt') or '')
+        dt = str(vars.get('offer_date_text') or '').strip() or str(vars.get('pend_date') or '')
         if at:
             vars['said_amount'] = at[:40]
         if dt:
@@ -1053,6 +1055,15 @@ ID_INIT        vars['cb_state'] = 'none'
                     vars['rb_text'] = money(amt) + ' on ' + spoken(d)
                     vars['cp_route'] = 'confirm'
                     say = 'So that is ' + money(amt) + ' on ' + spoken(d) + ' for ' + r['label'] + '. ' + str(CFG['lines'].get('confirm_question') or 'Shall I record that?')
+        if row:
+            ok_a = amt is not None and floor - 0.005 <= float(amt) <= past + 0.005
+            ok_d = False
+            if d_iso:
+                d2 = datetime.date.fromisoformat(d_iso)
+                ok_d = today <= d2 <= dl and is_bd(d2, hol)
+            keep = vars['cp_route'] != 'confirm'
+            vars['pend_amt'] = at if (keep and ok_a) else ''
+            vars['pend_date'] = dt if (keep and ok_d) else ''
         vars['say_line'] = say
         """
         self.code("promise_check", check, [eq("promise_confirm", "a valid promise to read back", "cp_route", "confirm"),
@@ -1127,6 +1138,8 @@ ID_INIT        vars['cb_state'] = 'none'
         self.book.target("/nodes/promise_write/pre_actions/0/post_process_code", "hook_msgs", parts)
         self.code("after_promise", """
         vars['amt_ask_n'] = '0'
+        vars['pend_amt'] = ''
+        vars['pend_date'] = ''
         neg_flag(vars)
         refresh_close(vars, CFG)
         """, [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")],
@@ -1189,8 +1202,8 @@ ID_INIT        vars['cb_state'] = 'none'
             kept = [i for i, t in enumerate(old) if not (t.get("is_tool_call") and t.get("target_node") == "wrap")]
             first = any_of(f"route_{nid}", "the customer said something the router handles", [
                 leaf("turn_intent", "equals", v) for v in ROUTE_INTENTS if v != "none"])
-            node["transitions"] = [first] + [old[i] for i in kept]
-            self._reindex(nid, {i: (1 + kept.index(i) if i in kept else None) for i in range(len(old))})
+            node["transitions"] = [old[i] for i in kept] + [first]  # last: the node's own decisions win (yes + goodbye, insists + thanks)
+            self._reindex(nid, {i: (kept.index(i) if i in kept else None) for i in range(len(old))})
             schema = node.setdefault("extraction_schema", [])
             z = self.book.add("extract:router/turn_intent/description", P.EXTRACT["turn_intent"], False, 1000,
                               "extraction field description (enum values locked)")
@@ -1318,6 +1331,8 @@ ID_INIT        vars['cb_state'] = 'none'
         hs_trs += [eq("hardship_mark", "declines", "hs_choice", "declines"),
                    eq("promise_check" if terms else "resume", "names a date or amount", "hs_choice", "names_terms")]
         said = P.line(self.p, "hardship_sympathy") if f8 else ""
+        if said and has_support and "?" not in said:  # the fixed line must also make the offer the model would have made
+            said = said.rstrip() + " Would you like me to connect you with the support team?"
         self.conv("hardship", on_enter=self.tts("hardship", said) if said else {"type": "llm"}, first_only=bool(said),
                   extraction=self.extraction("hardship", "hardship", [("hs_choice", ["accepts", "declines", "names_terms", "none"])]
                                              + (offer_fields if terms else [])),

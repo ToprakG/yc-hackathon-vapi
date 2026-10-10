@@ -162,3 +162,11 @@ def test_the_ai_question_line_is_in_the_identity_task_when_the_policy_has_one(bu
     wf, pol, _ = built
     ai = pol["lines"]["ai"]["text"]
     assert ai and ai.split("{")[0].strip()[:20] in wf["nodes"]["identity"]["task_message"]
+
+
+def test_an_answer_text_alone_goes_to_id_check(built):
+    wf, _, _ = built
+    t = next(t for t in wf["nodes"]["identity"]["transitions"] if t["target_node"] == "id_check")
+    conds = {(c["variable"], c["operator"], c.get("operand")) for c in t["condition"]["conditions"]}
+    assert ("id_intent", "equals", "answer") in conds and ("id_answer_text", "not_equals", "") in conds
+    assert any(x["target_node"] == "id_check" for x in wf["nodes"]["identity_explain"]["transitions"])

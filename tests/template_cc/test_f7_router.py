@@ -37,11 +37,11 @@ def test_no_model_decided_routing_is_left():
     assert compiler.lint(wf, pol, api)["errors"] == []
 
 
-def test_every_routed_node_has_the_router_first_and_the_extraction_field():
+def test_every_routed_node_has_the_router_last_and_the_extraction_field():
     wf, _, _, _ = build()
     for nid in ROUTED:
         n = wf["nodes"][nid]
-        assert n["transitions"][0]["target_node"] == f"route_{nid}", nid
+        assert n["transitions"][-1]["target_node"] == f"route_{nid}", nid
         field = next(e for e in n["extraction_schema"] if e["name"] == "turn_intent")
         assert field["enum_values"][0] == "none" and "asks_robot" in field["enum_values"]
     for g in wf["global_nodes"].values():
@@ -114,3 +114,11 @@ def test_off_changes_nothing():
     wf, _, _, _ = build("f1,f2,f3,f4,f9,f11,f12,f13,f8")
     assert "route_negotiate" not in wf["nodes"] and any(t.get("is_tool_call") for t in wf["nodes"]["identity"]["transitions"])
     assert "turn_intent" not in json.dumps(wf)
+
+
+def test_the_nodes_own_decisions_come_before_the_router():
+    wf, _, _, _ = build()
+    order = [t["target_node"] for t in wf["nodes"]["human_offer"]["transitions"]]
+    assert order.index("transfer_human") < order.index("route_human_offer")  # "insists" + "thanks" must transfer
+    order = [t["target_node"] for t in wf["nodes"]["promise_confirm"]["transitions"]]
+    assert order.index("promise_write") < order.index("route_promise_confirm")  # "yes, thanks, bye" must record

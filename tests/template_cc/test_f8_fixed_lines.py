@@ -62,3 +62,20 @@ def test_no_discount_line_from_the_policy_else_generic():
     assert run_code(wf, "discount_reply", dict(v, side="discount"))["say_line"] == "I am not able to reduce the amount."
     wf, pol, _ = build("f4", add)  # flag off: the generic line
     assert run_code(wf, "discount_reply", dict(v, side="discount"))["say_line"] == "I am not able to reduce the amount."
+
+
+def test_a_sympathy_line_without_a_question_gets_the_support_offer_when_there_is_a_support_queue():
+    def plain(p):
+        p["lines"]["hardship_sympathy"] = {"text": "I am very sorry to hear that.", "verbatim": False}
+    wf, pol, _ = build("f8", plain)
+    assert pol["queue_map"].get("support")
+    text = wf["nodes"]["hardship"]["on_enter"]["text"]
+    assert text.startswith("I am very sorry to hear that.") and "support team?" in text
+    assert "Offer to connect" not in wf["nodes"]["hardship"]["task_message"]
+
+    def no_support(p):
+        plain(p)
+        p["queue_map"]["support"] = None
+    wf2, _, _ = build("f8", no_support)
+    assert wf2["nodes"]["hardship"]["on_enter"]["text"] == "I am very sorry to hear that."
+    assert "Do not offer a transfer" in wf2["nodes"]["hardship"]["task_message"]

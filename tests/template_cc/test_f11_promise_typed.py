@@ -195,3 +195,24 @@ def test_the_missing_policy_field_is_traced():
     ev.clear()
     run.compile_checked({**pol, "vague_date_offer": "deadline"}, api, "lifecycle", T(), "t", frozenset({"f11_promise_typed"}))
     assert not any("vague_date_offer" in str(e) for e in ev)
+
+
+def test_a_date_said_first_is_kept_until_the_amount_comes(a):
+    wf, _, _, v = a
+    o = check(wf, v, "", "the sixth of March")  # date only: the amount is asked
+    assert o["cp_route"] == "back" and "which amount" in o["say_line"].lower() and o["pend_date"] == "the sixth of March"
+    o = check(wf, o, "three hundred", "")  # the next message has only the amount
+    assert o["cp_route"] == "confirm" and o["rb_date"] == "2031-03-06" and float(o["rb_amount"]) == 300.0
+    assert o["pend_amt"] == "" and o["pend_date"] == ""
+
+
+def test_an_amount_said_first_is_kept_and_an_invalid_part_is_dropped(a):
+    wf, _, _, v = a
+    o = check(wf, v, "three hundred", "")
+    assert o["pend_amt"] == "three hundred" and o["pend_date"] == ""
+    o = check(wf, o, "", "the eighth of March")  # a Saturday: the date is dropped, the amount stays
+    assert o["cp_route"] == "back" and "not a business day" in o["say_line"] and o["pend_amt"] == "three hundred" and o["pend_date"] == ""
+    o = check(wf, o, "", "the tenth of March")
+    assert o["cp_route"] == "confirm" and float(o["rb_amount"]) == 300.0
+    below = check(wf, v, "one hundred", "the sixth of March")  # a too-small amount is dropped, the date stays
+    assert below["pend_amt"] == "" and below["pend_date"] == "the sixth of March"
