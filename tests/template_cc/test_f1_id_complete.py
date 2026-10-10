@@ -54,7 +54,8 @@ def test_compile_shape_and_lint(built):
     n = wf["nodes"]
     assert not n["identity"].get("tools") and not n["identity_explain"].get("tools")
     assert {"id_check", "id_verify", "id_refusal_count"} <= set(n)
-    assert n["identity"]["task_message"].startswith("You are speaking with the customer. Check identity first. Say exactly what this line asks")
+    assert n["identity"]["on_enter"] == {"type": "tts", "text": "{{id_say}}"}  # the questions are spoken by the system, not the model
+    assert n["identity_explain"]["on_enter"] == {"type": "tts", "text": "{{id_say}}"}
     assert "{{id_say}}" in n["identity"]["task_message"]
     pre = n["id_verify"]["pre_actions"][0]
     assert pre["function"]["name"] == "verify_identity"
@@ -107,7 +108,16 @@ def test_id_verify_post_writes_say_and_next_question(built):
     assert pol["identity"]["prompts"][qs[1]] in out["id_say"] and "(field:" not in out["id_say"]
     data = {"ok": True, "verified": False, "all_verified": False, "wrong_answers_left": 2}
     out, _ = run_post(wf, "id_verify", "verify_identity", v, data)
-    assert out["id_state"] == "retry" and "same question" in out["id_say"] and out["id_q"] == v["id_q"]
+    prompt = pol["identity"]["prompts"][qs[0]]
+    assert out["id_state"] == "retry" and out["id_say"] == "That answer does not match. " + prompt and out["id_q"] == v["id_q"]
+    data = {"ok": False}  # unreadable: not counted as wrong
+    out, _ = run_post(wf, "id_verify", "verify_identity", v, data)
+    assert out["id_say"] == "Sorry, I could not read that. " + prompt
+    out, _ = run_post(wf, "id_verify", "verify_identity", v, {}, status="error", code=500)
+    assert out["id_say"] == "The check did not go through. " + prompt
+    data = {"ok": True, "verified": False, "all_verified": False, "wrong_answers_left": 2, "hint": "day_month_swapped"}
+    out, _ = run_post(wf, "id_verify", "verify_identity", v, data)
+    assert out["id_say"] == pol["lines"]["hint_retry"]["text"]
 
 
 def _ask(wf, v, text):

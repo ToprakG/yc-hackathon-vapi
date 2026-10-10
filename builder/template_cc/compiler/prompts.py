@@ -127,24 +127,22 @@ def identity_explain_task(policy: dict) -> str:
             "verify_identity as before and follow what_to_do_next.")
 
 
-def identity_task_f1(policy: dict, f2: bool) -> str:  # noqa: C901
-    """F1: no model-facing check tool; the system verifies and a code step hands over the next line to say."""
-    extra = (" If the customer asks a question instead of answering, the line tells you to answer it briefly; never "
-             "give the reason for the call.") if f2 else ""
+def identity_task_f1(policy: dict, f2: bool) -> str:
+    """F1: the system speaks the security questions itself (tts of id_say) and checks the answers in code."""
     ai = line(policy, "ai")
     ai_rule = (f" If the customer asked whether you are a robot, a computer or an AI and you have not answered yet, say "
                f"first: {ai}") if ai else ""
-    return ("You are speaking with the customer. Check identity first. Say exactly what this line asks, nothing more: "
+    return ("You are speaking with the customer. The system asks the security questions itself; the current line is: "
             "{{id_say}}\n"
-            "You do not check answers yourself: the system does, and it gives you the next line each time. Do not say "
-            "whether an answer was right. Say nothing about the account or the reason for the call until the checks have "
-            "passed." + extra + ai_rule)
+            "You do not check answers yourself. If the customer says something that is not an answer, reply in one short "
+            "sentence and then say that line again. Never say whether an answer was right. Say nothing about the account or "
+            "the reason for the call until the checks have passed." + ai_rule)
 
 
 def identity_explain_task_f1(policy: dict) -> str:
-    return (f"The customer did not want to answer or asked what this is about. Explain once: {quoted(policy, 'id_reason')}. "
-            "Never mention the reason for the call. Then ask the pending question again, saying exactly what this line "
-            "asks: {{id_say}}")
+    return ("The customer did not want to answer or asked what this is about. The system has just explained and asked the "
+            "question again; the line was: {{id_say}}\nIf the customer says something that is not an answer, reply in one short "
+            "sentence without the reason for the call and say that line again.")
 
 
 def id_intent_desc(f2: bool, f3: bool) -> str:
@@ -178,7 +176,8 @@ def negotiate_task(policy: dict, multi: bool, typed: bool = False, routed: bool 
            "and the customer still refuses, stop: never repeat an offer the customer refused, and CALL the refusal "
            "transition for that product."),
         ("- The system checks every amount and date the customer names and reads it back by itself. Never read back, "
-         "record or confirm anything yourself; when a line tells you what to say, say it.") if typed else
+         "record or confirm anything yourself; when a line tells you what to say, say it. You never take payments or card "
+         "details: you only agree an amount and a date.") if typed else
         f"- Before recording, read back the product, the amount and the date and ask: {quoted(policy, 'confirm_question')}. "
         "CALL create_promise only after a clear yes. If the customer changes the date or the amount, check it again "
         "and read it back again.",

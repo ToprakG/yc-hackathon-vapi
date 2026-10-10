@@ -21,6 +21,22 @@ ROUTE_INTENTS = ["none", "asks_robot", "asks_scam", "wants_human", "goodbye", "f
 DEFAULT_PRECEDENCE = ["wants_human", "asks_scam", "asks_robot", "finished", "goodbye"]
 CLOSING_PREFIX = {"promise": "promise_confirmation", "paid": "paid_reply", "nv_failed": "failed_id",
                   "nr_deceased": "condolence"}
+# F1: the identity step says id_say as it is (tts). After each check the hook builds that spoken line from the result (code, not model).
+SPOKEN_ID_SAY = (
+    "        pr = str(I['prompts'].get(str(vars.get('id_q') or q), str(vars.get('id_q') or q)))\n"
+    "        w = str(d.get('what_to_do_next') or '')\n"
+    "        if w.startswith(MSG['next']):\n"
+    "            vars['id_say'] = 'Thank you. ' + pr\n"
+    "        elif w.startswith(MSG['hint']):\n"
+    "            vars['id_say'] = str(CFG['lines'].get('hint_retry') or ('Could you say that again? ' + pr))\n"
+    "        elif w.startswith(MSG['unreadable']):\n"
+    "            vars['id_say'] = 'Sorry, I could not read that. ' + pr\n"
+    "        elif w.startswith(MSG['service_retry']):\n"
+    "            vars['id_say'] = 'The check did not go through. ' + pr\n"
+    "        elif w.startswith(MSG['retry']):\n"
+    "            vars['id_say'] = 'That answer does not match. ' + pr\n"
+    "        else:\n"
+    "            vars['id_say'] = pr\n")
 GENERIC_PREFIX = {"np_service_error": "I am sorry, I could not complete that because of a system problem.",
                   "nr_callback": "Thank you, we will call back then.",
                   "tr_restructuring": "I am connecting you with a colleague now.", "tr_human": "I am connecting you with a colleague now.",
@@ -591,7 +607,7 @@ ID_INIT        vars['cb_state'] = 'none'
             post_body = post_body.replace("                vars['id_state'] = 'next'\n",
                                           "                vars['id_state'] = 'next'\n                vars['id_q'] = nxt\n")
             post_body = post_body.replace("        result['data'] = d\n",
-                                          "        vars['id_say'] = re.sub(r' \\(field: [^)]*\\)', '', str(d.get('what_to_do_next') or ''))\n"
+                                          SPOKEN_ID_SAY
                                           + ("        vars['slot_summary'] = slot_summary(vars, CFG)\n" if "f12_slot_summary" in self.f else "")
                                           + "        result['data'] = d\n")
         post_uses = ("truthy", "num", "jget", "jput", "refresh_close")
@@ -621,12 +637,16 @@ ID_INIT        vars['cb_state'] = 'none'
         return self._id_state_transitions() + [
             eq(refusal_target, "the customer declines the questions", refusal_var, "declines", "asks_purpose")]
 
+    def _id_say_note(self):  # (placeholder for readers: the spoken lines of the identity step are built in code, see SPOKEN_ID_SAY)
+        return SPOKEN_ID_SAY
+
     def _id_refusal_count(self):
         """F1/F2: count refusals in code. A question back is answered once; only a repeat counts (F2)."""
         f1, f2 = "f1_id_complete" in self.f, "f2_question_not_refusal" in self.f
         limit = int(self.limits.get("id_decline", 1))
-        say_ask = "vars['id_say'] = 'Answer the customer question briefly without saying why you are calling, then ask again: ' + prompt\n" if f1 else ""
-        say_explain = "vars['id_say'] = prompt\n" if f1 else ""
+        # spoken text, said as it is by the identity step (tts): the brief's reason line, then the question again
+        say_ask = "vars['id_say'] = (str(CFG['lines'].get('id_reason') or '') + ' ' + prompt).strip()\n" if f1 else ""
+        say_explain = "vars['id_say'] = (str(CFG['lines'].get('id_reason') or '') + ' ' + prompt).strip()\n" if f1 else ""
         pend = "intent == 'asks_question' and not pending and int(num(vars.get('id_declines'))) == 0" if f2 else "False"
         body = """
         intent = str(vars.get('id_intent') or '')
@@ -669,7 +689,7 @@ ID_INIT        vars['cb_state'] = 'none'
         trs = ([eq("human_offer", "asks for a person", "id_intent", "wants_human")] if f3 else []) + trs \
             + [eq("id_refusal_count", "the customer declines or does not answer", "id_intent", *refusal)]
         tools = [] if f1 else [tool]
-        self.conv("identity", on_enter={"type": "llm"}, tools=tools,
+        self.conv("identity", on_enter=self.tts("identity", "{{id_say}}") if f1 else {"type": "llm"}, tools=tools,
                   extraction=self.extraction("identity", "identity", fields, descs=descs), transitions=trs,
                   max_turns=16, turn_target="mark_nv_declined")
         if not f1:
@@ -680,8 +700,8 @@ ID_INIT        vars['cb_state'] = 'none'
         if explain:
             ext = [{"name": n, "type": "string", **({"enum_values": v} if v is not None else {}),
                     "description": descs.get(n) or P.EXTRACT[n], "min_confidence": MIN_CONF} for n, v in fields]
-            self.conv("identity_explain", on_enter={"type": "llm"}, tools=tools, extraction=ext,
-                      transitions=list(trs), max_turns=12, turn_target="mark_nv_declined")
+            self.conv("identity_explain", on_enter=self.tts("identity_explain", "{{id_say}}") if f1 else {"type": "llm"},
+                      tools=tools, extraction=ext, transitions=list(trs), max_turns=12, turn_target="mark_nv_declined")
             for i, (n, _) in enumerate(fields):
                 self.book.target(f"/nodes/identity_explain/extraction_schema/{i}/description", "text",
                                  [{"zone": f"extract:identity/{n}/description"}])
@@ -1359,10 +1379,14 @@ ID_INIT        vars['cb_state'] = 'none'
                                                eq("identity", "the customer is confirmed", "back_to", "identity"),
                                                always("opening_ask2" if int(self.limits.get("right_party", 2)) >= 2 else "mark_nr_unclear")],
                           fallback="vars['back_to'] = 'products'")
+            ho_terms = f11 and f15  # F15: terms named while accepting help are checked and read back, not lost
             self.conv("human_offer", on_enter={"type": "llm"},
-                      extraction=self.extraction("human", "human_offer", [("human_choice", ["insists", "continues", "none"])]),
-                      transitions=[eq("transfer_human", "insists on a person", "human_choice", "insists"),
-                                   eq("human_back" if self.human_first else "resume", "accepts help", "human_choice", "continues")],
+                      extraction=self.extraction("human", "human_offer", [("human_choice", ["insists", "continues", "none"])]
+                                                 + (offer_fields if ho_terms else [])),
+                      transitions=[eq("transfer_human", "insists on a person", "human_choice", "insists")]
+                      + ([eq("promise_check", "the customer names or accepts an amount or a date", "offer_intent",
+                             "proposes", "accepts_offer")] if ho_terms else [])
+                      + [eq("human_back" if self.human_first else "resume", "accepts help", "human_choice", "continues")],
                       max_turns=3, turn_target="transfer_human")
             self.task_zones("human", "human_offer", P.human_task(self.p), brief_stage="global")
 

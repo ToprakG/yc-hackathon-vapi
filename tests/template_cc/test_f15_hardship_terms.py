@@ -57,3 +57,15 @@ def test_resume_prompt_is_scoped_to_the_listed_products():
     assert "product_count" not in off["nodes"]["negotiate_resume"]["on_enter"]["prompt"]
     v = after_setup_and_facts(wf, json.loads((GOLD / "brief-a.policy.json").read_text()), NOW, 1)
     assert v["product_count"] == "1"
+
+
+def test_terms_named_while_accepting_help_from_the_human_offer_are_checked():
+    wf, pol, api = build(BASE + ",f15")
+    h = wf["nodes"]["human_offer"]
+    assert {"human_choice", "offer_intent", "offer_amount_text", "offer_date_text"} <= {e["name"] for e in h["extraction_schema"]}
+    order = [t["target_node"] for t in h["transitions"]]
+    assert order.index("transfer_human") < order.index("promise_check") < order.index("human_back")  # insists still wins
+    assert compiler.lint(wf, pol, api)["errors"] == []
+    off, _, _ = build(BASE)
+    assert "offer_intent" not in {e["name"] for e in off["nodes"]["human_offer"]["extraction_schema"]}
+    assert "card details" in wf["nodes"]["negotiate"]["task_message"]
