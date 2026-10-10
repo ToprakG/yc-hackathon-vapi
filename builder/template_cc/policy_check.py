@@ -24,7 +24,7 @@ CANONICAL_QUEUES = ("restructuring", "human", "support")
 CANONICAL_NOTES = ("refused", "hardship", "dispute", "paid", "service_error")
 LINE_KEYS = ("opening", "right_party_question", "ask_again", "condolence", "debt_intro", "first_ask", "first_ask_multi",
              "confirm_question", "promise_confirmation", "ai", "scam", "failed_id", "paid_reply", "change_promise",
-             "cannot_record", "no_info", "id_reason", "hardship_sympathy", "hint_retry", "goodbye", "no_discount")
+             "cannot_record", "no_info", "id_reason", "hardship_sympathy", "hint_retry", "goodbye")
 ATTEMPT_DATES = ("end_of_week_roll", "end_of_week", "deadline", "today", "next_business_day")
 ATTEMPT_AMOUNTS = ("full_or_floor", "full", "floor")
 

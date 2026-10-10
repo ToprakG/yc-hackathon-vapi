@@ -51,6 +51,8 @@ def test_paid_notice_is_a_fixed_say_line_and_dispute_has_none():
 
 
 def test_no_discount_line_from_the_policy_else_generic():
+    """The key is not in policy_check.LINE_KEYS yet (adding it would change every completed policy), so the extractor cannot
+    write it; a policy that has it is honoured."""
     def add(p):
         p["lines"]["no_discount"] = {"text": "We cannot lower the amount.", "verbatim": True}
     wf, pol, _ = build("f4,f8", add)
