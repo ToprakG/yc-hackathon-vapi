@@ -63,7 +63,20 @@ def fields(p: dict) -> dict:
     return out
 
 
-def compare(policy: dict, config: dict) -> list[dict]:
+NEVER_NOTES = re.compile(r"(?:\bnever\b|\bnot\b|\bno longer\b|n't\b)[^.\n]{0,60}\b(?:add_note|notes?)\b|\b(?:add_note|notes?)\b[^.\n]{0,60}"
+                         r"\b(?:never|unused|not used)\b", re.I)
+
+
+def notes_not_applicable(policy: dict, brief_text: str = "", api_text: str | None = None) -> bool:
+    """note_map is N/A when the policy has none AND (the brief says notes are never used OR the API has no add_note)."""
+    if _keyed(policy.get("note_map")):
+        return False
+    if api_text is not None and "add_note" not in api_text:
+        return True
+    return bool(brief_text and "add_note" in brief_text.lower() and NEVER_NOTES.search(brief_text))
+
+
+def compare(policy: dict, config: dict, brief_text: str = "", api_text: str | None = None) -> list[dict]:
     got, want = fields(policy), fields(config)
     for name in want:  # a band the policy lacks
         got.setdefault(name, None)
@@ -72,7 +85,13 @@ def compare(policy: dict, config: dict) -> list[dict]:
         g = got.get(name)
         if name == "outcome_map" and not w:
             continue
-        rows.append({"field": name, "status": "MATCH" if g == w else "MISS", "got": g, "want": w})
+        status = "MATCH" if g == w else "MISS"
+        if status == "MISS" and name == "note_map" and notes_not_applicable(policy, brief_text, api_text):
+            status = "N/A"
+        if status == "MISS" and name in ("close_rule.kind", "close_rule.order") and not policy.get("multi_product") \
+                and {str(got.get("close_rule.kind")), str(want.get("close_rule.kind"))} <= {"single", "first_non_paid"}:
+            status = "EQUIV"  # one product: "single" and "first_non_paid" behave the same
+        rows.append({"field": name, "status": status, "got": g, "want": w})
     for name in got:  # extra bands
         if name not in want:
             rows.append({"field": name, "status": "MISS", "got": got[name], "want": None})
@@ -85,7 +104,29 @@ def diff(a: dict, b: dict) -> list[str]:
     return [k for k in sorted(set(fa) | set(fb)) if fa.get(k) != fb.get(k)]
 
 
+def table(tag: str) -> int:
+    repo = Path(__file__).resolve().parents[1]
+    rows = []
+    for b in ["brief-a", "brief-b"] + sorted(d.name for d in (repo / "testbed/fake_briefs").iterdir() if d.is_dir()):
+        pol = repo / "out/template_cc" / tag / b / "policy.json"
+        if not pol.exists():
+            rows.append((b, None, None)); continue
+        if b in ("brief-a", "brief-b"):
+            cfg, api = repo / f"testbed/configs/{b}.config.json", repo / "tools/openapi.json"
+            briefs = [repo / "briefs/brief-a.md"] + ([repo / "briefs/brief-b.md"] if b == "brief-b" else [])
+        else:
+            d = repo / "testbed/fake_briefs" / b
+            cfg, api, briefs = d / "config.json", d / "tools.openapi.json", [d / "brief.md"]
+        r = compare(json.loads(pol.read_text()), json.loads(cfg.read_text()), "\n".join(x.read_text() for x in briefs), api.read_text())
+        rows.append((b, [x for x in r if x["status"] == "MISS"], len(r)))
+    for b, miss, n in rows:
+        print(f"{b:16s}", "no policy" if miss is None else f"{len(miss)} miss(es) of {n}: " + ", ".join(m["field"] for m in miss))
+    return 0
+
+
 def main(argv=None) -> int:
+    if argv is None and len(sys.argv) > 1 and sys.argv[1] == "--table":  # policy_critical.py --table x0 : the 9 briefs
+        return table(sys.argv[2])
     if argv is None and len(sys.argv) > 1 and sys.argv[1] == "--diff":  # policy_critical.py --diff a.json b.json
         a, b = (json.loads(Path(x).read_text()) for x in sys.argv[2:4])
         print(", ".join(diff(a, b)) or "-")
@@ -94,8 +135,12 @@ def main(argv=None) -> int:
     ap.add_argument("policy")
     ap.add_argument("config")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--brief", nargs="*", default=[], help="brief files (for the note_map N/A rule)")
+    ap.add_argument("--api", help="the tool API json (for the note_map N/A rule)")
     a = ap.parse_args(argv)
-    rows = compare(json.loads(Path(a.policy).read_text()), json.loads(Path(a.config).read_text()))
+    brief = "\n".join(Path(f).read_text() for f in a.brief)
+    rows = compare(json.loads(Path(a.policy).read_text()), json.loads(Path(a.config).read_text()), brief,
+                   Path(a.api).read_text() if a.api else None)
     miss = [r for r in rows if r["status"] == "MISS"]
     if a.json:
         print(json.dumps({"misses": len(miss), "total": len(rows), "rows": rows}, ensure_ascii=False))
