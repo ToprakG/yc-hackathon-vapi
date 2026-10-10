@@ -131,7 +131,7 @@ def test_timeout_stops_the_agent_and_still_finalizes(tmp_path):
         await anyio.sleep(30)
         yield None  # never reached
 
-    report = run_mod.run(opts(tmp_path, max_minutes=0.01), query_fn=slow, validate_fn=lambda wf, n: {"skipped": "no key"},
+    report = run_mod.run(opts(tmp_path, max_minutes=0.01, review=False), query_fn=slow, validate_fn=lambda wf, n: {"skipped": "no key"},
                          trace_root=tmp_path / "traces")
     assert report["agent"]["timed_out"] and report["status"] == "ok"
     assert "timeout" in (Path(report["trace"]) / "trace.txt").read_text()

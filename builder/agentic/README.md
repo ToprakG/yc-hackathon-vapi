@@ -29,7 +29,9 @@ is brief material (`.md`, `.txt`, `.eml`, `.csv`, `.json`, ...), read as UTF-8 i
 | `--variant` | `agentic` | `build.py` is a dispatcher; other variants register in `VARIANTS`. |
 | `--save` | `freya` | `none`: write files only. |
 | `--slot` | `agentic-<stem>` | `<stem>` = the last brief's stem, or its folder when the stem is `brief`. |
-| `--max-minutes` | `22` | Hard wall clock for the agent part (the kit allows 30 per build). |
+| `--max-minutes` | `18` | Hard wall clock for the build agent. With review (5) and fix (5) the total stays under the kit's 30. |
+| `--review` | `on` | Fresh-context review and at most one fix round (see below). |
+| `--review-minutes`, `--fix-minutes` | `5`, `5` | Wall clocks of the review and the fix round. |
 | `--model` | `$BUILDER_MODEL` or `claude-opus-5-5` | |
 | `--max-usd` | none | Optional cost cap (`max_budget_usd`). |
 | `--out` | `out/agentic/<slot>/` | |
@@ -44,6 +46,7 @@ In `--out`:
 - `workflow.json`: the final workflow, without `agent_config`. The local tester consumes this file.
 - `policy.json`: the extraction in our canonical schema (`skill/.../reference/policy-schema.md`).
 - `rules.json`: every rule with its quote and where it is implemented.
+- `review.json`, `findings.json`: the reviewer's own rule list and the findings code derived from it.
 - `build_report.json`: status, timings, lint counts and warnings, validate result, fallback used, the Freya
   `workflow_id` / `agent_id` / version when saved, and the agent's turns, cost and usage.
 - `workflow.rejected.json`: the agent's final file when it did not lint and `last_good` was used instead.
@@ -68,6 +71,12 @@ In `--out`:
 3. The agent follows `SKILL.md`: read → extract (`policy.json`, `rules.json`) → design → build → check and fix with
    `lint_workflow`, `run_snippet`, `check_coverage`, `validate_workflow`, `time_left`.
 4. A wall clock (`anyio.fail_after`) stops the agent; any CLI child still alive gets SIGTERM, then SIGKILL.
+4b. **Review** (`review.py`): a separate `query()` in its own temp workspace with its own guard. It gets the briefs,
+   the tool API, the kit docs and the workflow, **not** `rules.json` or `policy.json`, so it does not inherit the
+   builder's reading of the brief. It writes its own rule list with verdicts and node ids (`review.json`). Code
+   compares that list with the builder's `rules.json`: brief rules the builder never listed and defects the reviewer
+   found become `findings.json`. If there are findings, **one** fix round resumes the builder's own session
+   (`resume=<session id>`) with the findings; finalize then lints as usual.
 5. Finalize (deterministic, in `run.py`): take `out/workflow.json` if it lints with 0 errors, else
    `out/last_good.workflow.json`; strip `agent_config`; validate dry run if a key is set; with `--save freya`
    `freya.save_workflow(slot, wf, state_file=<repo>/.freya-agents.json)` and `freya.export_workflow`; copy the
