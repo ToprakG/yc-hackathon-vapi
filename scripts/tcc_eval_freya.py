@@ -37,7 +37,9 @@ from builder.template_cc.vendor_runner import VendorRunner, point_at  # noqa: E4
 ALL = ["brief-a", "brief-b"] + sorted(p.name for p in (REPO / "testbed" / "fake_briefs").iterdir() if p.is_dir())
 SHARED = ""
 OUT = REPO / "out" / "template_cc" / "eval" / "freya"
-PERSONAS = OUT / "personas.json"  # our own persona cache (the kit's .personas.json belongs to other runs)
+STATE_FILE = os.environ.get("FREYA_STATE_FILE") or str(REPO / ".freya-agents.json")  # another workspace gets its own slots
+PERSONAS = OUT / ("personas.json" if not os.environ.get("FREYA_STATE_FILE")
+                  else "personas." + Path(os.environ["FREYA_STATE_FILE"]).stem.strip(".") + ".json")  # our own persona cache (per workspace)
 
 
 def sources(brief):
@@ -125,7 +127,7 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag):
     try:
         runner._ensure(chosen)  # the vendor mock bank with these cases, behind a tunnel
         wf = json.loads(wf_path.read_text())
-        saved = freya.save_workflow(runner.slot, point_at(wf, runner.origin), state_file=str(REPO / ".freya-agents.json"))
+        saved = freya.save_workflow(runner.slot, point_at(wf, runner.origin), state_file=STATE_FILE)
         agent_id = saved["agent_id"]
         trace.freya("save_workflow (eval slot)", {"slot": runner.slot, **saved})
         ids = personas_for(chosen)
