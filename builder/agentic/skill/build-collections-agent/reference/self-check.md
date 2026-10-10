@@ -64,5 +64,6 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
 - [ ] `lint_workflow`: 0 errors. Warnings read and either fixed or explained in `rules.json`.
 - [ ] `check_coverage`: 0 errors.
 - [ ] `check_unit_tests`: 0 errors, and every decisive rule has a unit test that starts in its node.
+- [ ] `run_local_sims`: every structural failure (route, write, values, stuck node) fixed and re-run once.
 - [ ] `validate_workflow`: accepted, or skipped (no key).
 - [ ] `out/workflow.json`, `out/policy.json`, `out/rules.json` all exist.

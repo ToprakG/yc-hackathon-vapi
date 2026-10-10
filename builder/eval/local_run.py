@@ -1,6 +1,7 @@
 """Play practice cases against one of our workflows on this machine's mock bank, and score them.
 
     python3 builder/eval/local_run.py out/agentic/agentic-brief-a/workflow.json --brief A [--reps 3] [--only PUB-01,PUB-04]
+    python3 builder/eval/local_run.py out/agentic/agentic-f3-kestrel/workflow.json --fake f3-kestrel [--sample 12]
 
 How it runs (reusing T-CC's VendorRunner and the teammate's build-the-builder tester in vendor/build-the-builder):
 - the vendor mock bank serves the cases on 127.0.0.1, published through a cloudflared quick tunnel;
@@ -42,10 +43,26 @@ class PrintTrace:
         print(f"[{time.strftime('%H:%M:%S')}] freya: {what} {json.dumps(detail, default=str)[:200]}", flush=True)
 
 
+def spread(cases: list, n: int) -> list:
+    """n cases, round-robin over the families, in file order (deterministic)."""
+    fams = {}
+    for c in cases:
+        fams.setdefault(c.get("family", "?"), []).append(c)
+    out, i = [], 0
+    while len(out) < min(n, len(cases)):
+        for rows in fams.values():
+            if i < len(rows) and len(out) < n:
+                out.append(rows[i])
+        i += 1
+    return out
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("workflow")
-    p.add_argument("--brief", choices=["A", "B"], required=True)
+    p.add_argument("--brief", choices=["A", "B"])
+    p.add_argument("--fake", help="a testbed fake brief id, e.g. f3-kestrel (cases and config from testbed/fake_briefs/<id>/)")
+    p.add_argument("--sample", type=int, default=0, help="fake briefs: play this many cases, spread over the families")
     p.add_argument("--reps", type=int, default=1)
     p.add_argument("--only", help="comma-separated case ids")
     p.add_argument("--slot", help="Freya slot of the self-test copy; default agentic-brief-<a|b>")
@@ -61,14 +78,23 @@ def main(argv=None) -> int:
         return 2
     import freya  # noqa: PLC0415  (kit client; reads FREYA_API_KEY)
 
+    if bool(a.brief) == bool(a.fake):
+        print("give exactly one of --brief or --fake", file=sys.stderr)
+        return 2
     wf = json.loads(Path(a.workflow).read_text())
     wf = wf.get("workflow", wf)  # an exported file wraps the workflow
-    cases = [c for c in json.loads((REPO / "public-test-set.json").read_text()) if c.get("brief") == a.brief]
+    if a.fake:
+        folder = REPO / "testbed" / "fake_briefs" / a.fake
+        cases, config, slot = json.loads((folder / "cases.json").read_text()), json.loads((folder / "config.json").read_text()), f"agentic-{a.fake}"
+        if a.sample:
+            cases = spread(cases, a.sample)
+    else:
+        cases = [c for c in json.loads((REPO / "public-test-set.json").read_text()) if c.get("brief") == a.brief]
+        config, slot = json.loads(CONFIGS[a.brief].read_text()), f"agentic-brief-{a.brief.lower()}"
     if a.only:
         wanted = set(a.only.split(","))
         cases = [c for c in cases if c["id"] in wanted]
-    config = json.loads(CONFIGS[a.brief].read_text())
-    runner = VendorRunner(a.slot or f"agentic-brief-{a.brief.lower()}", config, None, PrintTrace(), freya, port=a.port,
+    runner = VendorRunner(a.slot or slot, config, None, PrintTrace(), freya, port=a.port,
                           concurrency=a.concurrency, worker_python=str(REPO / "builder" / "eval" / "worker_launcher.sh"))
     try:
         results = runner.run(wf, cases, None, config, a.reps)

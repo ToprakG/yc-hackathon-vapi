@@ -22,7 +22,7 @@ number the model had to work out by itself. So: read everything, extract everyth
 | `out/` | The only place you may write. |
 
 Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`, `check_coverage`,
-`check_unit_tests`, `validate_workflow`, `time_left`. They work on the fixed files above; you pass node ids and tool names, never paths.
+`check_unit_tests`, `run_local_sims`, `validate_workflow`, `time_left`. They work on the fixed files above; you pass node ids and tool names, never paths.
 
 ## Hard rules
 
@@ -98,7 +98,13 @@ Decide the variables each code node and hook writes, and their fallbacks.
    `"implemented_in": "n/a", "reason": "..."`.
 3. `check_coverage` → fix → again, until 0 errors. Treat "numbered lines not cited" as missing rules.
 4. `validate_workflow` (a dry run; it may report "skipped") → fix anything it rejects.
-5. Go through `reference/self-check.md` line by line. Fix, then lint and coverage again.
+5. `run_local_sims` (about 10 cases, 1-3 minutes): hard simulated calls on this machine, generated from your
+   policy.json, with DeepSeek playing the agent model and the customer. For each failed case read the nodes it
+   passed and the end of its transcript, find the cause in your workflow (a route that did not fire, a write with
+   wrong values or none, a stuck node, a limit left to the model) and fix it; then run it once more. A failure that
+   is only the local model's wording, with the right route and records, is lower priority: the platform runs another
+   model.
+6. Go through `reference/self-check.md` line by line. Fix, then lint and coverage again.
 
 ### 6. Finish
 

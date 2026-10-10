@@ -37,6 +37,15 @@ TOOL_SPECS = {
     "check_unit_tests": ("Checks out/unit_tests.json offline: every start_node and checked node exists in out/workflow.json, "
                          "every tool, body field and mock is in the tool API, messages end with the customer's line. "
                          "The tests run on Freya after the build; write them per reference/unit-tests.md.", OBJ),
+    "run_local_sims": ("Plays hard simulated calls against out/workflow.json on this machine (no Freya): a local engine "
+                       "with DeepSeek v4.1 Flash as the agent model, the mock bank, an LLM customer in hard talking styles "
+                       "(numbers in pieces, self-corrections, amounts in words, questions back), scored on the bank records "
+                       "and by the Jev decision-model judge. Cases are generated from out/policy.json. Takes 1-3 minutes. "
+                       "Returns each failed case with its failed checks, the nodes it passed and the end of its transcript.",
+                       {"type": "object", "properties": {
+                           "n_cases": {"type": "integer", "description": "How many cases (default 10, max 20)."},
+                           "seed": {"type": "integer", "description": "Change it to get other cases (default 7)."}},
+                        "additionalProperties": False}),
     "validate_workflow": ("Freya dry-run validation of out/workflow.json (stores nothing). Returns the platform's answer, "
                           "or skipped when no key is set.", OBJ),
     "time_left": ("Minutes left on this build's wall clock and the phase plan. Call it at every phase boundary.", OBJ),
@@ -127,6 +136,31 @@ class BoundTools:
         report = unit_tests.validate(suite, wf, self.api)
         self.on_event("check", {"unit_tests": f"{len(report['errors'])} errors, {report.get('tests', 0)} tests"})
         return unit_tests.render(report)
+
+    def run_local_sims(self, args=None) -> str:
+        from builder.agentic.localsim import sim  # noqa: PLC0415  (imports the vendor tester lazily)
+        from builder.template_cc.vendor_runner import bank_config  # noqa: PLC0415
+
+        ok, why = sim.available()
+        if not ok:
+            return f"local simulations unavailable: {why}"
+        wf, err = self._wf()
+        if err:
+            return err
+        try:
+            policy = json.loads(self.policy.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            return f"out/policy.json is needed to generate cases: {e}"
+        args = args or {}
+        n = max(1, min(int(args.get("n_cases") or 10), 20))
+        try:
+            cases = sim.cases_from_policy(policy, n, int(args.get("seed") or 7))
+        except Exception as e:  # noqa: BLE001
+            return f"could not generate cases from policy.json (check its keys against reference/policy-schema.md): {e!r}"[:600]
+        results = sim.run_cases(wf, cases[:n], bank_config(policy), parallel=5)
+        (self.ws / "out" / "localsim_results.json").write_text(json.dumps(results, indent=1, default=str))
+        self.on_event("check", {"local_sims": sim.summary(results)})
+        return sim.render(results)
 
     def validate_workflow(self, args=None) -> str:
         wf, err = self._wf()
