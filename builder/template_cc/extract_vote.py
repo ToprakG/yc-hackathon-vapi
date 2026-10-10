@@ -210,7 +210,7 @@ def _word_tokens(s: str) -> set:
 def quote_mismatches(policy: dict) -> list[str]:
     """Pointers whose `_source` quote and value disagree on a number, ISO date or time.
 
-    A number in the quote that is not in the value is always a mismatch. For bands and the callback window the reverse
+    A number in the quote that is not in the value (or, for a leaf, in its enclosing object) is a mismatch. For bands and the callback window the reverse
     holds too: every number of the value must be in the quote (digits or number words). Only fields whose value holds
     at least one number, date or time are checked (a text field is not numeric)."""
     bad = []
@@ -224,6 +224,11 @@ def quote_mismatches(policy: dict) -> list[str]:
         if not have:
             continue
         said = _tokens_text(quote)
-        if said - have or (ptr.startswith(_STRICT_PREFIXES) and have - said - _word_tokens(quote)):
+        if ptr.count("/") >= 2:  # a leaf's quote is often the whole sentence: numbers of the enclosing object count too
+            parent = _get(policy, ptr.rsplit("/", 1)[0])
+            ctx = have | (_tokens_value(parent) if parent is not ABSENT else set())
+        else:
+            ctx = have
+        if said - ctx or (ptr.startswith(_STRICT_PREFIXES) and have - said - _word_tokens(quote)):
             bad.append(ptr)
     return sorted(bad)

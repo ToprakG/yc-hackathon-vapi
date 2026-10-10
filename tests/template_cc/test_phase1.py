@@ -191,7 +191,7 @@ def test_extract_two_passes_and_one_fix_round(fx_api, fx_brief):
 
     tr = NullTrace()
     res = extract.extract(fx_brief, fx_api, fake_llm, "anthropic:x", tr)
-    assert [c.split(":")[0] for c in calls] == ["extract pass 1", "extract pass 2", "extract fix round"]
+    assert [c.split(":")[0] for c in calls] == ["extract reading A", "extract reading B", "extract pass 2", "extract fix round"]
     assert policy_check.check(res["policy"], fx_api, fx_brief) == []
     assert len(res["violations"]) >= 4 and res["repairs"] == []
 

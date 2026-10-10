@@ -1,15 +1,18 @@
-"""EXTRACT: brief text + tool API summary -> policy.json in the canonical schema (two LLM passes, one fix round).
+"""EXTRACT: brief text + tool API summary -> policy.json in the canonical schema.
 
-Pass 1 reads the brief and fills every key. Pass 2 checks every field against the brief, fixes errors and quotes the
-source. `policy_check.check` then runs; violations go back to the model once as a fix request. Anything still invalid
-gets the conservative default (policy_check.repair) and is logged.
+Two independent readings (A: plain, B: sections first + a quote per value) are merged field by field
+(`extract_vote.merge`). Critical fields the readings disagree on go to one verifier call that must answer with a quote
+found in the brief; otherwise reading A's value is kept. Deterministic rules follow (multi_product needs a statement in
+the brief; a band/callback number must be in its quote). Pass 2 then checks every field against the brief, and
+`policy_check.check` runs; violations go back to the model once as a fix request. Anything still invalid gets the
+conservative default (policy_check.repair) and is logged. Every trace line says per field: agree / verified / fallback.
 """
 
 from __future__ import annotations
 
 import json
 
-from builder.template_cc import policy_check
+from builder.template_cc import brief_prep, extract_vote, policy_check
 from builder.template_cc.policy_check import (ATTEMPT_AMOUNTS, ATTEMPT_DATES, CANONICAL_NOTES, CANONICAL_OUTCOMES,
                                               CANONICAL_QUEUES, LINE_KEYS, SCHEMA)
 
@@ -69,6 +72,10 @@ Keys
 - routes: {{"human_before_verify": false}} only when the brief says a request for a person must not be honoured before identity is verified (quote it in extra_rules).
 - vague_date_offer: "deadline" | "attempt1" | "other": which date to offer when the customer gives no exact day (null if the brief is silent).
 - unused_tools: tools the brief never uses.
+- intents: for each of hardship, dispute, paid_already, restructuring, discount, human, stop_talking, refusal,
+  callback_request that the brief has: {{"definition": the brief's own definition, "examples": 2-3 phrases the brief
+  itself uses (or close paraphrases), "near_misses": 1-2 phrases the brief says are NOT that intent (empty list when
+  the brief says none; never invent one), "_source": quote}}. Leave out an intent the brief does not mention.
 - extra_rules: [{{"statement", "brief_quote", "stage": opening|third_party|identity|debt|negotiate|close|global}}]
   for every brief rule that the keys above do not capture. Short, concrete, in the brief's terms."""
 
@@ -78,6 +85,17 @@ PASS2 = RULES + """
 You are given a draft policy.json. Check EVERY field against the brief and the tool API: values, enum spellings,
 holiday dates, band limits, attempt counts, callback hours, which sentences are verbatim, overrides by later material.
 Fix every error and add a quote to "_source" for each field you checked. Return the complete corrected policy.json."""
+READING_B = RULES + """
+
+Read the brief in this order. First write "_sections": one short line per section, message or memo of the brief
+material, in order (later material overrides earlier material). Then fill the schema from them. For every value you
+set, copy the exact sentence of the brief that states it into "_source" (pointer -> sentence); a value without such a
+sentence is null / empty."""
+VERIFY = """You settle disagreements between two readings of a bank's brief for a collections call. For each field below
+you get the two candidate values with the quote each reading gave. Decide which value the brief supports (or give the
+right one if neither is). Later material in the brief overrides earlier material. Answer every field with the value and
+a quote copied EXACTLY from the brief that states it. Never use an example value. Reply {"answers": [{"pointer",
+"value", "quote"}]}."""
 FIX = RULES + """
 
 A deterministic checker found the violations listed below in policy.json. Fix each one using the brief and the tool
@@ -85,30 +103,130 @@ API (an enum value must be one the API lists; a quote must be copied exactly fro
 corrected policy.json."""
 
 
+CRITICAL = ("/multi_product", "/max_products", "/identity/questions", "/identity/max_wrong", "/bands", "/holidays",
+            "/callback", "/outcome_map", "/queue_map", "/note_map", "/close_rule", "/tools/create_promise/amount_unit",
+            "/tools/schedule_callback", "/tools/close_call")
+VERIFY_SCHEMA = {"type": "object", "required": ["answers"], "properties": {"answers": {"type": "array", "items": {
+    "type": "object", "required": ["pointer", "value", "quote"],
+    "properties": {"pointer": {"type": "string"}, "quote": {"type": "string"}}}}}}
+QUOTE_MSG = "the number/date/time in _source differs from the value (fix the value or quote the right sentence)"
+
+
+def is_critical(ptr: str) -> bool:
+    return any(ptr == c or ptr.startswith(c + "/") for c in CRITICAL)
+
+
+def _get(doc, ptr):
+    return extract_vote._get(doc, ptr)
+
+
+def _set(doc, ptr, value):
+    """Set a pointer, creating a missing last key (dict) or leaving an out-of-range list index alone."""
+    try:
+        policy_check.set_pointer(doc, ptr, value)
+    except KeyError:
+        parent, last = ptr.rsplit("/", 1)
+        target = _get(doc, parent) if parent else doc
+        if isinstance(target, dict):
+            target[last.replace("~1", "/").replace("~0", "~")] = value
+    except (IndexError, ValueError, TypeError):
+        pass
+
+
 def _user(brief: str, api_text: str, extra: str = "") -> str:
     return f"# Brief\n\n{brief}\n\n# Tool API (summary)\n\n{api_text}\n" + (f"\n{extra}\n" if extra else "")
 
 
-def extract(brief: str, api, call_llm, model: str, trace, deadline: float | None = None, out_dir=None) -> dict:
-    """Returns {"policy": final, "pass1": ..., "violations": [...], "repairs": [...]}."""
-    api_text = api.render()
-    p1 = call_llm(PASS1, _user(brief, api_text), model, json_schema=SCHEMA, temperature=0, max_tokens=16000,
-                  effort="high", trace=trace, purpose="extract pass 1: brief -> policy.json", deadline=deadline)
+def _short(v) -> str:
+    t = json.dumps(v, ensure_ascii=False)
+    return t if len(t) <= 80 else t[:77] + "..."
+
+
+def read_and_vote(brief: str, prepared: str, api_text: str, call_llm, model, trace, deadline, out_dir=None):
+    """Readings A and B, the merge, the verifier. Returns (merged policy, pins {pointer: (value, quote)})."""
+    kw = dict(json_schema=SCHEMA, temperature=0, max_tokens=16000, effort="high", trace=trace, deadline=deadline)
+    a = call_llm(PASS1, _user(prepared, api_text), model, purpose="extract reading A: brief -> policy.json", **kw)
+    b = call_llm(READING_B, _user(prepared, api_text), model, purpose="extract reading B: sections, then values with quotes", **kw)
+    b.pop("_sections", None)
     if out_dir:
-        (out_dir / "policy.pass1.json").write_text(json.dumps(p1, indent=1, ensure_ascii=False), encoding="utf-8")
-    p2 = call_llm(PASS2, _user(brief, api_text, "# Draft policy.json\n\n" + json.dumps(p1, ensure_ascii=False)), model,
+        (out_dir / "policy.pass1.json").write_text(json.dumps(a, indent=1, ensure_ascii=False), encoding="utf-8")
+        (out_dir / "policy.readingB.json").write_text(json.dumps(b, indent=1, ensure_ascii=False), encoding="utf-8")
+    merged, votes = extract_vote.merge([a, b], brief)
+    agree = sum(v == "2/2" for v in votes.values())
+    disputed = [ptr for ptr, v in votes.items() if v != "2/2"]
+    crit = [ptr for ptr in disputed if is_critical(ptr)]
+    trace.line(f"extract vote: {agree} field(s) agree, {len(disputed)} disagree ({len(crit)} critical)")
+    pins: dict = {}
+    if crit:
+        items = []
+        for ptr in crit[:60]:
+            qa, qb = extract_vote._quote_for(a, ptr)[1], extract_vote._quote_for(b, ptr)[1]
+            items.append({"pointer": ptr, "reading_A": {"value": _get(a, ptr) if _get(a, ptr) is not extract_vote.ABSENT else None, "quote": qa},
+                          "reading_B": {"value": _get(b, ptr) if _get(b, ptr) is not extract_vote.ABSENT else None, "quote": qb}})
+        ans = call_llm(VERIFY, f"# Brief\n\n{prepared}\n\n# Disputed fields\n\n" + json.dumps(items, ensure_ascii=False),
+                       model, json_schema=VERIFY_SCHEMA, temperature=0, max_tokens=8000, effort="high", trace=trace,
+                       purpose=f"extract verifier: {len(items)} disputed critical field(s)", deadline=deadline)
+        given = {x.get("pointer"): x for x in (ans.get("answers") or []) if isinstance(x, dict)}
+        for it in items:
+            ptr, x = it["pointer"], given.get(it["pointer"])
+            if x and policy_check.quote_in(str(x.get("quote") or ""), brief) and "value" in x:
+                _set(merged, ptr, x["value"])
+                merged.setdefault("_source", {})[ptr] = x["quote"]
+                pins[ptr] = (x["value"], x["quote"])
+                trace.line(f"extract field {ptr}: verified {_short(x['value'])} (A={_short(it['reading_A']['value'])}, B={_short(it['reading_B']['value'])})")
+            else:
+                av = _get(a, ptr)
+                if av is not extract_vote.ABSENT:
+                    _set(merged, ptr, av)
+                trace.line(f"extract field {ptr}: fallback to reading A {_short(it['reading_A']['value'])}"
+                           f" (verifier quote {'missing' if not x else 'not found in the brief'})")
+        for ptr in crit[60:]:  # beyond the cap: reading A
+            av = _get(a, ptr)
+            if av is not extract_vote.ABSENT:
+                _set(merged, ptr, av)
+            trace.line(f"extract field {ptr}: fallback to reading A (over the verifier cap)")
+    for ptr in disputed:
+        if ptr not in crit:
+            trace.line(f"extract field {ptr}: merged by quote/reading order")
+    return merged, pins
+
+
+def apply_rules(policy: dict, brief: str, pins: dict, trace) -> None:
+    for ptr, (value, quote) in pins.items():  # a later pass must not undo a verified value
+        if _get(policy, ptr) != value:
+            _set(policy, ptr, value)
+    note = policy_check.apply_multi_product_rule(policy, brief)
+    if note:
+        trace.line("extract rule: " + note)
+
+
+def extract(brief: str, api, call_llm, model: str, trace, deadline: float | None = None, out_dir=None) -> dict:
+    """Returns {"policy": final, "pass1": merged readings, "violations": [...], "repairs": [...]}. `brief` stays the
+    reference for quote checks; the readings see brief_prep.prepare(brief)."""
+    api_text = api.render()
+    prepared = brief_prep.prepare(brief)
+    if prepared != brief:
+        trace.line("extract: brief_prep reordered / marked the brief material")
+    p1, pins = read_and_vote(brief, prepared, api_text, call_llm, model, trace, deadline, out_dir)
+    apply_rules(p1, brief, pins, trace)
+    p2 = call_llm(PASS2, _user(prepared, api_text, "# Draft policy.json\n\n" + json.dumps(p1, ensure_ascii=False)), model,
                   json_schema=SCHEMA, temperature=0, max_tokens=16000, effort="high", trace=trace,
                   purpose="extract pass 2: check every field against the brief", deadline=deadline)
+    p2.pop("_sections", None)
+    apply_rules(p2, brief, pins, trace)
     policy = policy_check.complete(p2, api)
     violations = policy_check.check(policy, api, brief)
-    trace.check("policy_check after pass 2", not violations, f"{len(violations)} violation(s)")
-    first = list(violations)
-    if violations:
-        listing = "\n".join(f"- {v['path']}: {v['msg']}" for v in violations)
-        fixed = call_llm(FIX, _user(brief, api_text, "# policy.json\n\n" + json.dumps(policy, ensure_ascii=False)
+    qm = [{"path": ptr, "msg": QUOTE_MSG} for ptr in extract_vote.quote_mismatches(policy)]
+    trace.check("policy_check after pass 2", not violations and not qm, f"{len(violations)} violation(s), {len(qm)} quote/number mismatch(es)")
+    first = list(violations) + qm
+    if first:
+        listing = "\n".join(f"- {v['path']}: {v['msg']}" for v in first)
+        fixed = call_llm(FIX, _user(prepared, api_text, "# policy.json\n\n" + json.dumps(policy, ensure_ascii=False)
                                     + "\n\n# Violations\n\n" + listing), model, json_schema=SCHEMA, temperature=0,
                          max_tokens=16000, effort="high", trace=trace,
-                         purpose=f"extract fix round: {len(violations)} policy_check violation(s)", deadline=deadline)
+                         purpose=f"extract fix round: {len(first)} violation(s)", deadline=deadline)
+        fixed.pop("_sections", None)
+        apply_rules(fixed, brief, pins, trace)
         policy = policy_check.complete(fixed, api)
         violations = policy_check.check(policy, api, brief)
         trace.check("policy_check after fix round", not violations, f"{len(violations)} violation(s)")

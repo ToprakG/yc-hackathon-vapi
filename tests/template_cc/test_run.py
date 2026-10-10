@@ -63,11 +63,11 @@ def test_save_none_with_audit_off(tmp_path):
     assert rc == 0 and freya.calls == []
     for f in ("policy.raw.json", "policy.json", "workflow.baseline.json", "workflow.json", "build_report.json", "zones.json"):
         assert (out / f).exists(), f
-    assert [c.split(":")[0] for c in calls] == ["extract pass 1", "extract pass 2"]
-    assert "model call anthropic:claude-opus-5-5: extract pass 1" in txt and "extract pass 2" in txt
+    assert [c.split(":")[0] for c in calls] == ["extract reading A", "extract reading B", "extract pass 2"]
+    assert "model call anthropic:claude-opus-5-5: extract reading A" in txt and "extract pass 2" in txt
     assert "no self-test (none)" in txt and "audit: off" in txt and "nothing saved" in txt and "judge: scripted" in txt
     rep = json.loads((out / "build_report.json").read_text())
-    assert rep["status"] == "ok" and rep["lint"]["errors"] == 0 and rep["model_calls"] == 2
+    assert rep["status"] == "ok" and rep["lint"]["errors"] == 0 and rep["model_calls"] == 3
     assert "agent_config" not in json.loads((out / "workflow.json").read_text())
 
 

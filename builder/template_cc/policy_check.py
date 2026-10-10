@@ -148,6 +148,42 @@ def pointer_exists(obj, pointer: str) -> bool:
         return False
 
 
+# --- brief-text rules (generic, no brief values) -------------------------------------------------------------------------
+
+_NUMS = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten".split())}
+_N = r"(\d+|" + "|".join(w for w in _NUMS if w not in ("zero", "one")) + r")"
+_THING = r"(?:products?|accounts?|loans?|cards?|credit lines?|facilities)"
+_MULTI = [
+    re.compile(r"\b(?:up to|at most|maximum of|max(?:imum)?|no more than|limit(?:ed)? to)\s+" + _N + r"\s+(?:\w+\s+){0,2}" + _THING, re.I),
+    re.compile(r"\b(?:one|1) to " + _N + r"\s+(?:\w+\s+){0,2}" + _THING, re.I),
+    re.compile(r"\b" + _N + r"\s+(?:\w+\s+){0,2}" + _THING.replace("?", "") + r"\s+(?:per customer|at a time|at once|each|in total)", re.I),
+    re.compile(r"\b(?:more than one|multiple|several|two or more|a few)\s+(?:\w+\s+){0,2}" + _THING, re.I),
+]
+
+
+def brief_multi_product(brief: str) -> int:
+    """Largest product count the brief states a customer can have (>= 2), or 0 when it states none. Generic phrasing only."""
+    best = 0
+    for rx in _MULTI:
+        for m in rx.finditer(brief or ""):
+            g = m.group(1) if m.groups() and m.group(1) else None
+            n = 2 if g is None else (int(g) if g.isdigit() else _NUMS.get(g.lower(), 0))
+            if n >= 2:
+                best = max(best, n)
+    return best
+
+
+def apply_multi_product_rule(policy: dict, brief: str) -> str | None:
+    """An LLM multi_product claim needs a statement in the brief. Returns a note when the policy was changed."""
+    n = brief_multi_product(brief)
+    if n:
+        return None
+    if policy.get("multi_product") or (policy.get("max_products") or 1) > 1:
+        policy["multi_product"], policy["max_products"] = False, 1
+        return "multi_product forced to false / max_products 1: the brief states no customer with more than one product"
+    return None
+
+
 # --- completion -------------------------------------------------------------------------------------------------------
 
 
