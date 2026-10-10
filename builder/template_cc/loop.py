@@ -35,6 +35,7 @@ class LoopDeps:
     keep_workspace: bool = False
     query_fn: object = None
     server: object = None
+    unit: object = None  # UnitSuite: a fast unit-test gate before the full chats (optional)
 
 
 @dataclass
@@ -66,6 +67,7 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
     best_train = d.runner.run(wf, train, d.tool_api, d.policy, reps)
     best_held = d.runner.run(wf, held, d.tool_api, d.policy, reps)
     tr.selftest(f"baseline: train {_score(best_train)}, heldout {_score(best_held)} ({len(train)}+{len(held)} cases x {reps})")
+    best_unit = _unit_check(d, wf, "baseline")
     est = time.time() - t0
     for it in range(1, max_iters + 1):
         t_it = time.time()
@@ -115,6 +117,15 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
                 res.stop_reason = "no accepted patches"
                 res.iterations.append(rec)
                 break
+            if best_unit is not None:
+                cand_unit = _unit_check(d, cand_wf, f"iteration {it} candidate")
+                regs = d.unit.regressions(best_unit, cand_unit) if cand_unit is not None else []
+                rec["unit"] = {"best": best_unit.get("passed"), "candidate": (cand_unit or {}).get("passed"), "regressions": regs}
+                if regs:
+                    tr.selftest(f"iteration {it}: DISCARD before the chats: unit tests that passed now fail: {regs}")
+                    res.iterations.append(rec)
+                    est = time.time() - t_it
+                    continue
             cand_train = d.runner.run(cand_wf, train, d.tool_api, d.policy, reps)
             cand_held = d.runner.run(cand_wf, held, d.tool_api, d.policy, reps)
             skip = infra_ids(best_held) | infra_ids(cand_held)  # unscored runs say nothing about either workflow
@@ -128,6 +139,8 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
                         f"{'COMMIT' if dec.commit else 'DISCARD'}: {' | '.join(dec.reasons)}")
             if dec.commit:
                 res.workflow, res.book, best_train, best_held = cand_wf, cand_book, cand_train, cand_held
+                if best_unit is not None and rec.get("unit", {}).get("candidate") is not None:
+                    best_unit = cand_unit
                 res.committed += 1
         except Exception as e:  # noqa: BLE001 - keep the best workflow
             rec["error"] = repr(e)
@@ -142,6 +155,17 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
     _write(d.out_dir / "patches" / "loop.json", {"iterations": res.iterations, "stop_reason": res.stop_reason,
                                                  "cases": res.cases, "gaps": res.gaps, "committed": res.committed})
     return res
+
+
+def _unit_check(d: LoopDeps, wf: dict, label: str):
+    """The unit suite on a workflow, or None when there is no suite or it cannot run (never blocks the loop)."""
+    if d.unit is None:
+        return None
+    try:
+        return d.unit.check(wf)
+    except Exception as e:  # noqa: BLE001
+        d.trace.warn(f"unit tests ({label}) could not run: {e!r}; the unit gate is skipped")
+        return None
 
 
 def _score(results) -> str:

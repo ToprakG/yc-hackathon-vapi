@@ -143,10 +143,14 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
             try:
                 if runner is None:
                     own_runner = runner = vendor_runner.VendorRunner(slot, policy, api, trace, freya_mod or _import_freya())
+                unit = None
+                if args.unit_gate == "on" and own_runner is not None:
+                    from builder.template_cc.unittests import UnitSuite  # noqa: PLC0415
+                    unit = UnitSuite(slot, policy, api, freya_mod or _import_freya(), trace)
                 d = loop.LoopDeps(runner=runner, judge=the_judge, call_llm=call_llm, models=models, trace=trace, briefs=briefs,
                                   brief_text=brief_text, api_path=Path(api_path), api=api, tool_api=tool_api, policy=policy,
                                   out_dir=out, deadline=deadline, keep_workspace=args.keep_workspace, query_fn=query_fn,
-                                  server=sdk_server)
+                                  server=sdk_server, unit=unit)
                 res = loop.run_loop(best, best_book, d, max_iters=args.max_iters, reps=args.self_test_reps,
                                     n_cases=args.self_test_cases, p_threshold=args.gate_p)
                 report["self_test"] = {"iterations": len(res.iterations), "committed": res.committed,
