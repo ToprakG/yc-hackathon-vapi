@@ -217,11 +217,23 @@ def human_task(policy: dict) -> str:
             "insist, say you will connect them. No tool call is allowed in this turn.")
 
 
-def resume_entry(policy: dict) -> str:
+NO_DISCOUNT = "I am not able to reduce the amount."
+
+
+def side_desc() -> str:
+    """The side description with the discount value (F4): a request to knock something off is not restructuring."""
+    d = EXTRACT["side"]
+    key = "human = asks to speak"
+    return d.replace(key, "discount = asks to reduce, waive or knock something off the amount (this is NOT restructuring); " + key, 1)
+
+
+def resume_entry(policy: dict, f4: bool = False) -> str:
+    extra = (" If this line is not empty and you have not said it yet in this conversation, say it first, once: "
+             "{{say_line}}") if f4 else ""
     return ("Continue the conversation from where it is, in one or two short sentences: briefly acknowledge what the "
             "customer just said and go on with the next open product from your facts. If the customer said they already "
             f"paid, {quoted(policy, 'paid_reply')}. Never offer anything that is not in your facts: no other product, "
-            "account, service, plan or discount. If nothing is left to discuss, CALL transition_to_wrap.")
+            "account, service, plan or discount. If nothing is left to discuss, CALL transition_to_wrap." + extra)
 
 
 FINISH = ("The conversation is finished: everything is settled or cannot go on (for example a technical problem), and "

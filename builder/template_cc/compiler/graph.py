@@ -362,6 +362,8 @@ ID_INIT        vars['cb_state'] = 'none'
 """)
         else:
             body = body.replace("ID_INIT", "")
+        if "f4_discount" in self.f:
+            body = body.replace("        vars['id_wrong'] = '0'\n", "        vars['id_wrong'] = '0'\n        vars['say_line'] = ''\n", 1)
         second = int(self.limits.get("right_party", 2)) >= 2
         routes = self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear")
         self.code("setup", body, routes + [always("mark_nr_unclear", "nobody confirmed")],
@@ -871,6 +873,8 @@ ID_INIT        vars['cb_state'] = 'none'
         out = [eq("wrap", "every product is resolved", "neg_state", "done"),
                eq("hardship", "the customer mentioned a hardship", "side", "hardship"),
                eq("side_mark", "dispute or already paid", "side", "dispute", "paid_already")]
+        if "f4_discount" in self.f:
+            out.append(eq("discount_reply", "asks to reduce or waive part of the amount", "side", "discount"))
         if "restructuring" in self.queues:
             first = "pre_transfer" if self._restructuring_notes() else "transfer_restructuring"
             out.append(eq(first, "asks for a new plan or lower instalments", "side", "restructuring"))
@@ -893,7 +897,9 @@ ID_INIT        vars['cb_state'] = 'none'
 
     def _negotiation(self):
         tool, msgs, cents = self._promise_tool()
-        fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"])]
+        f4 = "f4_discount" in self.f
+        fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
+                   + (["discount"] if f4 else []))]
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]))
         refusal = ("When a product's persuasion attempts are used up and the customer still refuses, CALL "
@@ -901,13 +907,14 @@ ID_INIT        vars['cb_state'] = 'none'
                    + " (the number is the product's position in the facts).")
         task = P.negotiate_task(self.p, self.multi) + "\n" + refusal + "\n" + P.negotiate_tool_hint(self.p, cents)
         for nid, entry in (("negotiate", self.tts("negotiate", "{{debt_statement}} {{first_ask_line}}")),
-                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p)})):
+                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, f4)})):
             self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[tool],
-                      extraction=self.extraction("negotiate", nid, fields), transitions=self._side_transitions(nid),
+                      extraction=self.extraction("negotiate", nid, fields, descs={"side": P.side_desc()} if f4 else None),
+                      transitions=self._side_transitions(nid),
                       max_turns=40, turn_target="wrap")
             self.tool_zones(nid, 0, tool, msgs)
             self.task_zones("negotiate", nid, task, facts="{{facts_text}}", brief_stage=("debt", "negotiate"))
-        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p), True, purpose="entry line on re-entry")
+        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, f4), True, purpose="entry line on re-entry")
         self.book.target("/nodes/negotiate_resume/on_enter/prompt", "text", [{"zone": "node:negotiate/resume_entry"}])
         reset = """
         vars['side'] = 'none'
@@ -915,6 +922,10 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['hs_choice'] = 'none'
         vars['human_choice'] = 'none'
         """
+        if f4:
+            reset += "vars['say_line'] = ''\n        "
+            self.code("discount_reply", reset + "vars['say_line'] = " + repr(P.NO_DISCOUNT) + "\n", [always("negotiate_resume")],
+                      fallback=reset)
         back = [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")]
         self.code("side_mark", """
         status = 'dispute' if str(vars.get('side')) == 'dispute' else 'paid'
