@@ -1,0 +1,921 @@
+"""The fixed collections-call graph (DESIGN.md §4), filled from policy.json and the tool API.
+
+Deterministic: the same policy and API always give the same workflow JSON. Every model-facing text goes through the
+ZoneBook so patches can only touch unlocked zones. Code and hooks come from compiler/snippets.py.
+"""
+
+from __future__ import annotations
+
+from builder.template_cc.compiler import prompts as P
+from builder.template_cc.compiler import snippets as S
+from builder.template_cc.compiler import tools as T
+from builder.template_cc.policy_check import CANONICAL_NOTES
+from builder.template_cc.zones import ZoneBook, esc
+
+MIN_CONF = 0.6
+CLOSING_PREFIX = {"promise": "promise_confirmation", "paid": "already_paid", "nv_failed": "failed_id",
+                  "nr_deceased": "deceased"}
+GENERIC_PREFIX = {"np_service_error": "I am sorry, I could not complete that because of a system problem.",
+                  "nr_callback": "Thank you, we will call back then.",
+                  "tr_restructuring": "I am connecting you with a colleague now.", "tr_human": "I am connecting you with a colleague now.",
+                  "tr_support": "I am connecting you with our support team now.",
+                  "nr_wrong_number": "Sorry for the trouble."}
+
+
+# --- condition helpers -----------------------------------------------------------------------------------------------
+
+def always(target: str, desc: str = "always") -> dict:
+    return {"target_node": target, "description": desc, "condition": {"operator": "always"}}
+
+
+def eq(target: str, desc: str, var: str, *values) -> dict:
+    return {"target_node": target, "description": desc, "condition": {
+        "logic": "or", "conditions": [{"variable": var, "operator": "equals", "operand": v} for v in values]}}
+
+
+def any_of(target: str, desc: str, leaves: list) -> dict:
+    return {"target_node": target, "description": desc, "condition": {"logic": "or", "conditions": leaves}}
+
+
+def leaf(var, op, operand=None) -> dict:
+    d = {"variable": var, "operator": op}
+    if operand is not None:
+        d["operand"] = operand
+    return d
+
+
+def bool_true(var) -> list:
+    return [leaf(var, "equals", "true"), leaf(var, "equals", "True")]
+
+
+def bool_false(var) -> list:
+    return [leaf(var, "equals", "false"), leaf(var, "equals", "False")]
+
+
+# --- runtime config --------------------------------------------------------------------------------------------------
+
+def runtime_cfg(policy: dict, api) -> dict:
+    tools = policy["tools"]
+    lines = {k: P.line(policy, k) for k in (policy.get("lines") or {})}
+    note_map = {k: v for k, v in (policy.get("note_map") or {}).items() if v}
+    return {
+        "holidays": sorted(policy.get("holidays") or []), "bands": policy["bands"],
+        "attempt_plan": policy.get("attempt_plan") or [], "weekday_words": policy.get("weekday_words") or {},
+        "outcome_map": policy.get("outcome_map") or {}, "note_map": note_map,
+        "close_rule": policy.get("close_rule") or {"kind": "first_non_paid"},
+        "product_types": policy.get("product_types") or {}, "account_fields": policy.get("account_fields") or {},
+        "product_id_format": policy.get("product_id_format") or "p{n}",
+        "max_products": int(policy.get("max_products") or 1), "multi": bool(policy.get("multi_product")),
+        "notes": bool(policy.get("multi_product")) and bool(note_map),
+        "callback": policy["callback"], "retries": policy.get("retries") or {},
+        "identity": {"questions": policy["identity"]["questions"], "max_wrong": policy["identity"]["max_wrong"],
+                     "swap_hint": policy["identity"].get("swap_hint", False),
+                     "kinds": policy["identity"].get("kinds") or {}, "prompts": policy["identity"].get("prompts") or {}},
+        "id_roles": api.identity_roles(), "id_fields": tools["verify_identity"],
+        "cp_fields": {**tools["create_promise"]}, "cb_fields": tools["schedule_callback"],
+        "close_fields": tools["close_call"], "list_field": api.account_list_field(), "lines": lines,
+        "stop_limit": int((policy.get("ask_limits") or {}).get("stop_talking", 2)),
+        "default_key": "nr_unclear",
+    }
+
+
+class Graph:
+    def __init__(self, policy: dict, api, close_form: str = "lifecycle"):
+        self.p, self.api, self.close_form = policy, api, close_form
+        self.cfg = runtime_cfg(policy, api)
+        self.book = ZoneBook()
+        self.nodes: dict[str, dict] = {}
+        self.globals: dict[str, dict] = {}
+        self.multi = bool(policy.get("multi_product"))
+        self.nmax = max(1, int(policy.get("max_products") or 1)) if self.multi else 1
+        om = policy.get("outcome_map") or {}
+        self.has = lambda key: bool(om.get(key))
+        self.queues = {k: v for k, v in (policy.get("queue_map") or {}).items() if v}
+        self.limits = policy.get("ask_limits") or {}
+        self.non_conv: list[str] = []
+
+    # --- zones -----------------------------------------------------------------------------------------------------
+    def _ptr(self, nid: str, is_global: bool = False) -> str:
+        return f"/{'global_nodes' if is_global else 'nodes'}/{esc(nid)}"
+
+    def task_zones(self, stage: str, nid: str, task: str, facts: str = "", is_global: bool = False,
+                   brief_stage=None):
+        """task_message = task + facts + brief rules (locked) + rules + examples (unlocked)."""
+        b = self.book
+        parts = [{"zone": b.add(f"node:{stage}/task", task, True, purpose="the compiled job of this step")}]
+        if facts:
+            parts.append({"zone": b.add(f"node:{stage}/facts", facts, True, purpose="computed facts"), "title": "Facts"})
+        br = P.brief_rules(self.p, brief_stage or stage)
+        parts.append({"zone": b.add(f"node:{stage}/brief_rules", br, True, purpose="rules from the brief"), "title": "Brief rules"})
+        parts.append({"zone": b.add(f"node:{stage}/rules", "", False, P.BUDGET["rules"], "extra if/then rules"), "title": "Rules"})
+        parts.append({"zone": b.add(f"node:{stage}/examples", "", False, P.BUDGET["examples"], "sample phrasing"), "title": "Examples"})
+        b.target(self._ptr(nid, is_global) + "/task_message", "sections", parts)
+
+    def tts(self, nid: str, text: str, is_global: bool = False) -> dict:
+        self.book.add(f"tts:{nid}", text, True, purpose="fixed spoken line")
+        self.book.target(self._ptr(nid, is_global) + "/on_enter/text", "text", [{"zone": f"tts:{nid}"}])
+        return {"type": "tts", "text": text}
+
+    def extraction(self, stage: str, nid: str, fields: list[tuple[str, list[str]]], is_global: bool = False) -> list:
+        out = []
+        for i, (name, values) in enumerate(fields):
+            z = self.book.add(f"extract:{stage}/{name}/description", P.EXTRACT[name], False, P.BUDGET["extract"],
+                              "extraction field description (enum values locked)")
+            self.book.target(self._ptr(nid, is_global) + f"/extraction_schema/{i}/description", "text", [{"zone": z}])
+            out.append({"name": name, "type": "string", "enum_values": values, "description": P.EXTRACT[name],
+                        "min_confidence": MIN_CONF})
+        return out
+
+    def intent(self, zid: str, ptrs: list[str], text: str):
+        self.book.add(zid, text, False, P.BUDGET["intent"], "intent description read by the routing model")
+        for ptr in ptrs:
+            self.book.target(ptr, "text", [{"zone": zid}])
+
+    def tool_zones(self, nid: str, idx: int, tool: dict, msgs: dict | None):
+        name = tool["function"]["name"]
+        z = self.book.add(f"tool:{name}/description", tool["function"]["description"], False, P.BUDGET["tool"],
+                          "model-facing tool description")
+        base = self._ptr(nid) + f"/tools/{idx}"
+        self.book.target(base + "/function/description", "text", [{"zone": z}])
+        if msgs:
+            parts = []
+            for k, v in msgs.items():
+                parts.append({"zone": self.book.add(f"hook:{name}/msg/{k}", v, False, P.BUDGET["hook"], "what_to_do_next text"),
+                              "key": k})
+            self.book.target(base + "/post_process_code", "hook_msgs", parts)
+
+    # --- node constructors ------------------------------------------------------------------------------------------
+    def conv(self, nid: str, *, on_enter=None, transitions=(), tools=(), extraction=(), max_turns=None, turn_target=None,
+             first_only=False, passthrough_to=None, is_global=False, **extra) -> dict:
+        n = {"name": nid, "node_type": "conversation", "task_message": "", "transitions": list(transitions)}
+        if on_enter is not None:
+            n["on_enter"] = on_enter
+        if first_only:
+            n["on_enter_first_entry_only"] = True
+        if tools:
+            n["tools"] = list(tools)
+        if extraction:
+            n["extraction_schema"] = list(extraction)
+        if max_turns:
+            n["max_node_turns"] = max_turns
+            n["max_turn_transition"] = turn_target
+        if passthrough_to:
+            n["passthrough"] = True
+            n["passthrough_default_transition"] = passthrough_to
+        n.update(extra)
+        (self.globals if is_global else self.nodes)[nid] = n
+        return n
+
+    def code(self, nid: str, body: str, transitions: list, uses=(), fallback="pass") -> dict:
+        trs = list(transitions)
+        default = trs[-1]["target_node"]
+        n = {"name": nid, "node_type": "code", "passthrough": True, "passthrough_default_transition": default,
+             "on_enter": {"type": "silent"}, "disable_inactivity_monitor": True,
+             "pre_actions": [{"type": "function", "function": {
+                 "name": "code_exec", "handler": "__function__:code_exec",
+                 "parameters": {"type": "object", "properties": {
+                     "code": {"type": "string", "default": S.build(body, self.cfg, uses, fallback)},
+                     "timeout_ms": {"type": "number", "default": 10000}}}}}],
+             "transitions": trs}
+        self.nodes[nid] = n
+        self.non_conv.append(nid)
+        return n
+
+    def api_node(self, nid: str, tool: dict, transitions: list, response_mapping=None) -> dict:
+        trs = list(transitions)
+        n = {"name": nid, "node_type": "api_request", "passthrough": True,
+             "passthrough_default_transition": trs[-1]["target_node"], "on_enter": {"type": "silent"},
+             "disable_inactivity_monitor": True, "pre_actions": [tool], "transitions": trs}
+        if response_mapping:
+            n["response_mapping"] = response_mapping
+        self.nodes[nid] = n
+        self.non_conv.append(nid)
+        return n
+
+    def end_node(self, nid: str = "end"):
+        self.nodes[nid] = {"name": nid, "node_type": "end_call", "on_enter": {"type": "silent"},
+                           "disable_inactivity_monitor": True, "transitions": [],
+                           "terminal": {"type": "function", "function": {
+                               "name": "call_finished", "handler": "__function__:end_call",
+                               "parameters": {"type": "object", "properties": {
+                                   "message_mode": {"type": "string", "default": "custom"},
+                                   "spoken_message": {"type": "string", "default": "{{closing_line}}"}}}}}}
+        self.non_conv.append(nid)
+
+    # --- hooks ------------------------------------------------------------------------------------------------------
+    def hook(self, body: str, uses=(), msgs=None) -> str:
+        return S.build(body, self.cfg, uses, "pass", msgs)
+
+    # --- the graph --------------------------------------------------------------------------------------------------
+    def build(self) -> tuple[dict, ZoneBook]:
+        self._setup()
+        self._opening()
+        self._third_party()
+        self._identity()
+        self._account_and_facts()
+        self._negotiation()
+        self._transfers()
+        self._marks()
+        self._wrap_and_close()
+        self._globals()
+        wf = {"initial_node": "setup", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
+              "test_variables": self._test_variables()}
+        if self.close_form == "lifecycle":
+            wf["tools"] = [self._close_tool(lifecycle=True)]
+        self._system_prompt()
+        return wf, self.book
+
+    def _test_variables(self) -> dict:
+        out = {}
+        for v in self.p.get("call_variables") or []:
+            out[v] = {"customer_id": "c_test", "now": "2031-03-05T10:00"}.get(v, "Sample")
+        return out
+
+    def _system_prompt(self):
+        b = self.book
+        parts = [{"zone": b.add("system/core", P.system_core(self.p), True, purpose="identity, language, tone")},
+                 {"zone": b.add("system/forbidden", P.system_forbidden(self.p), True, purpose="words forbidden before verification")},
+                 {"zone": b.add("system/honesty", P.system_honesty(self.p), True, purpose="honesty and tool discipline")},
+                 {"zone": b.add("system/brief_rules", P.brief_rules(self.p, "global"), True, purpose="global brief rules"),
+                  "title": "Brief rules"},
+                 {"zone": b.add("system/global_rules", "", False, P.BUDGET["global_rules"], "extra global rules"),
+                  "title": "Rules"}]
+        b.target("/system_prompt", "sections", parts)
+
+    # setup ------------------------------------------------------------------------------------------------------------
+    def _setup(self):
+        body = """
+        now = parse_now(vars.get('now'))
+        today = now.date()
+        hol = hol_set(CFG)
+        cb = CFG['callback']
+        days = [today] if cb.get('same_day') else []
+        days.append(next_bd_after(today, hol))
+        parts = []
+        allowed = []
+        for d in days:
+            start = cb['start']
+            if d == today:
+                t = now + datetime.timedelta(minutes=1)
+                later = '%02d:%02d' % (t.hour, t.minute)
+                start = later if later > start else start
+            if start <= cb['end']:
+                parts.append(spoken_full(d) + ' from ' + start + ' to ' + cb['end'])
+                allowed.append(dict(date=d.isoformat(), start=start, end=cb['end']))
+        vars['cb_window_text'] = ('Allowed callback times: ' + '; or '.join(parts) + '. Never outside these times.') if parts else 'No callback time is possible now.'
+        jput(vars, 'cb_allowed', allowed)
+        vars['today_iso'] = today.isoformat()
+        vars['today_spoken'] = spoken(today)
+        vars['phase'] = 'pre'
+        vars['end_key'] = CFG['default_key']
+        vars['transfer_key'] = 'none'
+        jput(vars, 'pstate', dict())
+        jput(vars, 'pids', [])
+        jput(vars, 'products', [])
+        jput(vars, 'id_passed', [])
+        vars['id_state'] = 'pending'
+        vars['id_wrong'] = '0'
+        vars['cb_state'] = 'none'
+        vars['neg_state'] = 'open'
+        vars['facts_state'] = 'pending'
+        vars['stop_n'] = '0'
+        vars['side'] = 'none'
+        vars['side_product'] = ''
+        vars['hs_choice'] = 'none'
+        vars['human_choice'] = 'none'
+        vars['notes_state'] = 'done'
+        vars['after_notes'] = 'close'
+        jput(vars, 'note_queue', [])
+        vars['note_pid'] = ''
+        vars['note_reason'] = ''
+        vars['facts_text'] = ''
+        vars['debt_statement'] = ''
+        vars['first_ask_line'] = CFG['lines'].get('first_ask', '')
+        vars['closing_line'] = CFG['lines'].get('goodbye', 'Goodbye.')
+        refresh_close(vars, CFG)
+        """
+        fallback = """
+        vars['cb_window_text'] = 'No callback time is possible now.'
+        vars['phase'] = 'pre'
+        vars['end_key'] = 'nr_unclear'
+        vars['transfer_key'] = 'none'
+        vars['id_state'] = 'pending'
+        vars['neg_state'] = 'open'
+        vars['facts_state'] = 'pending'
+        vars['side'] = 'none'
+        vars['notes_state'] = 'done'
+        vars['after_notes'] = 'close'
+        vars['debt_statement'] = ''
+        vars['first_ask_line'] = ''
+        vars['facts_text'] = ''
+        vars['closing_line'] = 'Goodbye.'
+        """
+        self.code("setup", body, [always("opening")],
+                  uses=("parse_now", "hol_set", "next_bd_after", "spoken_full", "spoken", "jput", "refresh_close"),
+                  fallback=fallback)
+
+    # opening ----------------------------------------------------------------------------------------------------------
+    def _who_transitions(self, var: str, unclear_target: str) -> list:
+        out = [eq("identity", "the customer confirmed", var, "customer")]
+        out.append(eq("mark_nr_deceased", "the customer has died", var, "deceased"))
+        out.append(eq("mark_nr_wrong_number", "not the customer's number", var, "wrong_number"))
+        out.append(eq("third_party", "someone else answered", var, "someone_else"))
+        out.append(eq(unclear_target, "no clear confirmation", var, "unclear"))
+        return out
+
+    def _opening(self):
+        opening = " ".join(x for x in (P.line(self.p, "opening"), P.line(self.p, "right_party_question")) if x)
+        second = int(self.limits.get("right_party", 2)) >= 2
+        who = ["customer", "someone_else", "wrong_number", "deceased", "unclear"]
+        self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
+                  extraction=self.extraction("opening", "opening", [("who1", who)]),
+                  transitions=self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear"),
+                  max_turns=4, turn_target="mark_nr_unclear")
+        self.task_zones("opening", "opening", P.opening_task(self.p))
+        if second:
+            self.conv("opening_ask2", on_enter={"type": "llm"},
+                      extraction=[{"name": "who2", "type": "string", "enum_values": who, "description": P.EXTRACT["who1"],
+                                   "min_confidence": MIN_CONF}],
+                      transitions=self._who_transitions("who2", "mark_nr_unclear"), max_turns=3, turn_target="mark_nr_unclear")
+            self.book.target("/nodes/opening_ask2/extraction_schema/0/description", "text",
+                             [{"zone": "extract:opening/who1/description"}])
+            self.task_zones("opening_ask2", "opening_ask2", P.opening_ask2_task(self.p), brief_stage="opening")
+
+    # third party ------------------------------------------------------------------------------------------------------
+    def _third_party(self):
+        f = self.p["tools"]["schedule_callback"]
+        if f.get("mode") == "datetime":
+            body = {f["datetime"]: T.model_leaf(self.api, "schedule_callback", f["datetime"], "Day and time of the callback as YYYY-MM-DDTHH:MM, inside the allowed times")}
+            hint = f"{f['datetime']} as YYYY-MM-DDTHH:MM"
+        else:
+            body = {f["date"]: T.model_leaf(self.api, "schedule_callback", f["date"], "Day of the callback as YYYY-MM-DD, inside the allowed times"),
+                    f["time"]: T.model_leaf(self.api, "schedule_callback", f["time"], "Time of the callback as HH:MM (24 hour), inside the allowed times")}
+            hint = f"{f['date']} as YYYY-MM-DD and {f['time']} as HH:MM"
+        pre = self.hook("""
+        b = config.get('body') or dict()
+        F = CFG['cb_fields']
+        today = parse_now(vars.get('now')).date()
+        if F.get('mode') == 'datetime':
+            raw = str(b.get(F['datetime']) or '').strip()
+            bits = re.split(r'[T ]', raw, 1)
+            d = to_iso(bits[0], today) or to_iso(raw, today)
+            m = re.search(r'\\d{1,2}[:.]\\d{2}\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)', raw.lower())
+            t = to_hhmm(m.group(0)) if m else (to_hhmm(bits[1]) if len(bits) > 1 else '')
+            if d and t:
+                b[F['datetime']] = d + 'T' + t
+        else:
+            d = to_iso(b.get(F['date']), today)
+            t = to_hhmm(b.get(F['time']))
+            if d:
+                b[F['date']] = d
+            if t:
+                b[F['time']] = t
+        config['body'] = b
+        """, uses=("parse_now", "to_iso", "to_hhmm"))
+        msgs = {"booked": "The callback is booked. Thank the person briefly and say goodbye.",
+                "retry": "The callback was NOT booked. Do not say it was booked. CALL schedule_callback once more with the same values.",
+                "failed": "The callback could not be booked. Do not say it was booked. Thank the person and say goodbye."}
+        post = self.hook("""
+        result.pop('header', None)
+        d = result.get('data') if isinstance(result.get('data'), dict) else dict()
+        if truthy(d.get('ok')):
+            vars['cb_state'] = 'booked'
+            vars['end_key'] = 'nr_callback'
+            d['what_to_do_next'] = MSG['booked']
+        else:
+            n = int(num(vars.get('cb_fail'))) + 1
+            vars['cb_fail'] = str(n)
+            if n <= int(CFG['retries'].get('schedule_callback', 1)):
+                d['what_to_do_next'] = MSG['retry']
+            else:
+                vars['cb_state'] = 'failed'
+                vars['end_key'] = 'nr_no_callback'
+                d['what_to_do_next'] = MSG['failed']
+        result['data'] = d
+        refresh_close(vars, CFG)
+        """, uses=("truthy", "num", "refresh_close"), msgs=msgs)
+        tool = T.api_tool(self.api, "schedule_callback", {**T.customer_leaf(self.api, "schedule_callback"), **body},
+                          description="Book a callback for the customer. CALL it as soon as the person names a day and time inside the allowed callback times. Never call it for a time outside them.",
+                          pre=pre, post=post)
+        trs = [eq("mark_nr_callback", "the callback is booked", "cb_state", "booked"),
+               eq("mark_nr_no_callback", "the callback could not be booked", "cb_state", "failed"),
+               eq("mark_nr_wrong_number", "not the customer's number", "tp_state", "wrong_number"),
+               eq("mark_nr_deceased", "the customer has died", "tp_state", "deceased"),
+               eq("mark_nr_no_callback", "no time inside the window", "tp_state", "gave_up")]
+        self.conv("third_party", on_enter={"type": "llm"}, tools=[tool],
+                  extraction=self.extraction("third_party", "third_party", [("tp_state", ["gave_up", "wrong_number", "deceased", "none"])]),
+                  transitions=trs, max_turns=8, turn_target="mark_nr_no_callback")
+        self.tool_zones("third_party", 0, tool, msgs)
+        self.task_zones("third_party", "third_party", P.third_party_task(self.p, hint))
+
+    # identity ---------------------------------------------------------------------------------------------------------
+    def _identity_tool(self):
+        f = self.p["tools"]["verify_identity"]
+        qs = self.p["identity"]["questions"]
+        body = {**T.customer_leaf(self.api, "verify_identity"),
+                f["field"]: T.model_leaf(self.api, "verify_identity", f["field"], "Which question the answer is for: " + ", ".join(qs), enum=qs),
+                f["answer"]: T.model_leaf(self.api, "verify_identity", f["answer"], "The customer's answer, as they said it")}
+        pre = self.hook("""
+        b = config.get('body') or dict()
+        F = CFG['id_fields']
+        q = str(b.get(F['field']) or '')
+        kind = CFG['identity']['kinds'].get(q, 'text')
+        today = parse_now(vars.get('now')).date()
+        b[F['answer']] = norm_answer(kind, b.get(F['answer']), today)
+        vars['id_last_field'] = q
+        config['body'] = b
+        """, uses=("parse_now", "norm_answer"))
+        msgs = {"next": "Correct. Now ask the next question:",
+                "passed": "All security questions are answered correctly. Do not say anything yet.",
+                "retry": "That answer does not match. Ask the same question once more. Never say the correct answer.",
+                "hint": "That answer is not counted as wrong.",
+                "unreadable": "The answer could not be read. Ask the customer to say it again clearly. This is not counted as wrong.",
+                "failed": "Too many wrong answers. The checks have failed. Do not ask any more questions and say nothing about the account.",
+                "service_retry": "The check did not go through. Ask the customer for the same answer again.",
+                "service_failed": "The check is not available. Apologise briefly."}
+        post = self.hook("""
+        result.pop('header', None)
+        d = result.get('data') if isinstance(result.get('data'), dict) else dict()
+        R = CFG['id_roles']
+        I = CFG['identity']
+        qs = I['questions']
+        passed = jget(vars, 'id_passed', [])
+        q = str(vars.get('id_last_field') or '')
+        status = str(result.get('status') or 'success').lower()
+        code = int(num(result.get('status_code') or 200))
+        okv = truthy(d.get('ok'))
+        ver = truthy(d.get(R['verified'])) if R.get('verified') else okv
+        hint = str(d.get(R['hint']) or '') if R.get('hint') else ''
+        if status not in ('success', 'ok') or code >= 500:
+            n = int(num(vars.get('id_fail'))) + 1
+            vars['id_fail'] = str(n)
+            if n <= int(CFG['retries'].get('verify_identity', 1)):
+                vars['id_state'] = 'retry'
+                d['what_to_do_next'] = MSG['service_retry']
+            else:
+                vars['id_state'] = 'error'
+                vars['end_key'] = 'np_service_error'
+                d['what_to_do_next'] = MSG['service_failed']
+        elif ver:
+            if q and q not in passed:
+                passed.append(q)
+            jput(vars, 'id_passed', passed)
+            allv = truthy(d.get(R['all'])) if R.get('all') else False
+            if allv or all(x in passed for x in qs):
+                vars['id_state'] = 'passed'
+                d['what_to_do_next'] = MSG['passed']
+            else:
+                nxt = [x for x in qs if x not in passed][0]
+                vars['id_state'] = 'next'
+                d['what_to_do_next'] = MSG['next'] + ' ' + str(I['prompts'].get(nxt, nxt)) + ' (field: ' + nxt + ')'
+        elif hint and I.get('swap_hint'):
+            vars['id_state'] = 'retry'
+            d['what_to_do_next'] = MSG['hint'] + ' ' + CFG['lines'].get('hint_retry', '')
+        elif not okv:
+            vars['id_state'] = 'retry'
+            d['what_to_do_next'] = MSG['unreadable']
+        else:
+            w = int(num(vars.get('id_wrong'))) + 1
+            vars['id_wrong'] = str(w)
+            left = d.get(R['left']) if R.get('left') else None
+            left = int(num(left)) if left is not None and str(left) != '' else int(I['max_wrong']) - w
+            if left <= 0 or w >= int(I['max_wrong']):
+                vars['id_state'] = 'failed'
+                vars['end_key'] = 'nv_failed'
+                d['what_to_do_next'] = MSG['failed']
+            else:
+                vars['id_state'] = 'retry'
+                d['what_to_do_next'] = MSG['retry']
+        result['data'] = d
+        refresh_close(vars, CFG)
+        """, uses=("truthy", "num", "jget", "jput", "refresh_close"), msgs=msgs)
+        tool = T.api_tool(self.api, "verify_identity", body, retries=0,
+                          description="Check one security answer. CALL it every time the customer answers a security question, with that question's field.",
+                          pre=pre, post=post)
+        return tool, msgs
+
+    def _identity_transitions(self, refusal_var: str, refusal_target: str) -> list:
+        roles = self.api.identity_roles()
+        passed = [leaf("id_state", "equals", "passed")]
+        if roles.get("all"):
+            passed += bool_true(f"verify_identity_response.data.{roles['all']}")
+        return [any_of("fetch_account", "the identity checks passed", passed),
+                eq("mark_nv_failed", "the identity checks failed", "id_state", "failed"),
+                eq("mark_np_service_error", "the identity service is not available", "id_state", "error"),
+                eq(refusal_target, "the customer declines the questions", refusal_var, "declines", "asks_purpose")]
+
+    def _identity(self):
+        tool, msgs = self._identity_tool()
+        explain = int(self.limits.get("id_decline", 1)) >= 1
+        values = ["declines", "asks_purpose", "answering"]
+        self.conv("identity", on_enter={"type": "llm"}, tools=[tool],
+                  extraction=self.extraction("identity", "identity", [("id_refusal", values)]),
+                  transitions=self._identity_transitions("id_refusal", "identity_explain" if explain else "mark_nv_declined"),
+                  max_turns=16, turn_target="mark_nv_declined")
+        self.tool_zones("identity", 0, tool, msgs)
+        self.task_zones("identity", "identity", P.identity_task(self.p))
+        if explain:
+            self.conv("identity_explain", on_enter={"type": "llm"}, tools=[tool],
+                      extraction=[{"name": "id_refusal2", "type": "string", "enum_values": values,
+                                   "description": P.EXTRACT["id_refusal"], "min_confidence": MIN_CONF}],
+                      transitions=self._identity_transitions("id_refusal2", "mark_nv_declined"),
+                      max_turns=12, turn_target="mark_nv_declined")
+            self.book.target("/nodes/identity_explain/extraction_schema/0/description", "text",
+                             [{"zone": "extract:identity/id_refusal/description"}])
+            self.tool_zones("identity_explain", 0, tool, msgs)
+            self.task_zones("identity_explain", "identity_explain", P.identity_explain_task(self.p), brief_stage="identity")
+
+    # account + facts --------------------------------------------------------------------------------------------------
+    def _account_and_facts(self):
+        lf = self.api.account_list_field()
+        retries = int((self.p.get("retries") or {}).get("get_account", 1))
+
+        def fetch(nid, fail_target):
+            tool = T.api_tool(self.api, "get_account", T.customer_leaf(self.api, "get_account"), retries=0,
+                              description="Get the late products.")
+            fails = [leaf(f"{nid}_failure_count", "greater_than", 0)] + bool_false(f"{nid}_response.data.ok") + \
+                bool_false("get_account_response.data.ok")
+            self.api_node(nid, tool, [any_of(fail_target, "the account could not be read", fails), always("facts")],
+                          response_mapping=[{"path": f"data.{lf}", "variable": "products_raw"}])
+
+        if retries >= 1:
+            fetch("fetch_account", "fetch_account_retry")
+            fetch("fetch_account_retry", "mark_np_service_error_hard")
+        else:
+            fetch("fetch_account", "mark_np_service_error_hard")
+        n = self.nmax
+        labels = "\n".join(f"vars['label_{i}'] = rows[{i - 1}]['label'] if len(rows) > {i - 1} else ''" for i in range(1, n + 1))
+        body = """
+        rows = product_rows(vars, CFG)
+        if not rows:
+            vars['facts_state'] = 'error'
+            vars['end_key'] = 'np_service_error_hard'
+        else:
+            now = parse_now(vars.get('now'))
+            today = now.date()
+            L = CFG['lines']
+            pids = [r['pid'] for r in rows]
+            jput(vars, 'pids', pids)
+            jput(vars, 'pstate', dict((p, 'open') for p in pids))
+            jput(vars, 'products', [dict(pid=r['pid'], label=r['label'], past_due=r['past_due'], floor=r['floor'], deadline=r['deadline']) for r in rows])
+            vars['product_count'] = str(len(rows))
+            vars['phase'] = 'products'
+            vars['end_key'] = 'np_refused'
+            out = ['Today is ' + spoken_full(today) + ', time ' + now.strftime('%H:%M') + '.']
+            out.append('Products, in this order (product_id in brackets):')
+            say = []
+            for r in rows:
+                out.append(str(r['index']) + '. ' + r['label'] + ' [' + r['pid'] + ']: past due ' + money(r['past_due']) + ', ' + str(r['days']) + ' days late. Minimum amount: ' + money(r['floor']) + '. Latest promise date: ' + r['deadline_spoken'] + ' (' + r['deadline'] + '). Persuasion attempts allowed: ' + str(r['attempts']) + '.')
+                for k, pr in enumerate(r['proposals']):
+                    if pr['amount'] == 'full':
+                        what = 'the full amount ' + money(r['past_due'])
+                    elif pr['amount'] == 'floor':
+                        what = 'the minimum amount ' + money(r['floor'])
+                    else:
+                        what = 'the full amount ' + money(r['past_due']) + ' (or the minimum amount ' + money(r['floor']) + ' if the customer already said the full amount is too much)'
+                    out.append('   Attempt ' + str(k + 1) + ': propose ' + what + ' on ' + pr['spoken'] + ' (' + pr['date'] + ').')
+                say.append('Your ' + r['label'] + ': ' + money(r['past_due']) + ' past due, ' + str(r['days']) + ' days late.')
+            if CFG['cp_fields'].get('amount_unit') == 'cents':
+                out.append('Say and send every amount in currency units exactly as written here.')
+            out.append('Date table (use it; never compute dates yourself):')
+            out.append(date_table(CFG, rows, today))
+            out.append('Weekday words:')
+            out.append(weekday_words(CFG, today))
+            vars['facts_text'] = '\\n'.join(out)
+            vars['debt_statement'] = (L.get('debt_intro', '') + ' ' + ' '.join(say)).strip()
+            vars['first_ask_line'] = L.get('first_ask_multi', '') if len(rows) > 1 and L.get('first_ask_multi') else L.get('first_ask', '')
+            LABELS
+            neg_flag(vars)
+            vars['facts_state'] = 'ok'
+        refresh_close(vars, CFG)
+        """.replace("LABELS", labels.replace("\n", "\n            "))
+        fallback = """
+        vars['facts_state'] = 'error'
+        vars['end_key'] = 'np_service_error_hard'
+        """
+        self.code("facts", body, [eq("mark_np_service_error_hard", "no products could be read", "facts_state", "error"),
+                                  always("negotiate")],
+                  uses=("product_rows", "parse_now", "jput", "spoken_full", "money", "date_table", "weekday_words",
+                        "neg_flag", "refresh_close"), fallback=fallback)
+
+    # negotiation ------------------------------------------------------------------------------------------------------
+    def _promise_tool(self):
+        f = self.p["tools"]["create_promise"]
+        fmt = self.p.get("product_id_format") or ""
+        enum = [fmt.replace("{n}", str(i)) for i in range(1, self.nmax + 1)] if "{n}" in fmt else None
+        cents = f.get("amount_unit") == "cents"
+        body = {**T.customer_leaf(self.api, "create_promise"),
+                f["product_id"]: T.model_leaf(self.api, "create_promise", f["product_id"], "product_id of the product, copied from the facts", enum=enum),
+                f["amount"]: T.model_leaf(self.api, "create_promise", f["amount"], "Amount the customer confirmed, in currency units as written in the facts"),
+                f["date"]: T.model_leaf(self.api, "create_promise", f["date"], "Date the customer confirmed, YYYY-MM-DD from the date table")}
+        if cents and body[f["amount"]].get("type") == "integer":
+            body[f["amount"]]["type"] = "number"
+        pre = self.hook("""
+        b = config.get('body') or dict()
+        F = CFG['cp_fields']
+        rows = jget(vars, 'products', [])
+        pids = [r['pid'] for r in rows]
+        raw = str(b.get(F['product_id']) or '').strip()
+        pid = raw
+        if raw not in pids:
+            m = re.search(r'(\\d+)\\s*$', raw)
+            hit = [r['pid'] for r in rows if raw and raw.lower() in str(r['label']).lower()]
+            if m and 1 <= int(m.group(1)) <= len(pids):
+                pid = pids[int(m.group(1)) - 1]
+            elif hit:
+                pid = hit[0]
+            elif open_pids(vars):
+                pid = open_pids(vars)[0]
+        b[F['product_id']] = pid
+        vars['cp_pid'] = pid
+        amt = num(b.get(F['amount']))
+        if F.get('amount_unit') == 'cents':
+            row = [r for r in rows if r['pid'] == pid]
+            top = float(row[0]['past_due']) if row else max([float(r['past_due']) for r in rows] or [0.0])
+            b[F['amount']] = int(round(amt)) if top and amt > top * 1.5 + 1 else int(round(amt * 100))
+        else:
+            b[F['amount']] = round(amt, 2)
+        today = parse_now(vars.get('now')).date()
+        dte = to_iso(b.get(F['date']), today)
+        if dte:
+            b[F['date']] = dte
+        config['body'] = b
+        """, uses=("jget", "open_pids", "num", "parse_now", "to_iso"))
+        msgs = {"recorded": "The promise is recorded.",
+                "more": "If another agreed promise is not recorded yet, CALL create_promise for it now; otherwise continue with the next open product.",
+                "retry": "NOT recorded. Do not say it was recorded. CALL create_promise once more now with the same values.",
+                "failed": "NOT recorded. Do not try again. Tell the customer you could not record it."}
+        post = self.hook("""
+        result.pop('header', None)
+        d = result.get('data') if isinstance(result.get('data'), dict) else dict()
+        pid = str(vars.get('cp_pid') or '')
+        if truthy(d.get('ok')):
+            set_status(vars, pid, 'promised')
+            vars['promises_n'] = str(int(num(vars.get('promises_n'))) + 1)
+            d['what_to_do_next'] = MSG['recorded'] + (' ' + MSG['more'] if open_pids(vars) else '')
+        else:
+            fails = jget(vars, 'cp_fails', dict())
+            n = int(fails.get(pid, 0)) + 1
+            fails[pid] = n
+            jput(vars, 'cp_fails', fails)
+            if n <= int(CFG['retries'].get('create_promise', 1)):
+                d['what_to_do_next'] = MSG['retry']
+            else:
+                set_status(vars, pid, 'service_error')
+                d['what_to_do_next'] = MSG['failed'] + (' ' + MSG['more'] if open_pids(vars) else '')
+        result['data'] = d
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        """, uses=("truthy", "num", "jget", "jput", "set_status", "open_pids", "neg_flag", "refresh_close"), msgs=msgs)
+        desc = ("Record one payment promise for one product. CALL it only after the customer gave a clear yes to the "
+                "read-back; one call per product.")
+        tool = T.api_tool(self.api, "create_promise", body, description=desc, pre=pre, post=post)
+        return tool, msgs, cents
+
+    def _side_transitions(self, nid: str) -> list:
+        out = [eq("wrap", "every product is resolved", "neg_state", "done"),
+               eq("hardship", "the customer mentioned a hardship", "side", "hardship"),
+               eq("side_mark", "dispute or already paid", "side", "dispute", "already_paid")]
+        if "restructuring" in self.queues:
+            first = "pre_transfer" if self._restructuring_notes() else "transfer_restructuring"
+            out.append(eq(first, "asks for a new plan or lower instalments", "side", "restructuring"))
+        if "human" in self.queues:
+            out.append(eq("human_offer", "asks for a person", "side", "human"))
+        out.append(eq("stop_count", "does not want to talk", "side", "stop_talking"))
+        for i in range(1, self.nmax + 1):
+            k = len(out)
+            desc = (f"Product {i} of the facts: its persuasion attempts are used up and the customer still refuses, "
+                    "or refused its last offer")
+            out.append({"target_node": f"refused_{i}", "description": desc, "is_tool_call": True,
+                        "condition": {"operator": "matches_intent", "description": desc}})
+            self.intent(f"transition:refused_{i}/intent",
+                        [f"/nodes/{nid}/transitions/{k}/description", f"/nodes/{nid}/transitions/{k}/condition/description"], desc)
+        return out
+
+    def _restructuring_notes(self) -> bool:
+        return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]
+                    and (self.p.get("note_map") or {}).get(self.p["notes_on_restructuring"]))
+
+    def _negotiation(self):
+        tool, msgs, cents = self._promise_tool()
+        fields = [("side", ["none", "hardship", "dispute", "already_paid", "restructuring", "human", "stop_talking"])]
+        if self.multi:
+            fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]))
+        refusal = ("When a product's persuasion attempts are used up and the customer still refuses, CALL "
+                   + " / ".join(f"transition_to_refused_{i}" for i in range(1, self.nmax + 1))
+                   + " (the number is the product's position in the facts).")
+        task = P.negotiate_task(self.p, self.multi) + "\n" + refusal + "\n" + P.negotiate_tool_hint(self.p, cents)
+        for nid, entry in (("negotiate", self.tts("negotiate", "{{debt_statement}} {{first_ask_line}}")),
+                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p)})):
+            self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[tool],
+                      extraction=self.extraction("negotiate", nid, fields), transitions=self._side_transitions(nid),
+                      max_turns=40, turn_target="wrap")
+            self.tool_zones(nid, 0, tool, msgs)
+            self.task_zones("negotiate", nid, task, facts="{{facts_text}}", brief_stage=("debt", "negotiate"))
+        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p), True, purpose="entry line on re-entry")
+        self.book.target("/nodes/negotiate_resume/on_enter/prompt", "text", [{"zone": "node:negotiate/resume_entry"}])
+        reset = """
+        vars['side'] = 'none'
+        vars['side_product'] = ''
+        vars['hs_choice'] = 'none'
+        vars['human_choice'] = 'none'
+        """
+        back = [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")]
+        self.code("side_mark", """
+        status = 'dispute' if str(vars.get('side')) == 'dispute' else 'paid'
+        for pid in pick_products(vars, vars.get('side_product')):
+            set_status(vars, pid, status)
+        """ + reset + """
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        """, back, uses=("pick_products", "set_status", "neg_flag", "refresh_close"), fallback=reset)
+        self.code("hardship_mark", """
+        for pid in open_pids(vars):
+            set_status(vars, pid, 'hardship')
+        """ + reset + """
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        """, back, uses=("open_pids", "set_status", "neg_flag", "refresh_close"), fallback=reset)
+        self.code("stop_count", """
+        n = int(num(vars.get('stop_n'))) + 1
+        vars['stop_n'] = str(n)
+        if n >= int(CFG.get('stop_limit', 2)):
+            for pid in open_pids(vars):
+                set_status(vars, pid, 'refused')
+        """ + reset + """
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        """, back, uses=("num", "open_pids", "set_status", "neg_flag", "refresh_close"), fallback=reset)
+        for i in range(1, self.nmax + 1):
+            self.code(f"refused_{i}", f"""
+        pids = jget(vars, 'pids', [])
+        if len(pids) >= {i}:
+            set_status(vars, pids[{i - 1}], 'refused')
+        """ + reset + """
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        """, back, uses=("jget", "set_status", "neg_flag", "refresh_close"), fallback=reset)
+        self.code("resume", reset, [always("negotiate_resume")])
+
+        has_support = "support" in self.queues
+        hs_trs = []
+        if has_support:
+            hs_trs.append(eq("transfer_support", "accepts the support team", "hs_choice", "accepts"))
+        hs_trs += [eq("hardship_mark", "declines", "hs_choice", "declines"),
+                   eq("resume", "names a date or amount", "hs_choice", "names_terms")]
+        self.conv("hardship", on_enter={"type": "llm"},
+                  extraction=self.extraction("hardship", "hardship", [("hs_choice", ["accepts", "declines", "names_terms", "none"])]),
+                  transitions=hs_trs, max_turns=6, turn_target="hardship_mark")
+        self.task_zones("hardship", "hardship", P.hardship_task(self.p, has_support), brief_stage="negotiate")
+        if "human" in self.queues:
+            self.conv("human_offer", on_enter={"type": "llm"},
+                      extraction=self.extraction("human", "human_offer", [("human_choice", ["insists", "continues", "none"])]),
+                      transitions=[eq("transfer_human", "insists on a person", "human_choice", "insists"),
+                                   eq("resume", "accepts help", "human_choice", "continues")],
+                      max_turns=3, turn_target="transfer_human")
+            self.task_zones("human", "human_offer", P.human_task(self.p), brief_stage="global")
+
+    # transfers --------------------------------------------------------------------------------------------------------
+    def _transfers(self):
+        qf = self.p["tools"]["transfer_to_agent"]["queue"]
+        for canon, value in self.queues.items():
+            post = self.hook(f"""
+        result.pop('header', None)
+        vars['transfer_key'] = '{canon}'
+        refresh_close(vars, CFG)
+        """, uses=("refresh_close",))
+            tool = T.api_tool(self.api, "transfer_to_agent",
+                              {**T.customer_leaf(self.api, "transfer_to_agent"), qf: T.baked(self.api, "transfer_to_agent", qf, value)},
+                              description="Transfer the call.", post=post)
+            self.api_node(f"transfer_{canon}", tool, [always("wrap")])
+        if self._restructuring_notes():
+            canon = self.p["notes_on_restructuring"]
+            self.code("pre_transfer", f"""
+        pst = jget(vars, 'pstate', dict())
+        reason = CFG['note_map'].get('{canon}', '')
+        queue = [[p, reason] for p in jget(vars, 'pids', []) if pst.get(p, 'open') != 'promised' and reason]
+        jput(vars, 'note_queue', queue)
+        vars['after_notes'] = 'transfer'
+        vars['side'] = 'none'
+        """, [always("note_next")], uses=("jget", "jput"), fallback="vars['after_notes'] = 'transfer'")
+
+    # marks ------------------------------------------------------------------------------------------------------------
+    def _marks(self):
+        for key in ("nr_unclear", "nr_wrong_number", "nr_deceased", "nr_callback", "nr_no_callback", "nv_failed",
+                    "nv_declined", "np_service_error", "np_service_error_hard"):
+            self.code(f"mark_{key}", f"""
+        vars['end_key'] = '{key}'
+        refresh_close(vars, CFG)
+        """, [always("wrap")], uses=("refresh_close",), fallback=f"vars['end_key'] = '{key}'")
+
+    # wrap, notes, close -----------------------------------------------------------------------------------------------
+    def _wrap_and_close(self):
+        L = self.cfg["lines"]
+        prefix = {k: L.get(v, "") for k, v in CLOSING_PREFIX.items()}
+        for k, v in GENERIC_PREFIX.items():
+            prefix.setdefault(k, v)
+        self.cfg["closing_prefix"] = prefix
+        body = """
+        queue = []
+        if str(vars.get('phase')) == 'products' and str(vars.get('transfer_key') or 'none') == 'none':
+            for pid in open_pids(vars):
+                set_status(vars, pid, 'refused')
+            if CFG.get('notes'):
+                pst = jget(vars, 'pstate', dict())
+                for pid in jget(vars, 'pids', []):
+                    reason = CFG['note_map'].get(pst.get(pid, 'refused'), '')
+                    if pst.get(pid) != 'promised' and reason:
+                        queue.append([pid, reason])
+        jput(vars, 'note_queue', queue)
+        vars['after_notes'] = 'close'
+        vars['notes_state'] = 'pending' if queue else 'done'
+        key = refresh_close(vars, CFG)
+        pre = CFG['closing_prefix'].get(key, '')
+        if key == 'promise' and not int(num(vars.get('promises_n'))):
+            pre = ''
+        vars['closing_line'] = (pre + ' ' + CFG['lines'].get('goodbye', 'Goodbye.')).strip()
+        """
+        after = "close_node" if self.close_form == "node" else "end"
+        wrap_trs = [eq("note_next", "notes to write", "notes_state", "pending")] if self.cfg["notes"] else []
+        self.code("wrap", body, wrap_trs + [always(after)],
+                  uses=("open_pids", "set_status", "jget", "jput", "refresh_close", "num"),
+                  fallback="vars['notes_state'] = 'done'")
+        if self.cfg["notes"]:
+            self.code("note_next", """
+        queue = jget(vars, 'note_queue', [])
+        if queue:
+            item = queue.pop(0)
+            vars['note_pid'] = str(item[0])
+            vars['note_reason'] = str(item[1])
+            vars['notes_state'] = 'go'
+        else:
+            vars['notes_state'] = 'done'
+        jput(vars, 'note_queue', queue)
+        """, [eq("note_write", "write the next note", "notes_state", "go")]
+                + ([eq("transfer_restructuring", "notes before the transfer are done", "after_notes", "transfer")]
+                   if self._restructuring_notes() else []) + [always(after)],
+                uses=("jget", "jput"), fallback="vars['notes_state'] = 'done'")
+            f = self.p["tools"]["add_note"]
+            tool = T.api_tool(self.api, "add_note", {**T.customer_leaf(self.api, "add_note"),
+                                                     f["product_id"]: T.baked(self.api, "add_note", f["product_id"], "{{note_pid}}"),
+                                                     f["reason"]: T.baked(self.api, "add_note", f["reason"], "{{note_reason}}")},
+                              description="Note a product.")
+            self.api_node("note_write", tool, [always("note_next")])
+        if self.close_form == "node":
+            self.api_node("close_node", self._close_tool(lifecycle=False), [always("end")])
+        self.end_node("end")
+
+    def _close_tool(self, lifecycle: bool) -> dict:
+        f = self.p["tools"]["close_call"]
+        if f.get("mode") == "code":
+            body = {f["code"]: T.baked(self.api, "close_call", f["code"], "{{close_code}}")}
+        else:
+            body = {f["outcome"]: T.baked(self.api, "close_call", f["outcome"], "{{close_outcome}}"),
+                    f["reason"]: T.baked(self.api, "close_call", f["reason"], "{{close_reason}}")}
+        pre = self.hook("""
+        refresh_close(vars, CFG)
+        b = config.get('body') or dict()
+        F = CFG['close_fields']
+        if F.get('mode') == 'code':
+            b[F['code']] = vars.get('close_code')
+        else:
+            b[F['outcome']] = vars.get('close_outcome')
+            if vars.get('close_reason'):
+                b[F['reason']] = vars.get('close_reason')
+            else:
+                b.pop(F['reason'], None)
+        config['body'] = b
+        """, uses=("refresh_close",))
+        extra = {"alwaysRunsAt": ["end_of_call"]} if lifecycle else None
+        return T.api_tool(self.api, "close_call", {**T.customer_leaf(self.api, "close_call"), **body},
+                          description="Close the call record.", pre=pre, config_extra=extra)
+
+    # globals ----------------------------------------------------------------------------------------------------------
+    def _globals(self):
+        excluded = sorted(set(self.non_conv) | {"opening", "opening_ask2"})
+        for gid, key, intent in (("g_ai", "ai", "The person asks whether they are talking to a robot, a computer, a machine or an AI."),
+                                 ("g_scam", "scam", "The person asks whether this call is a scam or doubts that the call is really from the bank.")):
+            text = P.line(self.p, key)
+            if not text:
+                continue
+            self.conv(gid, on_enter=self.tts(gid, text, is_global=True), passthrough_to="__previous__", is_global=True,
+                      transitions=[always("__previous__")],
+                      description=intent, condition={"operator": "matches_intent", "description": intent},
+                      excluded_nodes=excluded + sorted(set(self.globals) - {gid}))
+            self.intent(f"global:{gid}/intent", [f"/global_nodes/{gid}/condition/description", f"/global_nodes/{gid}/description"], intent)
+            self.task_zones(gid, gid, "Answer the person's question with the fixed line, then continue. No tool call is allowed in this turn.",
+                            is_global=True, brief_stage="global")
+        if "human" in self.queues:
+            intent = "The person asks to speak to a human, a person, an agent or a manager."
+            self.conv("g_human", on_enter={"type": "llm"}, is_global=True,
+                      extraction=[{"name": "human_choice", "type": "string", "enum_values": ["insists", "continues", "none"],
+                                   "description": P.EXTRACT["human_choice"], "min_confidence": MIN_CONF}],
+                      transitions=[eq("transfer_human", "insists on a person", "human_choice", "insists"),
+                                   eq("__previous__", "accepts help", "human_choice", "continues")],
+                      max_turns=3, turn_target="transfer_human",
+                      description=intent, condition={"operator": "matches_intent", "description": intent},
+                      excluded_nodes=excluded + ["negotiate", "negotiate_resume", "human_offer", "hardship", "g_ai", "g_scam"])
+            self.book.target("/global_nodes/g_human/extraction_schema/0/description", "text",
+                             [{"zone": "extract:human/human_choice/description"}])
+            self.intent("global:g_human/intent", ["/global_nodes/g_human/condition/description", "/global_nodes/g_human/description"], intent)
+            self.task_zones("human", "g_human", P.human_task(self.p), is_global=True, brief_stage="global")
