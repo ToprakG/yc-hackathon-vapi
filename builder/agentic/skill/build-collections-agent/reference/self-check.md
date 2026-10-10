@@ -40,6 +40,11 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
 
 ## Routes and endings
 
+- [ ] Every route where the brief makes the agent say or offer something first (sympathy + offer, explanation,
+      question) enters a stage node that says it on entry; the ending depends only on the customer's answer there.
+- [ ] Every offer the brief prescribes is a complete sentence in the facts (with all its required clauses) and the
+      prompt says to use it verbatim.
+
 - [ ] Every row of the brief's closing table is reachable, and each one sets the right close values.
 - [ ] Every side route of the brief (hardship, dispute, already paid, restructuring, human, scam, robot, refusal,
       declined, unclear, third party, wrong number, deceased, callback, service error) exists, or is `n/a` with a reason.

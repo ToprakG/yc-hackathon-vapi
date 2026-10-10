@@ -106,6 +106,8 @@ Never end your turn before the three files exist and the last `lint_workflow` sh
 - A tool on the wrong node type, a `const` URL, a nested `response_mapping`: silently dropped by the platform.
 - A promise said to be recorded before the tool answered, or after it failed.
 - A missing side route, so the agent improvises an outcome.
+- A side route that jumps to its ending on the trigger message, before the agent said the brief's required lines.
+- An offer worded by the model that drops a clause the brief requires.
 - A close record that depends on the model's memory of the call.
 - A fixed sentence paraphrased instead of quoted.
 - A pre-verification line that names the debt, the product or a forbidden word.

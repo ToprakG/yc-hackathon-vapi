@@ -72,8 +72,8 @@ API = {
         "/transfer_to_agent": op("Hand the call to a desk.", {"customer_id": S, "desk": {"type": "string", "enum": ["desk_x", "desk_y"]}},
                                  ["customer_id", "desk"], OKERR),
         "/close_call": op("Record how the call ended. Exactly once, last.", {
-            "customer_id": S, "outcome": {"type": "string", "enum": ["outcome_x", "outcome_y", "outcome_z", "outcome_w"]},
-            "detail": {"type": "string", "enum": ["detail_a", "detail_b", "detail_c", "detail_d"]}},
+            "customer_id": S, "outcome": {"type": "string", "enum": ["outcome_x", "outcome_y", "outcome_z", "outcome_w", "outcome_u"]},
+            "detail": {"type": "string", "enum": ["detail_a", "detail_b", "detail_c", "detail_d", "detail_e"]}},
             ["customer_id", "outcome"], OKERR),
     },
 }
@@ -152,7 +152,7 @@ try:
     hol = parse_holidays({HOLIDAYS!r})
     today = now.date()
     items = list_from_vars(vars, 'items', ['load_account_response.data.items', 'get_account_response.data.items'])
-    lines, facts = [], []
+    lines, facts, offers = [], [], []
     for n, it in enumerate(items, 1):
         days = int(it.get('days_over') or 0)
         band = next((b for b in BANDS if b[0] <= days <= b[1]), BANDS[-1])
@@ -164,11 +164,14 @@ try:
         name = 'item ending ' + str(it.get('ending')) if it.get('kind') == 'kind_a' else 'second item'
         facts.append(dict(ref=it.get('item_ref'), name=name, overdue=it.get('overdue'), floor=it.get('floor_amount'),
                           deadline=deadline.isoformat(), attempts=band[3], attempt1=attempt1.isoformat()))
+        offers.append('- Lower amount for ' + name + ': "Could you pay ' + money(it.get('floor_amount') or 0) + ' by ' +
+                      spoken_date(attempt1) + '? The remaining amount stays open on this item."')
         lines.append(str(n) + '. ' + name + ' (item_ref ' + str(it.get('item_ref')) + '): ' + money(it.get('overdue') or 0) +
                      ' overdue, ' + str(days) + ' days late. Lowest amount: ' + money(it.get('floor_amount') or 0) +
                      '. Latest date: ' + spoken_date(deadline) + ' (' + deadline.isoformat() + '). Attempts: ' + str(band[3]) +
                      '. Attempt 1 date: ' + spoken_date(attempt1) + ' (' + attempt1.isoformat() + ').')
-    vars['facts_text'] = 'Today is ' + spoken_date(today) + '.\\n' + '\\n'.join(lines)
+    vars['facts_text'] = ('Today is ' + spoken_date(today) + '.\\n' + '\\n'.join(lines) +
+                          '\\nSay these sentences exactly when they apply:\\n' + '\\n'.join(offers))
     vars['facts_json'] = json.dumps(facts)
     vars['item_count'] = str(len(facts))
     vars['facts_state'] = 'ok' if facts else 'empty'
@@ -341,7 +344,7 @@ WF = {
             "name": "negotiate", "node_type": "conversation",
             "on_enter": {"type": "llm", "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."},
             "on_enter_first_entry_only": True,
-            "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. " + AFTER_TOOL,
+            "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. " + AFTER_TOOL,
             "tools": [
                 api_tool("create_promise", {
                     "customer_id": {"type": "string", "default": "{{customer_id}}"},
@@ -362,10 +365,33 @@ WF = {
                     "Hand over to a person. CALL it when the customer insists on a person.", post_process_code=TRANSFER_POST)],
             "extraction_schema": [{"name": "wrap_up", "type": "string", "enum_values": ["stay", "finished"],
                                    "description": "finished once every item has a promise or a note and you said goodbye, else stay.",
+                                   "min_confidence": 0.7},
+                                  {"name": "topic", "type": "string", "enum_values": ["none", "difficulty"],
+                                   "description": "difficulty when the customer says a life event stops them paying, else none.",
                                    "min_confidence": 0.7}],
             "max_node_turns": 40, "max_turn_transition": "goodbye",
             "transitions": [go("goodbye_transfer", "Transferred", when("call_state", "transferred")),
+                            go("difficulty_prep", "A life event stops them paying", when("topic", "difficulty")),
                             go("goodbye", "Everything handled", when("wrap_up", "finished"))]},
+        # A side route with required agent lines: the trigger goes to a stage node that speaks on entry;
+        # the ending depends only on the answer to the offer, never on the trigger message.
+        "difficulty_prep": code_node("difficulty_prep", "try:\n    vars['close_outcome'] = 'outcome_u'\n    vars['close_detail'] = 'detail_e'\n"
+                                     "    vars['transfer_desk_wanted'] = 'desk_y'\nexcept Exception:\n    pass\n", "difficulty"),
+        "difficulty": {
+            "name": "difficulty", "node_type": "conversation",
+            "on_enter": {"type": "llm", "prompt": "Say one short sentence of sympathy, then offer to put the customer through to a colleague who can help. Make no payment request."},
+            "on_enter_first_entry_only": True,
+            "task_message": "The customer has a difficulty. Do not ask for any payment. If they accept the offer of a colleague, call transfer_to_agent with desk desk_y. If they decline, thank them and say goodbye. " + AFTER_TOOL,
+            "tools": [api_tool("transfer_to_agent", {
+                "customer_id": {"type": "string", "default": "{{customer_id}}"},
+                "desk": {"type": "string", "enum": ["desk_y"], "description": "desk_y: the help desk.", "default": "{{desk}}"}},
+                "Hand over to the help desk. CALL it when the customer accepts the offer.", post_process_code=TRANSFER_POST)],
+            "extraction_schema": [{"name": "help_answer", "type": "string", "enum_values": ["stay", "accepted", "declined"],
+                                   "description": "The answer to the offer of a colleague: accepted, declined, or stay while unclear.",
+                                   "min_confidence": 0.7}],
+            "max_node_turns": 6, "max_turn_transition": "goodbye_short",
+            "transitions": [go("goodbye_transfer", "Transferred", when("call_state", "transferred")),
+                            go("goodbye_short", "Declined the offer", when("help_answer", "declined"))]},
         "goodbye": end_node("goodbye", "call_finished"),
         "goodbye_short": end_node("goodbye_short", "not_reached_end", "Thank you for your time. Goodbye."),
         "goodbye_failed": end_node("goodbye_failed", "identity_failed", "For your security, please visit a branch of Example Bank. Goodbye."),
@@ -379,14 +405,14 @@ WF = {
             "task_message": "Say you are Example Bank's automated assistant.",
             "on_enter": {"type": "tts", "text": "I am Example Bank's automated assistant."},
             "passthrough": True, "passthrough_default_transition": "__previous__",
-            "excluded_nodes": ["setup", "mark_not_their_line", "third_party_prep", "id_failed", "load_account", "account_error", "facts",
+            "excluded_nodes": ["setup", "mark_not_their_line", "third_party_prep", "id_failed", "load_account", "account_error", "facts", "difficulty_prep",
                                "goodbye", "goodbye_short", "goodbye_failed", "goodbye_error", "goodbye_transfer"],
             "transitions": [go("__previous__", "always", {"operator": "always"})]}},
     "tools": [{**api_tool("close_call", {
         "customer_id": {"type": "string", "default": "{{customer_id}}"},
-        "outcome": {"type": "string", "enum": ["outcome_x", "outcome_y", "outcome_z", "outcome_w"], "default": "{{close_outcome}}",
-                    "description": "outcome_x: a promise was recorded. outcome_y: transferred or service error. outcome_z: identity failed. outcome_w: not reached."},
-        "detail": {"type": "string", "enum": ["detail_a", "detail_b", "detail_c", "detail_d"], "default": "{{close_detail}}",
+        "outcome": {"type": "string", "enum": ["outcome_x", "outcome_y", "outcome_z", "outcome_w", "outcome_u"], "default": "{{close_outcome}}",
+                    "description": "outcome_x: a promise was recorded. outcome_y: transferred or service error. outcome_z: identity failed. outcome_w: not reached. outcome_u: verified, no promise."},
+        "detail": {"type": "string", "enum": ["detail_a", "detail_b", "detail_c", "detail_d", "detail_e"], "default": "{{close_detail}}",
                    "description": "Leave out for outcome_x."}},
         "Record how the call ended.", pre_process_code=CLOSE_PRE)}],
 }
@@ -404,6 +430,7 @@ FRAGMENTS = {
     "end_node.json": ("nodes", "goodbye_short"),
     "end_node_silent.json": ("nodes", "goodbye"),
     "global_node.json": ("global_nodes", "asks_robot"),
+    "stage_node_offer.json": ("nodes", "difficulty"),
     "lifecycle_close_tool.json": ("tools", 0),
 }
 

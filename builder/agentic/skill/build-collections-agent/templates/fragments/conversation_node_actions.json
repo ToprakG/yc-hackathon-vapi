@@ -6,7 +6,7 @@
   "prompt": "Say you are calling about a late payment and state each item from the facts in one sentence each."
  },
  "on_enter_first_entry_only": true,
- "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
+ "task_message": "Facts (computed; use them exactly):\n{{facts_text}}\n\nAsk for the full overdue amount first. When an offer sentence from the facts applies, say it exactly. Read back item, amount and date and wait for a clear yes before you call create_promise (amount in currency units, e.g. 412.50). If the customer cannot pay at all, call add_note with code note_x for that item. If they ask for a person, call transfer_to_agent with desk desk_x. After every tool result, either speak to the customer or call the next tool: never end a turn with nothing. Call one tool per message. Follow what_to_do_next in a tool result.",
  "tools": [
   {
    "type": "function",
@@ -208,6 +208,16 @@
    ],
    "description": "finished once every item has a promise or a note and you said goodbye, else stay.",
    "min_confidence": 0.7
+  },
+  {
+   "name": "topic",
+   "type": "string",
+   "enum_values": [
+    "none",
+    "difficulty"
+   ],
+   "description": "difficulty when the customer says a life event stops them paying, else none.",
+   "min_confidence": 0.7
   }
  ],
  "max_node_turns": 40,
@@ -223,6 +233,20 @@
       "variable": "call_state",
       "operator": "equals",
       "operand": "transferred"
+     }
+    ]
+   }
+  },
+  {
+   "target_node": "difficulty_prep",
+   "description": "A life event stops them paying",
+   "condition": {
+    "logic": "or",
+    "conditions": [
+     {
+      "variable": "topic",
+      "operator": "equals",
+      "operand": "difficulty"
      }
     ]
    }

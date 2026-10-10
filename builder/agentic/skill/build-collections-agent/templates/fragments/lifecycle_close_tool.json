@@ -44,10 +44,11 @@
         "outcome_x",
         "outcome_y",
         "outcome_z",
-        "outcome_w"
+        "outcome_w",
+        "outcome_u"
        ],
        "default": "{{close_outcome}}",
-       "description": "outcome_x: a promise was recorded. outcome_y: transferred or service error. outcome_z: identity failed. outcome_w: not reached."
+       "description": "outcome_x: a promise was recorded. outcome_y: transferred or service error. outcome_z: identity failed. outcome_w: not reached. outcome_u: verified, no promise."
       },
       "detail": {
        "type": "string",
@@ -55,7 +56,8 @@
         "detail_a",
         "detail_b",
         "detail_c",
-        "detail_d"
+        "detail_d",
+        "detail_e"
        ],
        "default": "{{close_detail}}",
        "description": "Leave out for outcome_x."

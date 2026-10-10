@@ -144,6 +144,10 @@ harm, e.g. identity), `passthrough: true` + `passthrough_default_transition: "__
 `{"target_node": "__previous__", ... "always"}` for a fixed reply. `__previous__` is allowed only in global nodes.
 Fragment: `global_node.json`.
 
+**Stage node for a route with required lines** (sympathy + an offer, an explanation): the trigger routes to a node
+whose `on_enter` speaks first; its own enum (`stay` / `accepted` / `declined`) decides the ending. Fragment:
+`stage_node_offer.json` (with the code node in front that sets the close state).
+
 ## 9. Ending the call (wf "End-call nodes", tc "Lifecycle tools")
 
 - `end_call` node: `on_enter: {"type": "silent"}`, `transitions: []`, `terminal` with handler
@@ -184,4 +188,6 @@ Fragment: `global_node.json`.
 | booleans | `"true"` and `"True"`: test both, or route on strings |
 | a passthrough node without a final `always` | deadlock |
 | bare data as a tool result | the model goes silent: add `what_to_do_next` |
+| an extraction value that ends the call, set on the trigger message ("hardship, declined") | the agent never says the brief's lines: route the trigger to a stage node that speaks on entry, end on the answer |
+| offers worded by the model | clauses get dropped: write each offer sentence in the facts node, say it verbatim |
 | a mapped list read as `vars['x']` | unset on the platform: rebuild it with `list_from_vars` from the flattened keys |

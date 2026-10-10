@@ -21,6 +21,7 @@
   "load_account",
   "account_error",
   "facts",
+  "difficulty_prep",
   "goodbye",
   "goodbye_short",
   "goodbye_failed",

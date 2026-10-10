@@ -111,7 +111,27 @@ Implement the brief's flow, typically:
 - Products without a promise get `add_note` with the brief's reason, if the brief uses notes, and only where it allows
   (some briefs forbid notes around transfers; some require one before a transfer).
 
+## Offer sentences (part of the facts node)
+
+The model paraphrases offers and drops clauses. For every offer the brief prescribes, the facts node writes the
+**complete sentence**, with every clause the brief attaches to it, and the negotiation prompt says to use it verbatim:
+- the first ask (full amount, the brief's opening question);
+- the lower-amount offer (the floor and its date) with what the brief says must accompany it (e.g. what happens to
+  the rest of the debt);
+- each persuasion attempt's proposal (amount + spoken date);
+- the "latest date I can record" offer for a date past the deadline;
+- the read-back and confirmation question in the brief's words.
+Put them in `facts_text` under a heading such as "Say these sentences exactly when they apply".
+
 ## Stage 6: side routes (global nodes or branches)
+
+**A side route with required agent lines needs its own node.** An extraction or intent that leads to an ending is
+evaluated on the very message that triggers it, so the agent never gets to speak first. If the brief says the agent
+must say or offer something on a trigger (sympathy + an offer of help, an explanation, a question), route the trigger
+to a **stage node** whose `on_enter` says it (a `tts` line for fixed wording, or an `llm` prompt), and decide the
+ending only from the customer's **answer** in that node (an enum such as `accepted` / `declined` / `stay`, with
+`stay` as the default). Never put "trigger happened and the customer declined the offer" into one extraction value
+in the node where the trigger occurs.
 
 Map each to the brief's handling, its sentence and its close row:
 - hardship (illness, bereavement, job loss): sympathy sentence, no persuasion, offer the brief's team, transfer or not.
