@@ -56,11 +56,15 @@ def pick(cases: list, limit: int) -> list:
     return out
 
 
-def evaluate(brief: str, limit: int, reps: int, concurrency: int, port: int, freya) -> dict:
+def evaluate(brief: str, limit: int, reps: int, concurrency: int, port: int, freya, exclude_sample: int = 0,
+             tag: str = "") -> dict:
     cases, config, api_path, wf_path = sources(brief)
     if not wf_path.exists():
         return {"brief": brief, "error": f"no compiled workflow at {wf_path}"}
     wf = json.loads(wf_path.read_text())
+    if exclude_sample:
+        done = {c["id"] for c in pick(cases, exclude_sample)}
+        cases = [c for c in cases if c["id"] not in done]
     chosen = pick(cases, limit)
     out_dir = REPO / "out" / "template_cc" / "eval"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +80,7 @@ def evaluate(brief: str, limit: int, reps: int, concurrency: int, port: int, fre
     rep = {"brief": brief, "cases": len(chosen), "reps": reps, "passed": sum(r.passed for r in scored),
            "scored": len(scored), "unscored": len(results) - len(scored), "seconds": round(time.time() - t0),
            "rows": [dict(r.as_dict(), family=next(c["family"] for c in chosen if c["id"] == r.case_id)) for r in results]}
-    (out_dir / f"{brief}.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False))
+    (out_dir / f"{brief}{'.' + tag if tag else ''}.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False))
     trace.close("ok", passed=rep["passed"], scored=rep["scored"])
     return rep
 
@@ -88,12 +92,14 @@ def main():
     ap.add_argument("--reps", type=int, default=1)
     ap.add_argument("--concurrency", type=int, default=3)
     ap.add_argument("--port", type=int, default=8790)
+    ap.add_argument("--exclude-sample", type=int, default=0, help="skip the first N cases --limit N would pick")
+    ap.add_argument("--tag", default="")
     a = ap.parse_args()
     import freya
     briefs = FAKE if a.brief == "all-fake" else [a.brief]
     summary = []
     for b in briefs:
-        rep = evaluate(b, a.limit, a.reps, a.concurrency, a.port, freya)
+        rep = evaluate(b, a.limit, a.reps, a.concurrency, a.port, freya, a.exclude_sample, a.tag)
         line = (f"{b}: {rep['passed']}/{rep['scored']} passed ({rep['unscored']} unscored) in {rep['seconds']}s"
                 if "error" not in rep else f"{b}: {rep['error']}")
         print(line, flush=True)
