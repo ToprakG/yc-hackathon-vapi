@@ -89,3 +89,12 @@ def test_calendar_code_node_with_json_string_list_late_in_the_week():
 def test_setup_node_callback_window_after_cutoff():
     out = run_snippet(_demo(), "setup", {"now": "2031-03-13T17:30"})["vars_written"]
     assert "today" not in out["callback_window_text"].split("Today")[0] and out["callback_next_day_iso"] == "2031-03-17"
+
+
+def test_facts_node_reads_the_flattened_list_the_platform_delivers():
+    flat = {"now": "2031-03-07T11:00"}
+    for i, item in enumerate(ITEMS):
+        for k, v in item.items():
+            flat[f"load_account_response.data.items.{i}.{k}"] = v
+    res = run_snippet(_demo(), "facts", flat)
+    assert res["vars_written"]["facts_state"] == "ok" and res["vars_written"]["item_count"] == "2"

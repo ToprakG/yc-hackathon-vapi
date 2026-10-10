@@ -169,3 +169,14 @@ def test_policy_call_variables_and_unused_tools(tmp_path, base_agent, kit_api):
                                                       "unused_tools": ["add_note", "schedule_callback", "transfer_to_agent"]}))
     report = lint.lint_file(tmp_path / "workflow.json", kit_api, policy_path=tmp_path / "policy.json")
     assert not [w for w in report["warnings"] if "not used anywhere" in w["msg"]]
+
+
+def test_list_mapping_is_warned(base_agent, kit_api):
+    wf = with_prep(base_agent)
+    wf["nodes"]["load"] = {"name": "load", "node_type": "api_request", "passthrough": True, "passthrough_default_transition": "collection",
+                           "on_enter": {"type": "silent"}, "pre_actions": [copy.deepcopy(_tool(wf, "collection", "get_account"))],
+                           "response_mapping": [{"path": "data.products", "variable": "products"}],
+                           "transitions": [{"target_node": "collection", "description": "always", "condition": {"operator": "always"}}]}
+    wf["nodes"]["identity"]["transitions"][0]["target_node"] = "load"
+    ws = warnings(wf, kit_api)
+    assert any("load_response.data.products.<i>.<field>" in w for w in ws), ws

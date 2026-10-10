@@ -50,6 +50,13 @@ and sentence comes from your brief and `input/tools.openapi.json`.
 
 Route on the node's counters: `<node id>_failure_count` greater than 0, before the `always`.
 
+**Lists from a `pre_actions` call (seen in a practice run, 10 October):** a node-level mapping of a list
+(`data.<list>` → a variable) left the variable **unset**. The list existed only as flattened keys named after the
+**node**: `<node id>_response.data.<list>.0.<field>`, `<node id>_response.data.<list>.1.<field>`, ... Scalars map
+fine. Always rebuild lists in code with `list_from_vars(vars, '<mapped name>', ['<node id>_response.data.<list>',
+'<tool name>_response.data.<list>'])` from `templates/calendar.py`, and test the facts node with `run_snippet` on the
+flattened form too (pass the flattened keys in `vars_json`, without the mapped variable).
+
 ## 3. Code node (tc "Code nodes and code_exec", "Rules for snippets")
 
 ```json
@@ -67,8 +74,8 @@ Route on the node's counters: `<node id>_failure_count` greater than 0, before t
 - Wrap the body in `try`/`except Exception` and write a fallback for every variable a later prompt or condition reads.
 - Write **strings** for routing flags (`'passed'`, `'failed'`), never Python booleans.
 - A code node's automatic keys are named after the **node**: `<node id>_success_count`.
-- A mapped list may arrive as a list, a JSON string or flattened keys: read it defensively (`as_list` in
-  `templates/calendar.py`).
+- A list result may be missing under its mapped name and present only as flattened keys
+  (`<node id>_response.data.<list>.<i>.<field>`): read it with `list_from_vars` from `templates/calendar.py`.
 - Paste helpers from `templates/calendar.py` above your snippet. Test every snippet with `run_snippet`.
 
 ## 4. Post-hook: `what_to_do_next` (tc "Pre and post Python hooks", "Tool results and the next turn")
@@ -177,3 +184,4 @@ Fragment: `global_node.json`.
 | booleans | `"true"` and `"True"`: test both, or route on strings |
 | a passthrough node without a final `always` | deadlock |
 | bare data as a tool result | the model goes silent: add `what_to_do_next` |
+| a mapped list read as `vars['x']` | unset on the platform: rebuild it with `list_from_vars` from the flattened keys |

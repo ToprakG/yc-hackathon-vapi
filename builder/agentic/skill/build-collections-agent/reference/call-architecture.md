@@ -67,7 +67,9 @@ design goal is: **every record and every number is decided by code or by a route
 
 ## Stage 3: account (api_request, `get_account` in `pre_actions`)
 
-- `response_mapping` of the product list to a variable (`data.<list field>`); route on `<node>_failure_count`.
+- Route on `<node>_failure_count`. The product list reaches later code only as flattened keys
+  `<node id>_response.data.<list field>.<i>.<field>` (a mapped list stayed unset in a practice run): the facts node
+  reads it with `list_from_vars`.
 - Retry only as the brief or the API's 5xx wording allows ("the call may be repeated"): `maxRetries` on this read, or a
   second api node. After the last failure: say it truthfully and take the brief's service-error ending.
 

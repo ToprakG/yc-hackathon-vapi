@@ -159,6 +159,37 @@ def money(amount, symbol=''):
     return symbol + text
 
 
+def list_from_vars(vars, name, prefixes):
+    """A list from an API result, wherever the platform put it. Seen in a practice run on 10 October: a node-level
+    response_mapping of a list left the variable unset; the list existed only as flattened keys such as
+    '<node id>_response.data.<field>.0.<key>'. Tries vars[name] first, then each flattened prefix
+    (e.g. 'load_account_response.data.items' or 'get_account_response.data.items'), in index order."""
+    found = as_list(vars.get(name)) if vars.get(name) not in (None, '') else []
+    if found:
+        return found
+    for prefix in prefixes:
+        rows = {}
+        start = prefix + '.'
+        for key, value in vars.items():
+            if not str(key).startswith(start):
+                continue
+            rest = str(key)[len(start):]
+            idx, _, field = rest.partition('.')
+            if idx.isdigit():
+                if field:
+                    rows.setdefault(int(idx), {})[field] = value
+                else:
+                    rows[int(idx)] = value
+        if rows:
+            return [rows[i] for i in sorted(rows)]
+        whole = vars.get(prefix)
+        if whole not in (None, ''):
+            got = as_list(whole)
+            if got:
+                return got
+    return []
+
+
 def as_list(value):
     """A mapped list may arrive as a list, a JSON string or a dict (tools-and-code.md): always return a list."""
     if isinstance(value, list):

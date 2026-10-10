@@ -57,8 +57,8 @@
  ],
  "response_mapping": [
   {
-   "path": "data.items",
-   "variable": "items"
+   "path": "data.ok",
+   "variable": "account_ok"
   }
  ],
  "transitions": [

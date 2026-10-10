@@ -77,3 +77,10 @@ def test_words_and_money():
     assert cal.money(1234.5) == "1,234.50" and cal.money(80, "$") == "$80"
     assert cal.parse_hhmm("9:30") == datetime.time(9, 30) and cal.in_window(datetime.time(19, 0), datetime.time(10), datetime.time(19))
     assert cal.as_list('[{"a": 1}]') == [{"a": 1}] and cal.as_list({"a": 1}) == [{"a": 1}] and cal.as_list(None) == []
+
+
+def test_list_from_vars_prefers_mapped_then_flattened():
+    v = {"node_response.data.items.1.a": 2, "node_response.data.items.0.a": 1, "node_response.data.items.0.b": "x"}
+    assert cal.list_from_vars(v, "items", ["tool_response.data.items", "node_response.data.items"]) == [{"a": 1, "b": "x"}, {"a": 2}]
+    assert cal.list_from_vars({"items": '[{"a": 9}]', **v}, "items", ["node_response.data.items"]) == [{"a": 9}]
+    assert cal.list_from_vars({}, "items", ["node_response.data.items"]) == []

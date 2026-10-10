@@ -475,6 +475,27 @@ def _check_snippet(path, code, r: Report, kind):
     return tree
 
 
+def _check_list_mappings(wf, api, r: Report):
+    """A mapped list stayed unset in a practice run (10 October); only flattened keys held it."""
+    def check(path, mappings, tool_names, owner):
+        for i, m in enumerate(mappings or []):
+            field = str((m or {}).get("path", "")).split(".")
+            if len(field) == 2 and field[0] == "data":
+                for name in tool_names:
+                    spec = (api["tools"].get(name) or {}).get("response", {}).get(field[1])
+                    if spec and spec.get("type") == "array":
+                        r.warn(f"{path}.response_mapping[{i}]",
+                               f"maps the list {m['path']!r}; a mapped list stayed unset on the platform. Read "
+                               f"'{owner}_response.{m['path']}.<i>.<field>' with list_from_vars instead")
+
+    for path, nid, node, _ in _all_nodes(wf):
+        names = [_fn(t).get("name") for t in node.get("pre_actions") or [] if _handler(t) == API_CALL]
+        check(path, node.get("response_mapping"), names, nid)
+    for path, owner, tool, placement in _tools_of(wf):
+        if placement == "tools" and isinstance(tool, dict):
+            check(path, tool.get("response_mapping"), [_fn(tool).get("name")], _fn(tool).get("name"))
+
+
 def _check_tools(wf, api, r: Report, names, prefixes, call_vars):
     for path, owner, tool, placement in _tools_of(wf):
         if not isinstance(tool, dict):
@@ -603,6 +624,7 @@ def lint(wf, api_summary: dict, call_vars=None, unused_tools=()) -> dict:
     _check_conditions(wf, r, names, prefixes)
     _check_extraction(wf, r)
     _check_tools(wf, api_summary, r, names, prefixes, call_vars)
+    _check_list_mappings(wf, api_summary, r)
     _check_prompts(wf, r, names, prefixes)
     _check_collections(wf, api_summary, r, set(unused_tools or ()))
     return r.as_dict()

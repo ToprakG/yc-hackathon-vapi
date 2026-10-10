@@ -26,7 +26,8 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
 - [ ] I ran `run_snippet` on every code node and hook with at least 3 `now` values: a Friday, the day before a
       holiday, a late afternoon near the callback cut-off. Results are correct by hand-check.
 - [ ] I ran the facts node with 1 product and with the maximum product count, and with renamed fields if the API has
-      them. Amounts in cents convert with `round()`.
+      them, passing the products **only as flattened keys** (`<node id>_response.data.<list>.0.<field>`), as the
+      platform delivers them. Amounts in cents convert with `round()`.
 
 ## Wording
 

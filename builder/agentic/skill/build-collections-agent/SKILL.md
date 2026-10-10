@@ -78,7 +78,8 @@ Decide the variables each code node and hook writes, and their fallbacks.
    - every code node with at least 3 `now` values: a Friday, the day before a holiday, a late afternoon near the
      callback cut-off;
    - the facts node with 1 product and with the maximum product count the brief allows, with the API's field names
-     and amount unit;
+     and amount unit, giving the products as the platform does: only flattened keys
+     `<node id>_response.data.<list>.<i>.<field>` (a mapped list variable stays unset);
    - every hook with a success result and a failure result (`{"ok": false}`, or an envelope with `status_code` 500).
    Check the outputs by hand against the brief. Fix and re-run until they are right.
 

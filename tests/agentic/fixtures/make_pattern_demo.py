@@ -146,12 +146,12 @@ vars['call_state'] = 'open'
 """
 
 FACTS = helpers("parse_now", "parse_holidays", "is_business_day", "next_business_day", "add_business_days",
-                "last_business_day_of_week", "spoken_date", "money", "as_list") + f"""BANDS = [(1, 20, 5, 1), (21, 60, 3, 2)]  # days_over from, to, deadline in business days, attempts (invented)
+                "last_business_day_of_week", "spoken_date", "money", "list_from_vars") + f"""BANDS = [(1, 20, 5, 1), (21, 60, 3, 2)]  # days_over from, to, deadline in business days, attempts (invented)
 try:
     now = parse_now(vars.get('now'))
     hol = parse_holidays({HOLIDAYS!r})
     today = now.date()
-    items = as_list(vars.get('items'))
+    items = list_from_vars(vars, 'items', ['load_account_response.data.items', 'get_account_response.data.items'])
     lines, facts = [], []
     for n, it in enumerate(items, 1):
         days = int(it.get('days_over') or 0)
@@ -332,7 +332,7 @@ WF = {
             "on_enter": {"type": "silent"}, "disable_inactivity_monitor": True,
             "pre_actions": [api_tool("get_account", {"customer_id": {"type": "string", "default": "{{customer_id}}"}},
                                      "Get the late items.", retries=1)],
-            "response_mapping": [{"path": "data.items", "variable": "items"}],
+            "response_mapping": [{"path": "data.ok", "variable": "account_ok"}],  # scalars map; lists: list_from_vars
             "transitions": [go("account_error", "The lookup failed", when("load_account_failure_count", 0, op="greater_than")),
                             go("facts", "always", {"operator": "always"})]},
         "account_error": code_node("account_error", set_close("outcome_y", "detail_c"), "goodbye_error"),
