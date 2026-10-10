@@ -90,11 +90,23 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
         the_judge = judge.make_judge(models, trace, call_llm, deadline)
         report["judge"] = the_judge.name if the_judge else None
 
-        # EXTRACT (fatal on failure)
-        ex = extract.extract(brief_text, api, call_llm, models.extract, trace, deadline, out)
-        policy = ex["policy"]
+        # EXTRACT (fatal on failure), or a given policy.json
+        if args.policy:
+            policy = policy_check.complete(json.loads(Path(args.policy).read_text(encoding="utf-8")), api)
+            viol = policy_check.check(policy, api, brief_text)
+            trace.line(f"extract: skipped, policy from {args.policy}")
+            trace.check("policy_check (given policy)", not viol, f"{len(viol)} violation(s)")
+            if viol:
+                policy, repairs = policy_check.repair(policy, viol, api)
+                policy = policy_check.complete(policy, api)
+                for r in repairs:
+                    trace.line(f"policy default: {r}")
+            report["extract"] = {"skipped": args.policy, "violations": len(viol)}
+        else:
+            ex = extract.extract(brief_text, api, call_llm, models.extract, trace, deadline, out)
+            policy = ex["policy"]
+            report["extract"] = {"violations_first": len(ex["violations"]), "repairs": ex["repairs"]}
         _write(out / "policy.raw.json", policy)
-        report["extract"] = {"violations_first": len(ex["violations"]), "repairs": ex["repairs"]}
 
         # baseline before any further LLM step: the fallback
         best, best_book, lint_report = compile_checked(policy, api, args.close_form, trace, "baseline (extracted policy)")

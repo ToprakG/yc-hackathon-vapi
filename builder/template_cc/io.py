@@ -117,6 +117,7 @@ def parse_args(argv):
     ap.add_argument("--out")
     ap.add_argument("--close-form", choices=("lifecycle", "node"), default="lifecycle")
     ap.add_argument("--keep-workspace", action="store_true")
+    ap.add_argument("--policy", help="skip extraction: compile from this policy.json (checked deterministically)")
     return ap.parse_args(argv)
 
 

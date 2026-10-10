@@ -132,3 +132,12 @@ def test_self_test_with_a_fake_runner(tmp_path):
     rc, out, _, txt = run(tmp_path, ["--save", "none", "--audit", "off", "--self-test", "local"], runner=r)
     assert rc == 0 and r.calls and "self-test: baseline" in txt
     assert json.loads((out / "build_report.json").read_text())["self_test"]["stop_reason"] == "no failures"
+
+
+def test_given_policy_skips_extraction(tmp_path):
+    def no_llm(*a, **k):
+        raise AssertionError("no model call expected")
+
+    rc, out, calls, txt = run(tmp_path, ["--save", "none", "--audit", "off", "--policy", str(FIX / "invented.policy.json")], call_llm=no_llm)
+    assert rc == 0 and "extract: skipped" in txt and "model call" not in txt
+    assert json.loads((out / "build_report.json").read_text())["extract"]["skipped"].endswith("invented.policy.json")
