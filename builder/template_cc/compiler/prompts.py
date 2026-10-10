@@ -250,11 +250,13 @@ def side_desc(f4: bool = True, refused: int = 0) -> str:
     return d
 
 
-def resume_entry(policy: dict, f4: bool = False, routed: bool = False) -> str:
+def resume_entry(policy: dict, f4: bool = False, routed: bool = False, scoped: bool = False) -> str:
     extra = (" If this line is not empty and you have not said it yet in this conversation, say it first, word for word, "
              "once: {{say_line}}") if f4 else ""
+    scope = (" Your facts list exactly {{product_count}} product(s): never mention a product, card or account that is not "
+             "in that list.") if scoped else ""
     return ("Continue the conversation from where it is, in one or two short sentences: briefly acknowledge what the "
-            "customer just said and go on with the next open product from your facts. If the customer said they already "
+            "customer just said and go on with the next open product from your facts." + scope + " If the customer said they already "
             f"paid, {quoted(policy, 'paid_reply')}. Never offer anything that is not in your facts: no other product, "
             "account, service, plan or discount. If nothing is left to discuss, "
             + ("say goodbye." if routed else "CALL transition_to_wrap.") + extra)

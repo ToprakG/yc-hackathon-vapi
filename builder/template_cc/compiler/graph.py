@@ -1215,6 +1215,7 @@ ID_INIT        vars['cb_state'] = 'none'
         sl = f4 or f11 or f8
         said_hs = f8 and bool(P.line(self.p, "hardship_sympathy"))
         f7 = "f7_router" in self.f
+        f15 = "f15_hardship_terms" in self.f
         fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
                    + (["discount"] if f4 else []) + ([f"refused_{i}" for i in range(1, self.nmax + 1)] if f7 else []))]
         side_descs = {"side": P.side_desc(f4, self.nmax if f7 else 0)} if (f4 or f7) else None
@@ -1232,7 +1233,7 @@ ID_INIT        vars['cb_state'] = 'none'
         if not f11:
             task += "\n" + P.negotiate_tool_hint(self.p, cents)
         for nid, entry in (("negotiate", self.tts("negotiate", "{{debt_statement}} {{first_ask_line}}")),
-                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, sl, f7)})):
+                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, sl, f7, f15)})):
             self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[] if f11 else [tool],
                       extraction=self.extraction("negotiate", nid, fields, descs=side_descs),
                       transitions=self._side_transitions(nid),
@@ -1240,7 +1241,7 @@ ID_INIT        vars['cb_state'] = 'none'
             if not f11:
                 self.tool_zones(nid, 0, tool, msgs)
             self.task_zones("negotiate", nid, task, facts="{{facts_text}}", brief_stage=("debt", "negotiate"))
-        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, sl, f7), True, purpose="entry line on re-entry")
+        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, sl, f7, f15), True, purpose="entry line on re-entry")
         self.book.target("/nodes/negotiate_resume/on_enter/prompt", "text", [{"zone": "node:negotiate/resume_entry"}])
         reset = """
         vars['side'] = 'none'
@@ -1300,17 +1301,23 @@ ID_INIT        vars['cb_state'] = 'none'
         neg_flag(vars)
         refresh_close(vars, CFG)
         """, back, uses=("jget", "set_status", "neg_flag", "refresh_close"), fallback=reset)
-        self.code("resume", reset, [always("negotiate_resume")])
+        if not (f11 and f15) or ("human" in self.queues and not self.human_first):  # else nothing routes to it
+            self.code("resume", reset, [always("negotiate_resume")])
 
         has_support = "support" in self.queues
         hs_trs = []
+        terms = f11 and f15  # F15: terms named in the same turn win over "no thanks" to the support offer
+        if terms:
+            hs_trs.append(eq("promise_check", "the customer names or accepts an amount or a date", "offer_intent",
+                             "proposes", "accepts_offer"))
         if has_support:
             hs_trs.append(eq("transfer_support", "accepts the support team", "hs_choice", "accepts"))
         hs_trs += [eq("hardship_mark", "declines", "hs_choice", "declines"),
-                   eq("resume", "names a date or amount", "hs_choice", "names_terms")]
+                   eq("promise_check" if terms else "resume", "names a date or amount", "hs_choice", "names_terms")]
         said = P.line(self.p, "hardship_sympathy") if f8 else ""
         self.conv("hardship", on_enter=self.tts("hardship", said) if said else {"type": "llm"}, first_only=bool(said),
-                  extraction=self.extraction("hardship", "hardship", [("hs_choice", ["accepts", "declines", "names_terms", "none"])]),
+                  extraction=self.extraction("hardship", "hardship", [("hs_choice", ["accepts", "declines", "names_terms", "none"])]
+                                             + (offer_fields if terms else [])),
                   transitions=hs_trs, max_turns=6, turn_target="hardship_mark")
         self.task_zones("hardship", "hardship", P.hardship_task(self.p, has_support, said), brief_stage="negotiate")
         if "human" in self.queues:
