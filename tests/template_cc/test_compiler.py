@@ -403,3 +403,31 @@ def test_promise_failure_messages_avoid_the_word_recorded_and_retry_without_aski
     assert "not a persuasion attempt and does not change the amount" in task
     from builder.template_cc.compiler import prompts as P
     assert "robot or an AI is NOT human" in P.EXTRACT["side"]
+
+
+@pytest.mark.parametrize("pid", IDS)
+def test_the_opening_is_spoken_before_any_code_runs(pid):
+    wf, *_ = compiled(pid)
+    assert wf["initial_node"] == "opening" and wf["nodes"]["opening"]["on_enter"]["type"] == "tts"
+    op = wf["nodes"]["opening"]
+    assert [t["target_node"] for t in op["transitions"]] == ["setup"] and op["max_turn_transition"] == "setup"
+    targets = [t["target_node"] for t in wf["nodes"]["setup"]["transitions"]]
+    assert targets[0] == "identity" and targets[-1] == "mark_nr_unclear" and "third_party" in targets
+
+
+def test_setup_routes_on_who_answered():
+    wf, _, p, _ = compiled("brief-a")
+    v = run_code(wf, "setup", {**call_vars(p, "2026-10-14T11:00"), "who1": "someone_else"})
+    assert v["cb_window_text"].startswith("Today is")  # setup ran after the first reply and still computed the window
+
+
+def test_a_duplicate_promise_call_never_downgrades_a_recorded_promise():
+    wf, _, p, _ = compiled("brief-a")
+    v = after_setup_and_facts(wf, p, "2026-10-14T11:00", 1)
+    v["cp_pid"] = "p1"
+    v, r = run_post(wf, "negotiate", "create_promise", v, {"ok": True, "promise_id": "pr1"})
+    assert j(v, "pstate")["p1"] == "promised"
+    for _ in range(2):
+        v, r = run_post(wf, "negotiate", "create_promise", v, {"ok": False, "error": "this product already has a promise"})
+        assert j(v, "pstate")["p1"] == "promised" and "Do not call create_promise for it again" in r["data"]["what_to_do_next"]
+    assert v["close_outcome"] == "promise"

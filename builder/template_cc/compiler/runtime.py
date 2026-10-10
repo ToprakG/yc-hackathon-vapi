@@ -281,8 +281,8 @@ def open_pids(vars):
 
 def set_status(vars, pid, status):
     pst = jget(vars, 'pstate', dict())
-    if pid in jget(vars, 'pids', []):
-        pst[pid] = status
+    if pid in jget(vars, 'pids', []) and (pst.get(pid) != 'promised' or status == 'promised'):
+        pst[pid] = status  # a recorded promise is never downgraded
         jput(vars, 'pstate', pst)
 
 

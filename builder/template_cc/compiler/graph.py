@@ -221,7 +221,7 @@ class Graph:
         self._wrap_and_close()
         self._globals()
         self._finish_routes()
-        wf = {"initial_node": "setup", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
+        wf = {"initial_node": "opening", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
               "test_variables": self._test_variables()}
         if self.close_form == "lifecycle":
             wf["tools"] = [self._close_tool(lifecycle=True)]
@@ -315,7 +315,12 @@ class Graph:
         vars['facts_text'] = ''
         vars['closing_line'] = 'Goodbye.'
         """
-        self.code("setup", body, [always("opening")],
+        # The opening is spoken first (call variables only, no code): a code step before the first line makes the
+        # first chat turn wait on the code sandbox (seen at 37-41 s, and 504s from the chat gateway). setup runs
+        # after the customer's first reply and routes on who answered.
+        second = int(self.limits.get("right_party", 2)) >= 2
+        routes = self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear")
+        self.code("setup", body, routes + [always("mark_nr_unclear", "nobody confirmed")],
                   uses=("parse_now", "hol_set", "next_bd_after", "spoken_full", "spoken", "jput", "refresh_close"),
                   fallback=fallback)
 
@@ -334,8 +339,8 @@ class Graph:
         who = ["customer", "someone_else", "not_their_number", "customer_died", "unclear"]
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
                   extraction=self.extraction("opening", "opening", [("who1", who)]),
-                  transitions=self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear"),
-                  max_turns=4, turn_target="mark_nr_unclear")
+                  transitions=[any_of("setup", "the person answered", [leaf("who1", "is_set")])],
+                  max_turns=4, turn_target="setup")
         self.task_zones("opening", "opening", P.opening_task(self.p))
         if second:
             self.conv("opening_ask2", on_enter={"type": "llm"},
@@ -649,12 +654,15 @@ class Graph:
         msgs = {"recorded": "The promise is recorded.",
                 "more": "If another agreed promise is not recorded yet, CALL create_promise for it now; otherwise continue with the next open product.",
                 "retry": "A technical problem stopped this; it did not go through. Do not ask the customer again: say in a few words that there was a technical problem and you are trying again, and CALL create_promise once more now with the same values. Do not use the word recorded.",
+                "dup": "This product already has a recorded promise. Do not call create_promise for it again.",
                 "failed": "It did not go through a second time. Do not try again. Tell the customer you could not save it because of a technical problem."}
         post = self.hook("""
         result.pop('header', None)
         d = result.get('data') if isinstance(result.get('data'), dict) else dict()
         pid = str(vars.get('cp_pid') or '')
-        if truthy(d.get('ok')):
+        if jget(vars, 'pstate', dict()).get(pid) == 'promised':
+            d['what_to_do_next'] = MSG['dup'] + (' ' + MSG['more'] if open_pids(vars) else '')
+        elif truthy(d.get('ok')):
             set_status(vars, pid, 'promised')
             vars['promises_n'] = str(int(num(vars.get('promises_n'))) + 1)
             d['what_to_do_next'] = MSG['recorded'] + (' ' + MSG['more'] if open_pids(vars) else '')
