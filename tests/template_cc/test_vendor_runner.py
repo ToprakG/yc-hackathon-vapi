@@ -152,3 +152,34 @@ def test_worker_plays_cases_with_the_vendor_driver(tmp_path):
     assert by[("T-001", 1)]["passed"] and not by[("T-002", 2)]["passed"]
     assert by[("T-002", 1)]["failed_reasons"] == ["outcome wrong"]
     assert by[("T-001", 1)]["tool_calls"][0]["tool"] == "close_call" and by[("T-001", 1)]["transcript"][0]["text"] == "Hello"
+
+
+def test_infrastructure_errors_are_retried_and_then_left_unscored(fx_api, fx_policy, monkeypatch):
+    wf, _ = compiler.compile(fx_policy, fx_api)
+    cases, _ = testgen.generate(fx_policy, 6)
+    r = V.VendorRunner("tcc-x", fx_policy, fx_api, NullTrace(), FakeFreya())
+    monkeypatch.setattr(r, "_ensure", lambda cs: setattr(r, "origin", "https://o"))
+    calls = []
+
+    def work(wid, cs, reps, conc):
+        calls.append((len(cs), conc))
+        if len(cs) > 1:  # first pass: two runs hit a 504
+            return [{"case_id": c["id"], "rep": 1, "passed": i > 1, "infra": i <= 1, "failed_reasons": ["runner error: 504"] if i <= 1 else []}
+                    for i, c in enumerate(cs)]
+        c = cs[0]
+        ok = c["id"] == cases[0]["id"]  # the retry fixes one, the other stays broken
+        return [{"case_id": c["id"], "rep": 1, "passed": ok, "infra": not ok, "failed_reasons": [] if ok else ["runner error: 504"]}]
+
+    monkeypatch.setattr(r, "_work", work)
+    res = r.run(wf, cases, {}, fx_policy, 1)
+    assert calls[0][1] == r.concurrency and all(c == (1, 1) for c in calls[1:]) and len(calls) == 3
+    by = {x.case_id: x for x in res}
+    assert by[cases[0]["id"]].passed and not by[cases[0]["id"]].infra and by[cases[1]["id"]].infra
+
+
+def test_worker_flags_chat_gateway_errors_as_infrastructure():
+    import re as _re
+    src = (HERE / "vendor_worker.py").read_text()
+    pat = _re.compile(_re.search(r'INFRA = re.compile\(r"(.+?)", re.I\)', src).group(1), _re.I)
+    assert pat.search("RuntimeError('POST /api/v2/chat/message -> 504: error code: 504')")
+    assert not pat.search("RuntimeError('bank session -> 404')")

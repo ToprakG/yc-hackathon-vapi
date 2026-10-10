@@ -14,7 +14,7 @@ from pathlib import Path
 
 from builder.template_cc import analyze, gate, patches, patcher, testgen, zones
 from builder.template_cc.judge import JudgeContext
-from builder.template_cc.runner import CaseResult, pass_counts
+from builder.template_cc.runner import CaseResult, infra_ids, pass_counts
 
 
 @dataclass
@@ -72,7 +72,8 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
         if d.deadline - time.time() < est:
             res.stop_reason = f"time: {d.deadline - time.time():.0f}s left < last iteration {est:.0f}s"
             break
-        failures = [r.as_dict() if isinstance(r, CaseResult) else r for r in best_train if not r.passed]
+        failures = [r.as_dict() if isinstance(r, CaseResult) else r for r in best_train
+                    if not r.passed and not getattr(r, "infra", False)]
         if not failures:
             res.stop_reason = "no failures"
             break
@@ -116,7 +117,12 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
                 break
             cand_train = d.runner.run(cand_wf, train, d.tool_api, d.policy, reps)
             cand_held = d.runner.run(cand_wf, held, d.tool_api, d.policy, reps)
-            dec = gate.decide(pass_counts(best_held), pass_counts(cand_held), reps, p_threshold)
+            skip = infra_ids(best_held) | infra_ids(cand_held)  # unscored runs say nothing about either workflow
+            bh = {k: v for k, v in pass_counts(best_held).items() if k not in skip}
+            ch = {k: v for k, v in pass_counts(cand_held).items() if k not in skip}
+            if skip:
+                tr.selftest(f"gate ignores {len(skip)} heldout case(s) with infrastructure errors: {sorted(skip)}")
+            dec = gate.decide(bh, ch, reps, p_threshold)
             rec["gate"] = dec.as_dict()
             tr.selftest(f"iteration {it}: candidate train {_score(cand_train)}, heldout {_score(cand_held)}; "
                         f"{'COMMIT' if dec.commit else 'DISCARD'}: {' | '.join(dec.reasons)}")
@@ -139,4 +145,6 @@ def run_loop(wf: dict, book: zones.ZoneBook, d: LoopDeps, max_iters: int = 3, re
 
 
 def _score(results) -> str:
-    return f"{sum(r.passed for r in results)}/{len(results)}"
+    scored = [r for r in results if not getattr(r, "infra", False)]
+    extra = f" ({len(results) - len(scored)} unscored)" if len(scored) != len(results) else ""
+    return f"{sum(r.passed for r in scored)}/{len(scored)}{extra}"

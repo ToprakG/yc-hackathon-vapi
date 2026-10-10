@@ -268,3 +268,22 @@ def test_empty_product_id_format_gets_the_bank_default(fx_policy):
     assert ids and all(i.startswith("p") and i[1:].isdigit() for i in ids)
     from builder.template_cc import vendor_runner
     assert vendor_runner.bank_config(p)["product_id_format"] == "p{n}"
+
+
+def test_unscored_runs_reach_neither_the_analyzer_nor_the_gate(fx_api, fx_policy, fx_brief, tmp_path):
+    from builder.template_cc.runner import CaseResult
+    seen = {}
+
+    def fn(wf, c, rep):
+        if int(c["id"][2:]) % 2:
+            return CaseResult(c["id"], rep, False, ["runner error: 504"], [], [], True)
+        return marked(wf) or int(c["id"][2:]) % 4 == 0
+
+    def analyze_spy(failures, *a, **k):
+        seen["ids"] = {f["case_id"] for f in failures}
+        return fake_analyze(failures, *a, **k)
+
+    res, d = run(fx_api, fx_policy, fx_brief, tmp_path, fn, analyze_fn=analyze_spy, max_iters=1, reps=1)
+    assert seen["ids"] and all(int(i[2:]) % 2 == 0 for i in seen["ids"])
+    g = res.iterations[0]["gate"]
+    assert all(int(i[2:]) % 2 == 0 for i in g["best"]) and any("ignores" in l for l in d.trace.lines)

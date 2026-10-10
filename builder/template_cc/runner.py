@@ -24,6 +24,7 @@ class CaseResult:
     failed_reasons: list = field(default_factory=list)
     transcript: list = field(default_factory=list)
     tool_calls: list = field(default_factory=list)
+    infra: bool = False  # the test infrastructure failed (e.g. chat API 5xx): unscored, not the agent's fault
 
     def as_dict(self):
         return asdict(self)
@@ -81,3 +82,8 @@ def pass_counts(results: list[CaseResult]) -> dict:
     for r in results:
         out[r.case_id] = out.get(r.case_id, 0) + int(r.passed)
     return out
+
+
+def infra_ids(results: list[CaseResult]) -> set:
+    """Case ids with at least one unscored (infrastructure-failed) run."""
+    return {r.case_id for r in results if getattr(r, "infra", False)}

@@ -121,10 +121,12 @@ def _wait_http(url: str, seconds: float):
 
 class VendorRunner:
     def __init__(self, slot: str, policy: dict, api, trace, freya_mod, vendor: Path = VENDOR, port: int = 8787,
-                 concurrency: int = 4, run_timeout_s: float = 1500, worker_python: str | None = None):
+                 concurrency: int = 2, run_timeout_s: float = 1500, worker_python: str | None = None,
+                 infra_retries: int = 1):
         self.slot, self.policy, self.api, self.trace, self.freya = f"{slot}-selftest", policy, api, trace, freya_mod
         self.vendor, self.port, self.concurrency, self.run_timeout_s = Path(vendor), port, concurrency, run_timeout_s
         self.worker_python = worker_python or sys.executable
+        self.infra_retries = infra_retries
         self.dir = Path(tempfile.mkdtemp(prefix="tcc-selftest-"))
         self.bank = self.tunnel = None
         self.origin = None
@@ -187,24 +189,40 @@ class VendorRunner:
         return self.workflow_id
 
     # --- TestRunner -------------------------------------------------------------------------------------------------
-    def run(self, workflow: dict, cases: list[dict], tool_api: dict, policy: dict, reps: int) -> list[CaseResult]:
-        self._ensure(cases)
-        wid = self._publish(workflow)
+    def _work(self, wid: str, cases: list[dict], reps: int, concurrency: int) -> list[dict]:
         job = self.dir / f"job-{int(time.time() * 1000)}.json"
         out = job.with_suffix(".out.json")
         job.write_text(json.dumps({"workflow_id": wid, "origin": self.origin, "cases": cases, "reps": reps,
-                                   "concurrency": self.concurrency}), encoding="utf-8")
-        t0 = time.time()
+                                   "concurrency": concurrency}), encoding="utf-8")
         proc = subprocess.run([self.worker_python, str(HERE / "vendor_worker.py"), "--vendor", str(self.vendor),
                                "--job", str(job), "--out", str(out)], capture_output=True, text=True,
                               timeout=self.run_timeout_s, env=os.environ.copy())
         if proc.returncode != 0 or not out.exists():
             raise RuntimeError(f"vendor worker failed: {proc.stderr[-800:]}")
-        rows = json.loads(out.read_text(encoding="utf-8"))
+        return json.loads(out.read_text(encoding="utf-8"))
+
+    def run(self, workflow: dict, cases: list[dict], tool_api: dict, policy: dict, reps: int) -> list[CaseResult]:
+        self._ensure(cases)
+        wid = self._publish(workflow)
+        t0 = time.time()
+        rows = self._work(wid, cases, reps, self.concurrency)
+        by_id = {c["id"]: c for c in cases}
+        for attempt in range(self.infra_retries):  # the chat API can answer 502/504: replay those runs one by one
+            bad = [i for i, r in enumerate(rows) if r.get("infra")]
+            if not bad:
+                break
+            self.trace.selftest(f"{len(bad)} run(s) hit an infrastructure error; retrying them one at a time")
+            for i in bad:
+                again = self._work(wid, [by_id[rows[i]["case_id"]]], 1, 1)[0]
+                again["rep"] = rows[i]["rep"]
+                rows[i] = again
         results = [CaseResult(r["case_id"], r["rep"], bool(r["passed"]), r.get("failed_reasons") or [],
-                              r.get("transcript") or [], r.get("tool_calls") or []) for r in rows]
+                              r.get("transcript") or [], r.get("tool_calls") or [], bool(r.get("infra")))
+                   for r in rows]
+        scored = [r for r in results if not r.infra]
         self.trace.selftest(f"{len(cases)} case(s) x {reps} rep(s) via the vendor chat driver: "
-                            f"{sum(r.passed for r in results)}/{len(results)} passed in {time.time() - t0:.0f}s "
+                            f"{sum(r.passed for r in scored)}/{len(scored)} passed, {len(results) - len(scored)} "
+                            f"unscored (infrastructure), in {time.time() - t0:.0f}s "
                             "(customer: vendor LLM persona; judge: vendor decision model)")
         return results
 

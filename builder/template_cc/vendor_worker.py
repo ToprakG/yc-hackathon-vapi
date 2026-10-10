@@ -10,6 +10,7 @@ Runs in its own process because the vendor modules use generic names (freya, sco
 """
 import argparse
 import json
+import re
 import sys
 import time
 import traceback
@@ -17,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 CLOSE_WAIT_S = 20
+INFRA = re.compile(r"/api/v2/chat/\S* -> 5\d\d|timed out|Connection reset|Temporary failure|Max retries", re.I)
 
 
 def main():
@@ -98,6 +100,7 @@ def main():
         except Exception as e:  # noqa: BLE001 - one broken case is a failed case, not a broken run
             row["failed_reasons"] = [f"runner error: {e!r}"]
             row["error"] = traceback.format_exc(limit=3)
+            row["infra"] = bool(INFRA.search(repr(e)))  # the platform or network failed, not the agent
         return row
 
     jobs = [(c, r) for c in job["cases"] for r in range(1, int(job.get("reps", 1)) + 1)]
