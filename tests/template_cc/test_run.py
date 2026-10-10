@@ -64,7 +64,7 @@ def test_save_none_with_audit_off(tmp_path):
     for f in ("policy.raw.json", "policy.json", "workflow.baseline.json", "workflow.json", "build_report.json", "zones.json"):
         assert (out / f).exists(), f
     assert [c.split(":")[0] for c in calls] == ["extract reading A", "extract reading B", "extract pass 2"]
-    assert "model call anthropic:claude-opus-5-5: extract reading A" in txt and "extract pass 2" in txt
+    assert "model call claude_cli:sonnet: extract reading A" in txt and "extract pass 2" in txt
     assert "no self-test (none)" in txt and "audit: off" in txt and "nothing saved" in txt and "judge: scripted" in txt
     rep = json.loads((out / "build_report.json").read_text())
     assert rep["status"] == "ok" and rep["lint"]["errors"] == 0 and rep["model_calls"] == 3

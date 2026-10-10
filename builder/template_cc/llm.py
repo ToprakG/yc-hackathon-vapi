@@ -10,6 +10,8 @@ import json
 import os
 import random
 import re
+import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -115,6 +117,45 @@ def _openai(system, user, model, temperature, max_tokens, json_mode, timeout, ro
     return text, {"in": u.get("prompt_tokens"), "out": u.get("completion_tokens")}
 
 
+_CLI_WARNED = False
+_RATE = re.compile(r"rate.?limit|429|overloaded|too many requests|try again", re.I)
+_USAGE = re.compile(r"usage limit|hit your limit|limit reached|resets? (?:at|in)|out of (?:extra )?(?:credits|usage)", re.I)
+
+
+def _claude_cli(system: str, user: str, model: str, max_tokens: int, timeout: float, trace=None) -> tuple[str, dict]:
+    """One call through the local Claude Code CLI (the user's Claude subscription): `claude -p`, no tools, user text on stdin.
+
+    The empty working directory keeps this repo's CLAUDE.md and skills out of the call; the cleaned environment lets it nest
+    inside a Claude Code session. temperature and max_tokens are not options of the CLI and are ignored."""
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith("CLAUDE_CODE_")
+           and not (k == "ANTHROPIC_API_KEY" and not v)}
+    cmd = ["claude", "-p", "--model", model, "--output-format", "json", "--system-prompt", system, "--tools", "",
+           "--no-session-persistence"]
+    try:
+        r = subprocess.run(cmd, input=user, capture_output=True, text=True, timeout=timeout, cwd=tempfile.mkdtemp(), env=env)
+    except subprocess.TimeoutExpired as e:
+        raise LLMError(f"claude -p timed out after {timeout:.0f}s", status=504) from e
+    except FileNotFoundError as e:
+        raise LLMError("the claude CLI is not installed", status=401) from e
+    try:
+        out = json.loads(r.stdout)
+    except ValueError:
+        out = {}
+    text = out.get("result") if isinstance(out.get("result"), str) else ""
+    err = r.returncode != 0 or bool(out.get("is_error")) or not out
+    if err:
+        msg = (text or r.stderr or r.stdout or "no output")[:400]
+        if _USAGE.search(msg) and not re.search(r"\b429\b|rate_limit", msg):
+            raise LLMError("claude -p usage limit: " + msg, status=401)
+        if _RATE.search(msg):
+            raise LLMError("claude -p rate limit: " + msg, status=429)
+        raise LLMError(f"claude -p failed (exit {r.returncode}): {msg}", status=500)
+    u = out.get("usage") or {}
+    usage = {"in": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+             + (u.get("cache_creation_input_tokens") or 0), "out": u.get("output_tokens"), "cost": out.get("total_cost_usd")}
+    return text, usage
+
+
 def _retryable(error: Exception) -> bool:
     status = getattr(error, "status", None)
     return status is None or status == 429 or status >= 500
@@ -139,6 +180,12 @@ def call_llm(system: str, user: str, model: str, json_schema: dict | None = None
         try:
             if provider == "anthropic":
                 text, usage = _anthropic(system, user, name, max_tokens, effort, timeout)
+            elif provider == "claude_cli":
+                global _CLI_WARNED
+                if not _CLI_WARNED and trace:
+                    _CLI_WARNED = True
+                    trace.warn("claude_cli ignores temperature and max_tokens")
+                text, usage = _claude_cli(system, user, name, max_tokens, timeout, trace)
             elif provider in ("openai", "openrouter"):
                 text, usage = _openai(system, user, name, temperature, max_tokens, json_schema is not None, timeout,
                                       router=provider == "openrouter")
@@ -146,7 +193,7 @@ def call_llm(system: str, user: str, model: str, json_schema: dict | None = None
                 raise ValueError(f"unknown LLM provider: {provider}")
             if trace:
                 trace.model_call(model, purpose + (f" (retry {attempt})" if attempt else ""), usage.get("in"),
-                                 usage.get("out"), None, time.time() - t0)
+                                 usage.get("out"), usage.get("cost"), time.time() - t0)
             if json_schema is None:
                 return text
             return unwrap_schema_echo(parse_json(text), json_schema)

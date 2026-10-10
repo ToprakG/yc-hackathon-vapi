@@ -219,7 +219,7 @@ def test_vendor_without_key_and_no_local_key_gives_no_judge(tmp_path, monkeypatc
     import builder.template_cc.llm as L
     monkeypatch.setattr(L, "load_env", lambda path=None: None)
     tr = NullTrace()
-    judge = J.make_judge(Models(), tr, call_llm=None, vendor_path=make_vendor(tmp_path, has_key=False))
+    judge = J.make_judge(Models(judge="anthropic:claude-sonnet-5-5"), tr, call_llm=None, vendor_path=make_vendor(tmp_path, has_key=False))
     assert judge is None and any("logged, not applied" in l for l in tr.lines)
 
 

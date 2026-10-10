@@ -75,10 +75,10 @@ def brief_text(briefs: list[Brief]) -> str:
 
 @dataclass
 class Models:
-    extract: str = "anthropic:claude-opus-5-5"
-    analyze: str = "anthropic:claude-sonnet-5-5"
-    patch: str = "claude-opus-5-5"  # Claude Code (Agent SDK) model
-    judge: str = "anthropic:claude-sonnet-5-5"  # LocalDecisionJudge (DECISION_MODEL)
+    extract: str = "claude_cli:sonnet"  # the local Claude Code CLI (the Claude subscription); no API key needed
+    analyze: str = "claude_cli:sonnet"
+    patch: str = "sonnet"  # Claude Code (Agent SDK) model alias
+    judge: str = "claude_cli:sonnet"  # LocalDecisionJudge (DECISION_MODEL)
     judge_threshold: float = 0.5  # vendor decision model: p(yes) threshold
     judge_votes: int = 1  # LocalDecisionJudge majority votes
     judge_vendor_model: str = ""  # empty = the vendor's own default
