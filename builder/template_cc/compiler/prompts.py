@@ -211,7 +211,13 @@ def negotiate_tool_hint(policy: dict, unit_cents: bool) -> str:
     return f"CALL create_promise with the product_id from the facts, the amount {unit}, and the date as YYYY-MM-DD from the date table."
 
 
-def hardship_task(policy: dict, has_support: bool) -> str:
+def hardship_task(policy: dict, has_support: bool, said: str = "") -> str:
+    if said:  # F8: the sympathy line is spoken by the step itself, word for word
+        ask = "" if "?" in said else (" Offer to connect them with the support team, and ask whether they want that."
+                                       if has_support else " Do not offer a transfer.")
+        return ("You have just said your sympathy line. Do not say it again. Make no persuasion attempt." + ask +
+                " If the customer still names a date or an amount themselves, say you can record it. No tool call is "
+                "allowed in this turn.")
     offer = ("Offer to connect them with the support team, and ask whether they want that." if has_support
              else "Do not offer a transfer.")
     return (f"The customer mentioned a hardship (illness, a death in the family, job loss). Say one short sentence of "
@@ -236,8 +242,8 @@ def side_desc() -> str:
 
 
 def resume_entry(policy: dict, f4: bool = False) -> str:
-    extra = (" If this line is not empty and you have not said it yet in this conversation, say it first, once: "
-             "{{say_line}}") if f4 else ""
+    extra = (" If this line is not empty and you have not said it yet in this conversation, say it first, word for word, "
+             "once: {{say_line}}") if f4 else ""
     return ("Continue the conversation from where it is, in one or two short sentences: briefly acknowledge what the "
             "customer just said and go on with the next open product from your facts. If the customer said they already "
             f"paid, {quoted(policy, 'paid_reply')}. Never offer anything that is not in your facts: no other product, "

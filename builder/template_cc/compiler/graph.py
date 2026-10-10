@@ -112,6 +112,8 @@ class Graph:
         self.queues = {k: v for k, v in (policy.get("queue_map") or {}).items() if v}
         self.limits = policy.get("ask_limits") or {}
         self.non_conv: list[str] = []
+        if "f13_verifier" in self.f and "f8_fixed_lines" in self.f and P.line(policy, "hardship_sympathy"):
+            self.cfg["required_lines"] = {"np_hardship": "hardship_sympathy"}
         if "f11_promise_typed" in self.f:
             self.cfg["vague_limit"] = int(self.limits.get("vague_date", 1))
             self.cfg["vague_offer"] = str(policy.get("vague_date_offer") or "deadline")
@@ -206,7 +208,7 @@ class Graph:
             body = textwrap.dedent(body).strip("\n") + "\nvars['slot_summary'] = slot_summary(vars, CFG)"
             uses = tuple(uses) + ("slot_summary",)
             fallback = textwrap.dedent(fallback).strip("\n") + "\nvars['slot_summary'] = str(vars.get('slot_summary') or '')"
-        if nid not in ("setup", "wrap"):  # the sandbox can be unreachable: never loop, close the call
+        if nid not in ("setup", "wrap", "wrap_close"):  # the sandbox can be unreachable: never loop, close the call
             trs.insert(0, any_of("wrap", "the code step failed", [leaf(f"{nid}_failure_count", "greater_than", 0)]))
         default = trs[-1]["target_node"]
         n = {"name": nid, "node_type": "code", "passthrough": True, "passthrough_default_transition": default,
@@ -379,7 +381,7 @@ ID_INIT        vars['cb_state'] = 'none'
         extra = ""
         if "f11_promise_typed" in self.f and self.multi:
             body = body.replace("vars['side_product'] = ''", "vars['side_product'] = 'none'")
-        if "f4_discount" in self.f or "f11_promise_typed" in self.f:
+        if self.f & {"f4_discount", "f11_promise_typed", "f8_fixed_lines"}:
             extra += "        vars['say_line'] = ''\n"
         if "f11_promise_typed" in self.f:
             extra += ("        vars['offer_intent'] = 'none'\n        vars['offer_amount_text'] = ''\n"
@@ -1128,7 +1130,9 @@ ID_INIT        vars['cb_state'] = 'none'
         tool, msgs, cents = self._promise_tool()
         f4 = "f4_discount" in self.f
         f11 = "f11_promise_typed" in self.f
-        sl = f4 or f11
+        f8 = "f8_fixed_lines" in self.f
+        sl = f4 or f11 or f8
+        said_hs = f8 and bool(P.line(self.p, "hardship_sympathy"))
         fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
                    + (["discount"] if f4 else []))]
         if self.multi:
@@ -1171,21 +1175,26 @@ ID_INIT        vars['cb_state'] = 'none'
         if f11:
             self._promise_nodes(cents, fields, f4)
         if f4:
-            self.code("discount_reply", reset + "vars['say_line'] = " + repr(P.NO_DISCOUNT) + "\n", [always("negotiate_resume")],
+            nd = P.line(self.p, "no_discount") if f8 else ""
+            nd = nd if nd and "{" not in nd else P.NO_DISCOUNT
+            self.code("discount_reply", reset + "vars['say_line'] = " + repr(nd) + "\n", [always("negotiate_resume")],
                       fallback=reset)
         back = [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")]
+        paid_say = ""
+        if f8 and P.line(self.p, "paid_reply") and "{" not in P.line(self.p, "paid_reply"):
+            paid_say = "vars['say_line'] = " + repr(P.line(self.p, "paid_reply")) + " if status == 'paid' else ''\n        "
         self.code("side_mark", """
         status = 'dispute' if str(vars.get('side')) == 'dispute' else 'paid'
         for pid in pick_products(vars, vars.get('side_product')):
             set_status(vars, pid, status)
-        """ + reset + """
+        """ + reset + paid_say + """
         neg_flag(vars)
         refresh_close(vars, CFG)
         """, back, uses=("pick_products", "set_status", "neg_flag", "refresh_close"), fallback=reset)
         self.code("hardship_mark", """
         for pid in open_pids(vars):
             set_status(vars, pid, 'hardship')
-        """ + reset + """
+        """ + ("vars['said_hardship_sympathy'] = '1'\n        " if said_hs else "") + reset + """
         neg_flag(vars)
         refresh_close(vars, CFG)
         """, back, uses=("open_pids", "set_status", "neg_flag", "refresh_close"), fallback=reset)
@@ -1216,10 +1225,11 @@ ID_INIT        vars['cb_state'] = 'none'
             hs_trs.append(eq("transfer_support", "accepts the support team", "hs_choice", "accepts"))
         hs_trs += [eq("hardship_mark", "declines", "hs_choice", "declines"),
                    eq("resume", "names a date or amount", "hs_choice", "names_terms")]
-        self.conv("hardship", on_enter={"type": "llm"},
+        said = P.line(self.p, "hardship_sympathy") if f8 else ""
+        self.conv("hardship", on_enter=self.tts("hardship", said) if said else {"type": "llm"}, first_only=bool(said),
                   extraction=self.extraction("hardship", "hardship", [("hs_choice", ["accepts", "declines", "names_terms", "none"])]),
                   transitions=hs_trs, max_turns=6, turn_target="hardship_mark")
-        self.task_zones("hardship", "hardship", P.hardship_task(self.p, has_support), brief_stage="negotiate")
+        self.task_zones("hardship", "hardship", P.hardship_task(self.p, has_support, said), brief_stage="negotiate")
         if "human" in self.queues:
             if self.human_first:  # the request may come before the products are loaded: go back to where the call was
                 back = """
@@ -1310,7 +1320,9 @@ ID_INIT        vars['cb_state'] = 'none'
         """
         after = "close_node" if self.close_form == "node" else "end"
         wrap_trs = [eq("note_next", "notes to write", "notes_state", "pending")] if self.cfg["notes"] else []
-        self.code("wrap", body, wrap_trs + [always(after)],
+        if "f13_verifier" in self.f:
+            self._verifier()
+        self.code("wrap_close" if "f13_verifier" in self.f else "wrap", body, wrap_trs + [always(after)],
                   uses=("open_pids", "set_status", "jget", "jput", "refresh_close", "num"),
                   fallback="vars['notes_state'] = 'done'")
         if self.cfg["notes"]:
@@ -1337,6 +1349,27 @@ ID_INIT        vars['cb_state'] = 'none'
         if self.close_form == "node":
             self.api_node("close_node", self._close_tool(lifecycle=False), [always("end")])
         self.end_node("end")
+
+    def _verifier(self):
+        """F13: every path into the close passes through here (the node is named wrap; the close computation is wrap_close).
+        Every product has a status, and a required line that was not said is said once before the call closes."""
+        body = """
+        if str(vars.get('phase')) == 'products' and str(vars.get('transfer_key') or 'none') == 'none':
+            for pid in open_pids(vars):
+                set_status(vars, pid, 'refused')
+        key = refresh_close(vars, CFG)
+        req = (CFG.get('required_lines') or dict()).get(key)
+        vars['vc_route'] = 'go'
+        if req and str(vars.get('said_' + req)) != '1' and int(num(vars.get('say_miss_n'))) < 1:
+            vars['say_miss_n'] = '1'
+            vars['miss_line'] = str(CFG['lines'].get(req) or '')
+            if vars['miss_line']:
+                vars['vc_route'] = 'say'
+        """
+        self.code("wrap", body, [eq("say_missing", "a required line was not said yet", "vc_route", "say"), always("wrap_close")],
+                  uses=("open_pids", "set_status", "refresh_close", "num"), fallback="vars['vc_route'] = 'go'")
+        self.conv("say_missing", on_enter=self.tts("say_missing", "{{miss_line}}"), passthrough_to="wrap", transitions=[always("wrap")])
+        self.non_conv.append("say_missing")
 
     def _close_tool(self, lifecycle: bool) -> dict:
         f = self.p["tools"]["close_call"]
