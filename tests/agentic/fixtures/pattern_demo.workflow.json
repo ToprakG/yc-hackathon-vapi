@@ -58,7 +58,29 @@
     "text": "Hello, this is the automated assistant of Example Bank, and this call is recorded. Am I speaking with {{title}} {{last_name}}?"
    },
    "on_enter_first_entry_only": true,
-   "task_message": "Find out whether you are speaking with {{title}} {{last_name}}. Only a clear yes or their own name confirms it. If the answer is unclear, ask once more. Say nothing about why you are calling. No tool call is allowed in this turn.",
+   "task_message": "Find out whether you are speaking with {{title}} {{last_name}}. Only a clear yes or their own name confirms it. If the answer is unclear, ask once more. Say nothing about why you are calling. Call end_call only right after you said goodbye.",
+   "tools": [
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 10000
+     },
+     "function": {
+      "name": "end_call",
+      "handler": "__function__:end_call",
+      "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "message_mode": {
+         "type": "string",
+         "default": "none"
+        }
+       }
+      }
+     }
+    }
+   ],
    "extraction_schema": [
     {
      "name": "who",
@@ -260,6 +282,26 @@
      },
      "pre_process_code": "try:\n    b = config.get('body')\n    if isinstance(b, dict) and isinstance(b.get('slot'), str):\n        b['slot'] = b['slot'].strip().replace(' ', 'T')[:16]\nexcept Exception:\n    pass\n",
      "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict) and str(d.get('ok')).lower() == 'true':\n        vars['close_detail'] = 'detail_a'\n        vars['call_state'] = 'callback_booked'\n        d['what_to_do_next'] = 'Booked. Thank them and say goodbye.'\n    elif isinstance(d, dict):\n        d['what_to_do_next'] = 'Not booked. Ask once for another time inside the window.'\nexcept Exception:\n    pass\n"
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 10000
+     },
+     "function": {
+      "name": "end_call",
+      "handler": "__function__:end_call",
+      "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "message_mode": {
+         "type": "string",
+         "default": "none"
+        }
+       }
+      }
+     }
     }
    ],
    "extraction_schema": [
@@ -379,6 +421,26 @@
       }
      },
      "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    if isinstance(d, dict):\n        if str(d.get('all_passed')).lower() == 'true':\n            vars['id_state'] = 'passed'\n            d['what_to_do_next'] = 'Identity is confirmed. Say thank you in one short sentence.'\n        elif str(d.get('verified')).lower() == 'true':\n            d['what_to_do_next'] = 'Correct. Ask the next security question now.'\n        elif d.get('hint') == 'digits_missing':\n            d['what_to_do_next'] = 'Ask for all six digits again. This try does not count.'\n        elif str(d.get('tries_left')) == '0':\n            vars['id_state'] = 'failed'\n            d['what_to_do_next'] = 'The check failed. Do not mention the account.'\n        else:\n            d['what_to_do_next'] = 'That answer is wrong. Ask the same question once more.'\n    else:\n        result['what_to_do_next'] = 'The check did not work. Ask the same question again.'\nexcept Exception:\n    pass\n"
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 10000
+     },
+     "function": {
+      "name": "end_call",
+      "handler": "__function__:end_call",
+      "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "message_mode": {
+         "type": "string",
+         "default": "none"
+        }
+       }
+      }
+     }
     }
    ],
    "max_node_turns": 12,
@@ -1019,6 +1081,26 @@
       }
      },
      "post_process_code": "try:\n    result.pop('header', None)\n    d = result.get('data')\n    ok = isinstance(d, dict) and str(d.get('ok')).lower() == 'true'\n    if ok:\n        vars['call_state'] = 'transferred'\n        vars['close_outcome'] = 'outcome_y'\n        vars['close_detail'] = 'detail_a' if vars.get('transfer_desk_wanted') != 'desk_y' else 'detail_b'\n    if isinstance(d, dict):\n        d['what_to_do_next'] = 'Say a colleague will take over, then say goodbye.' if ok else 'The transfer failed. Say so and offer to continue.'\nexcept Exception:\n    pass\n"
+    },
+    {
+     "type": "function",
+     "config": {
+      "timeoutMs": 10000
+     },
+     "function": {
+      "name": "end_call",
+      "handler": "__function__:end_call",
+      "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "message_mode": {
+         "type": "string",
+         "default": "none"
+        }
+       }
+      }
+     }
     }
    ],
    "extraction_schema": [

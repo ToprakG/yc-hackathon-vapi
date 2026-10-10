@@ -1,0 +1,14 @@
+# Platform facts from practice runs
+
+Behaviour seen on Freya with the event's agent model, beyond what the kit docs say. Each fact is checked by
+`lint_workflow` where the workflow JSON can show it; the rest you must design around yourself.
+
+| # | Seen | Fact | What to do | Checked by lint |
+|---|---|---|---|---|
+| 1 | 10 Oct, practice run | A node-level `response_mapping` of a **list** (`data.<list>` → variable) leaves the variable unset. The list exists only as flattened keys `<node id>_response.data.<list>.<i>.<field>`. Scalars map fine. | Rebuild lists in code with `list_from_vars` (`templates/calendar.py`). Test the facts node with only the flattened keys. | yes: warning on the mapping, **error** when code reads the mapped name without `list_from_vars` or the flattened keys |
+| 2 | 10 Oct, practice run | An extraction value that leads to an ending is evaluated on the **same message** that triggers it: "I lost my job" jumped straight to the ending, and the agent never said the sympathy line or the offer. | Route the trigger to a stage node that speaks on entry; end only on the customer's answer there. | no: design rule (`call-architecture.md`, Stage 6) |
+| 3 | 10 Oct, practice run | The model rewords offers and drops clauses the brief requires. | Write each prescribed offer as a complete sentence in the facts node; prompt: say it verbatim. | no |
+| 4 | 10 Oct, practice run | The model makes **several calls of one tool in one message** (one `create_promise` per product after a joint read-back). `<tool>_args.*` then holds only one call's values, and a "pending product" variable goes stale. | Count successes instead of attributing calls, or queue ids in the pre-hook (`config['body']`) and pop them in the post-hook. | yes: warning when a post-hook reads `<tool>_args` |
+| 5 | 10 Oct, practice run | A completion flag that never turns true leaves the agent saying goodbye in a loop until `max_node_turns`. | Give every conversation node from which the call can finish an `end_call` tool (`message_mode: "none"`), and say in its prompt to call it right after the goodbye. | yes: warning on such nodes |
+| 6 | 10 Oct, practice run | Limits stated only in text (e.g. "attempts allowed: 1") are exceeded by the model. | Count attempts in a code node from an extracted answer enum. | no: design rule (`call-architecture.md`, Stage 5) |
+| 7 | 10 Oct, practice run | With a busy model, agent turns took 24 s instead of 8 s; the judge is stricter on long calls. | Keep turns short; avoid needless node hops on the main path. | no |
