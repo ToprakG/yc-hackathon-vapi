@@ -14,6 +14,7 @@ FORBIDDEN = ("testbed", "cases.json", "config.json", "oracle", "public-test-set"
 FILE_TOOLS = {"Read": ("file_path",), "Write": ("file_path",), "Edit": ("file_path",), "MultiEdit": ("file_path",),
               "Glob": ("path",), "Grep": ("path",)}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
+READ_ONLY_OUT = {"derived_unit_tests.json", "localsim_results.json", "last_good.workflow.json"}
 WILDCARDS = "*?[{"
 
 
@@ -79,6 +80,8 @@ def check(tool_name: str, tool_input: dict, workspace: Path, mcp_prefix: str = "
             return False, f"{key} resolves to forbidden material ({bad})"
         if tool_name in WRITE_TOOLS and not _inside(resolved, root / "out"):
             return False, "writes are allowed only under out/"
+        if tool_name in WRITE_TOOLS and resolved.name in READ_ONLY_OUT:
+            return False, f"{resolved.name} is written by the builder's tools, not by hand"
     return True, "ok"
 
 

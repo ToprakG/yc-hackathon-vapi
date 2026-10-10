@@ -28,6 +28,7 @@ def ws(tmp_path):
     ("Write", {"file_path": "input/brief-1.md", "content": "x"}),  # writes only under out/
     ("Edit", {"file_path": "docs/workflow-format.md", "old_string": "a", "new_string": "b"}),
     ("Write", {"file_path": "out/../input/x.json", "content": "x"}),
+    ("Edit", {"file_path": "out/derived_unit_tests.json", "old_string": "a", "new_string": "b"}),
     ("Glob", {"pattern": "../**/*.json"}),
     ("Glob", {"pattern": "/tmp/*"}),
     ("Glob", {"pattern": "*.md", "path": ".."}),
