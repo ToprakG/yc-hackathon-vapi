@@ -648,8 +648,8 @@ class Graph:
         """, uses=("jget", "open_pids", "num", "parse_now", "to_iso"))
         msgs = {"recorded": "The promise is recorded.",
                 "more": "If another agreed promise is not recorded yet, CALL create_promise for it now; otherwise continue with the next open product.",
-                "retry": "NOT recorded. Do not say it was recorded. CALL create_promise once more now with the same values.",
-                "failed": "NOT recorded. Do not try again. Tell the customer you could not record it."}
+                "retry": "A technical problem stopped this; it did not go through. Do not ask the customer again: say in a few words that there was a technical problem and you are trying again, and CALL create_promise once more now with the same values. Do not use the word recorded.",
+                "failed": "It did not go through a second time. Do not try again. Tell the customer you could not save it because of a technical problem."}
         post = self.hook("""
         result.pop('header', None)
         d = result.get('data') if isinstance(result.get('data'), dict) else dict()

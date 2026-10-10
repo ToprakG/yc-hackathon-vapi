@@ -150,7 +150,11 @@ def negotiate_task(policy: dict, multi: bool) -> str:
         "- One promise per product. A recorded promise cannot be changed or cancelled on this call: "
         f"{quoted(policy, 'change_promise')}.",
         "- Never offer a discount, a waiver, a payment plan or any term that is not in your facts.",
-        "- After create_promise succeeds, follow what_to_do_next.",
+        "- Offering the latest date (because the customer's date was too late) is not a persuasion attempt and does "
+        "not change the amount: the amount stays the full past-due amount, unless the customer already said the full "
+        "amount is too much. Only flat refusals move to the next attempt proposal.",
+        "- Until create_promise succeeds, never say that anything is recorded or saved. After it succeeds, follow "
+        "what_to_do_next.",
     ]
     if multi:
         parts += [
@@ -215,7 +219,7 @@ EXTRACT = {
             "dispute = the debt or product is not theirs, or was closed or paid off in the past; paid_already = they "
             "already paid this past-due amount; restructuring = explicitly asks for a new payment plan, a restructuring or lower instalments (saying the amount "
             "is too much or that they cannot pay is NOT restructuring: that is none); "
-            "human = asks for a person; stop_talking = does not want to talk; none = anything else, including dates, "
+            "human = asks to speak to a person or an agent (asking whether you are a robot or an AI is NOT human: that is none); stop_talking = does not want to talk; none = anything else, including dates, "
             "amounts and refusals to pay.",
     "side_product": "Which product the customer's last message is about, by its position in the facts (1, 2, 3), or "
                     "all; empty when unclear.",

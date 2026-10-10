@@ -198,7 +198,7 @@ def test_promise_retry_then_service_error_then_close_rule():
     v, r = run_post(wf, "negotiate", "create_promise", v, {"ok": False})
     assert "once more" in r["data"]["what_to_do_next"] and j(v, "pstate")["q1"] == "open"
     v, r = run_post(wf, "negotiate", "create_promise", v, {"ok": False})
-    assert j(v, "pstate")["q1"] == "service_error" and "could not record" in r["data"]["what_to_do_next"]
+    assert j(v, "pstate")["q1"] == "service_error" and "could not save it" in r["data"]["what_to_do_next"]
     v["cp_pid"] = "q2"
     v, _ = run_post(wf, "negotiate", "create_promise", v, {"ok": True, "promise_id": "x"})
     assert v["neg_state"] == "done" and v["close_outcome"] == "kept" and v["close_reason"] == ""
@@ -392,3 +392,14 @@ def test_prompts_forbid_offers_outside_the_facts():
     assert "Never offer or advertise any product" in wf["system_prompt"]
     assert "transition_to_wrap" in wf["system_prompt"]
     assert "Never offer anything that is not in your facts" in wf["nodes"]["negotiate_resume"]["on_enter"]["prompt"]
+
+
+def test_promise_failure_messages_avoid_the_word_recorded_and_retry_without_asking():
+    wf, _, p, _ = compiled("brief-a")
+    msgs = S.read_msgs(wf["nodes"]["negotiate"]["tools"][0]["post_process_code"])
+    assert "recorded" not in msgs["retry"].replace("Do not use the word recorded", "") and "Do not ask the customer again" in msgs["retry"]
+    assert "recorded" not in msgs["failed"]
+    task = wf["nodes"]["negotiate"]["task_message"]
+    assert "not a persuasion attempt and does not change the amount" in task
+    from builder.template_cc.compiler import prompts as P
+    assert "robot or an AI is NOT human" in P.EXTRACT["side"]
