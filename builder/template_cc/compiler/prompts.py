@@ -126,15 +126,18 @@ def identity_explain_task(policy: dict) -> str:
             "verify_identity as before and follow what_to_do_next.")
 
 
-def identity_task_f1(policy: dict, f2: bool) -> str:
+def identity_task_f1(policy: dict, f2: bool) -> str:  # noqa: C901
     """F1: no model-facing check tool; the system verifies and a code step hands over the next line to say."""
     extra = (" If the customer asks a question instead of answering, the line tells you to answer it briefly; never "
              "give the reason for the call.") if f2 else ""
+    ai = line(policy, "ai")
+    ai_rule = (f" If the customer asked whether you are a robot, a computer or an AI and you have not answered yet, say "
+               f"first: {ai}") if ai else ""
     return ("You are speaking with the customer. Check identity first. Say exactly what this line asks, nothing more: "
             "{{id_say}}\n"
             "You do not check answers yourself: the system does, and it gives you the next line each time. Do not say "
             "whether an answer was right. Say nothing about the account or the reason for the call until the checks have "
-            "passed." + extra)
+            "passed." + extra + ai_rule)
 
 
 def identity_explain_task_f1(policy: dict) -> str:
@@ -224,7 +227,8 @@ def side_desc() -> str:
     """The side description with the discount value (F4): a request to knock something off is not restructuring."""
     d = EXTRACT["side"]
     key = "human = asks to speak"
-    return d.replace(key, "discount = asks to reduce, waive or knock something off the amount (this is NOT restructuring); " + key, 1)
+    return d.replace(key, "discount = asks to reduce, waive or knock something off the amount (this is NOT restructuring; if the message also "
+        "mentions illness, a death in the family or job loss, it is hardship); " + key, 1)
 
 
 def resume_entry(policy: dict, f4: bool = False) -> str:

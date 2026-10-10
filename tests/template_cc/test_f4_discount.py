@@ -45,3 +45,11 @@ def test_off_means_no_discount_value():
     wf, _, _, _ = build("none")
     side = next(e for e in wf["nodes"]["negotiate"]["extraction_schema"] if e["name"] == "side")
     assert "discount" not in side["enum_values"] and "discount_reply" not in wf["nodes"]
+
+
+def test_hardship_wins_over_a_discount_request_in_the_wording():
+    wf, _, _, _ = build("f4")
+    side = next(e for e in wf["nodes"]["negotiate"]["extraction_schema"] if e["name"] == "side")
+    assert "job loss, it is hardship" in side["description"]
+    orig = next(e for e in build("none")[0]["nodes"]["negotiate"]["extraction_schema"] if e["name"] == "side")
+    assert side["description"].replace(side["description"][side["description"].index("discount = "):side["description"].index("human = ")], "") == orig["description"]

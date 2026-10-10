@@ -351,12 +351,13 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['id_send_field'] = ''
         vars['id_send_value'] = ''
         vars['id_route'] = ''
-        vars['id_intent'] = 'none'
+        vars['id_intent'] = 'other'
+        vars['id_inc'] = '0'
         vars['id_declines'] = '0'
         vars['id_q_pending'] = '0'
 """)
         elif "f2_question_not_refusal" in self.f:
-            body = body.replace("ID_INIT", """        vars['id_intent'] = 'none'
+            body = body.replace("ID_INIT", """        vars['id_intent'] = 'other'
         vars['id_declines'] = '0'
         vars['id_q_pending'] = '0'
 """)
@@ -594,13 +595,13 @@ ID_INIT        vars['cb_state'] = 'none'
         limit = int(self.limits.get("id_decline", 1))
         say_ask = "vars['id_say'] = 'Answer the customer question briefly without saying why you are calling, then ask again: ' + prompt\n" if f1 else ""
         say_explain = "vars['id_say'] = prompt\n" if f1 else ""
-        pend = "intent == 'asks_question' and not pending" if f2 else "False"
+        pend = "intent == 'asks_question' and not pending and int(num(vars.get('id_declines'))) == 0" if f2 else "False"
         body = """
         intent = str(vars.get('id_intent') or '')
         pending = str(vars.get('id_q_pending')) == '1'
         q = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
         prompt = str(CFG['identity']['prompts'].get(q, q))
-        vars['id_intent'] = 'none'
+        vars['id_intent'] = 'other'
         vars['id_route'] = 'ask'
         if PEND:
             vars['id_q_pending'] = '1'
@@ -609,12 +610,12 @@ ID_INIT        vars['cb_state'] = 'none'
             n = int(num(vars.get('id_declines'))) + 1
             vars['id_declines'] = str(n)
             vars['id_q_pending'] = '0'
-            if n <= LIMIT:
+            if n <= EXPLAIN_N:
                 vars['id_route'] = 'explain'
                 SAY_EXPLAIN
             else:
                 vars['id_route'] = 'decline'
-        """.replace("PEND", pend).replace("LIMIT", str(limit)).replace("SAY_ASK\n", say_ask or "pass\n") \
+        """.replace("PEND", pend).replace("EXPLAIN_N", str(min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
            .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
         body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
         trs = ([eq("identity_explain", "explain once", "id_route", "explain")] if limit >= 1 else []) + [
@@ -662,33 +663,60 @@ ID_INIT        vars['cb_state'] = 'none'
         body = """
         field = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
         kind = str(CFG['identity']['kinds'].get(field, 'text'))
-        text = (str(vars.get('id_partial') or '') + ' ' + str(vars.get('id_answer_text') or '')).strip()
-        vars['id_intent'] = 'none'
+        prompt = str(CFG['identity']['prompts'].get(field, field))
+        alone = str(vars.get('id_answer_text') or '').strip()
+        partial = str(vars.get('id_partial') or '').strip()
+        today = parse_now(vars.get('now')).date()
+        vars['id_intent'] = 'other'
         vars['id_answer_text'] = ''
         vars['id_q_pending'] = '0'
-        if kind == 'digits':
-            value = digit_string(text)
-            complete = bool(value)
-        else:
-            value, complete = answer_from_speech(kind, text)
-            if complete and not (kind in ('date', 'year', 'alnum_code') or kind.startswith('digits:')):
-                value = norm_answer(kind, value, parse_now(vars.get('now')).date())
+
+        def attempt(text):
+            if not text:
+                return '', False
+            if kind == 'digits':
+                d = digit_string(text)
+                return d, bool(d)
+            v, ok = answer_from_speech(kind, text)
+            if ok and not (kind in ('date', 'year', 'alnum_code') or kind.startswith('digits:')):
+                v = norm_answer(kind, v, today)
+            return v, ok
+
+        value, complete = attempt(alone)
+        if not complete and partial:
+            value, complete = attempt((partial + ' ' + alone).strip())
+        if not complete and kind == 'date' and alone and str(vars.get('id_send_field')) == field:
+            year = str(vars.get('id_send_value') or '')[:4]
+            if year.isdigit():
+                value, complete = attempt(alone + ' ' + year)
+        n = int(num(vars.get('id_inc')))
+        if not complete and alone:
+            n += 1
+            if n >= 3:
+                value = (digit_string(alone) or alone) if kind.startswith('digits') else norm_answer(kind, alone, today)
+                complete = True
         if complete:
             vars['id_send_field'] = field
             vars['id_send_value'] = str(value)
             vars['id_last_field'] = field
             vars['id_partial'] = ''
+            vars['id_inc'] = '0'
             vars['id_route'] = 'send'
         else:
-            vars['id_partial'] = text
             vars['id_route'] = 'ask'
-            if text:
+            if not alone:
+                vars['id_say'] = 'Sorry, I did not catch that. ' + prompt
+            elif n == 1:
+                vars['id_inc'] = '1'
+                vars['id_partial'] = (partial + ' ' + alone).strip()
                 vars['id_say'] = 'Thank you. Could you give me the rest of that, please?'
             else:
-                vars['id_say'] = str(CFG['identity']['prompts'].get(field, field))
+                vars['id_inc'] = str(n)
+                vars['id_partial'] = ''
+                vars['id_say'] = 'Let us try that once more. ' + prompt
         """
         self.code("id_check", body, [eq("id_verify", "a complete answer to send", "id_route", "send"), always("identity")],
-                  uses=("parse_now", "digit_string", "answer_from_speech", "norm_answer"),
+                  uses=("parse_now", "digit_string", "answer_from_speech", "norm_answer", "num"),
                   fallback="vars['id_route'] = 'ask'")
         self.api_node("id_verify", tool, self._id_state_transitions() + [always("identity")],
                       response_mapping=[{"path": "data.ok", "variable": "id_ok"}])
@@ -804,7 +832,7 @@ ID_INIT        vars['cb_state'] = 'none'
                 f["date"]: T.model_leaf(self.api, "create_promise", f["date"], "Date the customer confirmed, YYYY-MM-DD from the date table")}
         if cents and body[f["amount"]].get("type") == "integer":
             body[f["amount"]]["type"] = "number"
-        pre = self.hook("""
+        pre_body = """
         b = config.get('body') or dict()
         F = CFG['cp_fields']
         rows = jget(vars, 'products', [])
@@ -823,6 +851,7 @@ ID_INIT        vars['cb_state'] = 'none'
         b[F['product_id']] = pid
         vars['cp_pid'] = pid
         amt = num(b.get(F['amount']))
+        #F9-AMOUNT
         if F.get('amount_unit') == 'cents':
             row = [r for r in rows if r['pid'] == pid]
             top = float(row[0]['past_due']) if row else max([float(r['past_due']) for r in rows] or [0.0])
@@ -831,10 +860,29 @@ ID_INIT        vars['cb_state'] = 'none'
             b[F['amount']] = round(amt, 2)
         today = parse_now(vars.get('now')).date()
         dte = to_iso(b.get(F['date']), today)
+        #F9-DATE
         if dte:
             b[F['date']] = dte
         config['body'] = b
-        """, uses=("jget", "open_pids", "num", "parse_now", "to_iso"))
+        """
+        uses = ("jget", "open_pids", "num", "parse_now", "to_iso")
+        if "f9_number_input" in self.f:
+            # F9: an amount or date the model passed in words is read with the spoken-number helpers
+            pre_body = pre_body.replace("        #F9-AMOUNT\n", (
+                "        raw_amt = str(b.get(F['amount']) or '')\n"
+                "        if re.search(r'[a-z]', raw_amt.lower()):\n"
+                "            sa, sc = amount_from_speech(raw_amt)\n"
+                "            if sa is not None and sc is True:\n"
+                "                amt = float(sa)\n"))
+            pre_body = pre_body.replace("        #F9-DATE\n", (
+                "        if not dte:\n"
+                "            sd, sdc = date_from_speech(str(b.get(F['date']) or ''), vars.get('now'))\n"
+                "            if sd and sdc is True:\n"
+                "                dte = sd\n"))
+            uses = uses + ("amount_from_speech", "date_from_speech")
+        else:
+            pre_body = pre_body.replace("        #F9-AMOUNT\n", "").replace("        #F9-DATE\n", "")
+        pre = self.hook(pre_body, uses=uses)
         msgs = {"recorded": "The promise is recorded.",
                 "more": "If another agreed promise is not recorded yet, CALL create_promise for it now; otherwise continue with the next open product.",
                 "retry": "A technical problem stopped this; it did not go through. Do not ask the customer again: say in a few words that there was a technical problem and you are trying again, and CALL create_promise once more now with the same values. Do not use the word recorded.",
@@ -979,7 +1027,7 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['side'] = 'none'
         vars['human_choice'] = 'none'
         vars['who_wants_human'] = 'no'
-        vars['id_intent'] = 'none'
+        vars['id_intent'] = 'other'
         if str(vars.get('phase')) == 'products':
             vars['back_to'] = 'products'
         elif str(vars.get('who1')) == 'customer' or str(vars.get('who2')) == 'customer':

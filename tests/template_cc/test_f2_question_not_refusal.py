@@ -30,7 +30,7 @@ def test_question_then_repeat_then_refusal_limit(features):
     v = run_code(wf, "setup", call_vars(pol, "2031-03-05T10:00"))
     v["id_intent"] = "asks_question"
     out = run_code(wf, "id_refusal_count", v)  # the first question: answered, not counted
-    assert out["id_route"] == "ask" and out["id_q_pending"] == "1" and out["id_declines"] == "0" and out["id_intent"] == "none"
+    assert out["id_route"] == "ask" and out["id_q_pending"] == "1" and out["id_declines"] == "0" and out["id_intent"] == "other"
     out["id_intent"] = "asks_question"
     out = run_code(wf, "id_refusal_count", out)  # asks again instead of answering: counted, explain once
     assert out["id_route"] == "explain" and out["id_declines"] == "1" and out["id_q_pending"] == "0"
@@ -66,3 +66,17 @@ def test_graph_shape():
     assert ext["id_intent"] == ["answer", "asks_question", "refuses", "other"]
     assert any(t["target_node"] == "id_refusal_count" for t in n["transitions"])
     assert n["tools"] and wf["nodes"]["id_refusal_count"]["node_type"] == "code"
+
+
+def test_a_question_after_an_explanation_counts_and_explaining_happens_once():
+    wf, pol, _ = build(2, "f1,f2")  # a limit of 2 still explains only once
+    v = run_code(wf, "setup", call_vars(pol, "2031-03-05T10:00"))
+    v["id_intent"] = "asks_question"
+    out = run_code(wf, "id_refusal_count", v)
+    assert out["id_route"] == "ask"
+    out["id_intent"] = "asks_question"
+    out = run_code(wf, "id_refusal_count", out)
+    assert out["id_route"] == "explain" and out["id_declines"] == "1"
+    out["id_intent"] = "asks_question"  # asks again after the explanation: counted at once
+    out = run_code(wf, "id_refusal_count", out)
+    assert out["id_route"] == "decline" and out["id_declines"] == "2"

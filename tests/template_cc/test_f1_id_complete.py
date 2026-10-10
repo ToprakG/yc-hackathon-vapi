@@ -66,7 +66,7 @@ def test_compile_shape_and_lint(built):
 
 def _vars(wf, pol):
     v = run_code(wf, "setup", call_vars(pol, "2031-03-05T10:00"))
-    assert v["id_q"] and v["id_say"] and v["id_intent"] == "none"
+    assert v["id_q"] and v["id_say"] and v["id_intent"] == "other"
     return v
 
 
@@ -76,7 +76,7 @@ def test_id_check_partial_then_complete(built):
     v["id_q"] = "phone_last4"
     v.update(id_intent="answer", id_answer_text="five oh")
     out = run_code(wf, "id_check", v)
-    assert out["id_partial"] == "five oh" and out["id_route"] == "ask" and out["id_intent"] == "none"
+    assert out["id_partial"] == "five oh" and out["id_route"] == "ask" and out["id_intent"] == "other"
     assert out["id_answer_text"] == "" and out["id_say"]
     out.update(id_intent="answer", id_answer_text="two three")
     out = run_code(wf, "id_check", out)
@@ -93,7 +93,7 @@ def test_id_check_date_and_empty(built):
     v = _vars(wf, pol)
     v.update(id_intent="answer", id_answer_text="")
     out = run_code(wf, "id_check", v)
-    assert out["id_route"] == "ask" and out["id_say"] == pol["identity"]["prompts"][pol["identity"]["questions"][0]]
+    assert out["id_route"] == "ask" and out["id_say"].endswith(pol["identity"]["prompts"][pol["identity"]["questions"][0]])
 
 
 def test_id_verify_post_writes_say_and_next_question(built):
@@ -108,3 +108,57 @@ def test_id_verify_post_writes_say_and_next_question(built):
     data = {"ok": True, "verified": False, "all_verified": False, "wrong_answers_left": 2}
     out, _ = run_post(wf, "id_verify", "verify_identity", v, data)
     assert out["id_state"] == "retry" and "same question" in out["id_say"] and out["id_q"] == v["id_q"]
+
+
+def _ask(wf, v, text):
+    v = dict(v, id_intent="answer", id_answer_text=text)
+    return run_code(wf, "id_check", v)
+
+
+def test_a_fresh_full_answer_wins_over_an_old_partial(built):
+    wf, pol, _ = built
+    v = _vars(wf, pol)
+    v["id_q"] = "phone_last4"
+    out = _ask(wf, v, "six nine")
+    assert out["id_route"] == "ask"
+    out = _ask(wf, out, "the traffic was awful but it is two eight six nine")
+    assert out["id_route"] == "send" and out["id_send_value"] == "2869"
+    v = _vars(wf, pol)
+    out = _ask(wf, v, "May twenty-third")
+    out = _ask(wf, out, "May twenty-third nineteen eighty")  # repeats the whole answer instead of the rest
+    assert out["id_send_value"] == "1980-05-23"
+
+
+def test_a_never_loops_more_than_twice_then_sends_what_it_has(built):
+    wf, pol, _ = built
+    v = _vars(wf, pol)
+    prompt = pol["identity"]["prompts"][pol["identity"]["questions"][0]]
+    out = _ask(wf, v, "14 July")
+    assert out["id_route"] == "ask" and out["id_inc"] == "1" and out["id_partial"] == "14 July"
+    out = _ask(wf, out, "9 October")
+    assert out["id_route"] == "ask" and out["id_inc"] == "2" and out["id_partial"] == "" and out["id_say"].endswith(prompt)
+    out = _ask(wf, out, "1 September")
+    assert out["id_route"] == "send" and out["id_inc"] == "0" and out["id_send_value"]
+
+
+def test_b_day_and_month_only_after_a_swap_hint_reuses_the_year(built):
+    wf, pol, _ = built
+    v = _vars(wf, pol)
+    out = _ask(wf, v, "zero four zero one nineteen seventy six")  # spoken digits: day, month, year
+    assert out["id_send_value"] == "1976-01-04" and out["id_route"] == "send"
+    out = _ask(wf, dict(out, id_state="retry"), "the first of April")  # the bank said the day and month are swapped
+    assert out["id_route"] == "send" and out["id_send_value"] == "1976-04-01"
+
+
+@pytest.mark.parametrize("text,value", [
+    ("May twenty-third nineteen eighty", "1980-05-23"), ("tenth of April nineteen eighty", "1980-04-10"),
+    ("the twenty first of May nineteen fifty eight", "1958-05-21"), ("May twenty first, two thousand and three", "2003-05-21"),
+    ("23 May 1980", "1980-05-23")])
+def test_dates_with_the_day_after_the_month(text, value):
+    assert R.answer_from_speech("date", text) == (value, True)
+
+
+def test_the_ai_question_line_is_in_the_identity_task_when_the_policy_has_one(built):
+    wf, pol, _ = built
+    ai = pol["lines"]["ai"]["text"]
+    assert ai and ai.split("{")[0].strip()[:20] in wf["nodes"]["identity"]["task_message"]
