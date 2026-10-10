@@ -3,7 +3,7 @@
 #   scripts/x_extract.sh <tag> [brief ...]      e.g. scripts/x_extract.sh x0     (FORCE=1 re-runs existing ones)
 cd "$(dirname "$0")/.." || exit 1
 tag=$1; shift
-export TCC_EXTRACT_MODEL=${TCC_EXTRACT_MODEL:-openrouter:anthropic/claude-sonnet-5.5}
+export TCC_EXTRACT_MODEL=${TCC_EXTRACT_MODEL:-claude_cli:claude-sonnet-5-5}
 briefs=${*:-"brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"}
 mkdir -p out/template_cc/$tag
 run() {
