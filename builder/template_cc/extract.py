@@ -59,6 +59,8 @@ Keys
 - lines: speakable sentences the agent says, keyed by {", ".join(LINE_KEYS)}. Each {{"text", "verbatim": bool}}.
   verbatim=true only when the brief fixes the exact words (copy them exactly, with {{field}} placeholders for call
   variables); otherwise write one short spoken sentence that says exactly what the brief requires, nothing more.
+  The only placeholders allowed in a line are call variables ({{field}}). Never put account values (product,
+  amount, days late, dates) into a line: the code adds them.
   The opening line must contain everything the brief requires in the first sentence.
 - forbidden_before_verify: words or topics not to say before identity is verified.
 - multi_product (bool), max_products (int).

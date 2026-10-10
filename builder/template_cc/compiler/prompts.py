@@ -18,14 +18,21 @@ def line(policy: dict, key: str) -> str:
     return spoken((policy.get("lines") or {}).get(key, {}).get("text", ""), policy)
 
 
-def spoken(text: str, policy: dict) -> str:
-    """{field} placeholders of call variables -> {{field}}; other single-brace placeholders are removed."""
-    cv = set(policy.get("call_variables") or [])
+PLACEHOLDER = re.compile(r"\{\{?\s*([A-Za-z_]\w*)\s*\}?\}")
+TRAILING = re.compile(r"(?:[\s,;:\-]+|\b(?:on|in|for|of|about|your|the|a|an|and|with|is|it|to|at)\b)+$", re.I)
 
-    def sub(m):
-        name = m.group(1)
-        return "{{" + name + "}}" if name in cv else ""
-    return re.sub(r"\{\{?\s*([A-Za-z_]\w*)\s*\}?\}", sub, str(text or "")).strip()
+
+def spoken(text: str, policy: dict) -> str:
+    """{field} placeholders of call variables -> {{field}}. A placeholder that is not a call variable (an account
+    value the extractor wrote into a line) cannot be filled: the line is cut before it, dangling words are dropped."""
+    cv = set(policy.get("call_variables") or [])
+    text = str(text or "")
+    bad = next((m for m in PLACEHOLDER.finditer(text) if m.group(1) not in cv), None)
+    if bad is not None:
+        text = TRAILING.sub("", text[: bad.start()]).strip()
+        if text and text[-1] not in ".?!":
+            text += "."
+    return PLACEHOLDER.sub(lambda m: "{{" + m.group(1) + "}}", text).strip()
 
 
 def quoted(policy: dict, key: str) -> str:

@@ -329,3 +329,12 @@ def test_verbatim_lines_are_spoken_by_tts():
     assert wf["nodes"]["negotiate"]["on_enter"]["text"] == "{{debt_statement}} {{first_ask_line}}"
     for w in p["forbidden_before_verify"]:
         assert w in wf["system_prompt"]
+
+
+def test_lines_with_account_placeholders_are_cut_not_garbled():
+    from builder.template_cc.compiler import prompts as P
+    pol = {"call_variables": ["title", "last_name"]}
+    assert P.spoken("I am calling from the team about a late payment on your {product}: {past_due} is due.", pol) == \
+        "I am calling from the team about a late payment."
+    assert P.spoken("Am I speaking with {title} {last_name}?", pol) == "Am I speaking with {{title}} {{last_name}}?"
+    assert P.spoken("{amount} is due.", pol) == ""
