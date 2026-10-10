@@ -1,5 +1,7 @@
 # Test Planı ve Karar Kuralları — Collections Builder
 
+> **Güncelleme (10 Ekim, kit sonrası):** Agent modeli sabit (T1.1 model taraması iptal), skorlama metin (ses deneyleri iptal), çıktı Freya workflow'u olmalı. Builder mimarisi karşılaştırması (A1 / agentic / hybrid) ve güncel öncelikler için **HACKATHON_PLAN.md** esas alınır. İstatistik kuralları, kabul kapısı ve yargıç kalibrasyonu bu dosyada geçerlidir.
+
 Takip için: `Test_Plani.xlsx` (aynı içerik + Durum / Gerçek sonuç / Not sütunları).
 
 ## Ön koşul: collections domain klasörü (kickoff'tan önce)
