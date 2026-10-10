@@ -182,6 +182,17 @@ def main():
     a = ap.parse_args()
     global SHARED
     SHARED = a.shared_origin
+    _orig_api = freya.api
+
+    def _api(method, path, *args, **kw):  # remember every simulation id: a stuck one can then be looked up (documented GET) and reported
+        r = _orig_api(method, path, *args, **kw)
+        if method == "POST" and path.rstrip("/") == "/api/v2/simulations":
+            sim = (r.get("simulation") or r) if isinstance(r, dict) else {}
+            body = args[0] if args and isinstance(args[0], dict) else kw.get("body") or {}
+            with open(OUT.parent / "sim_ids.log", "a") as f:
+                f.write(f"{time.strftime('%m-%d %H:%M:%S')} {sim.get('id')} {body.get('name')}\n")
+        return r
+    freya.api = _api
     budget = Budget(a.or_budget)
     print(f"OpenRouter usage at start: {budget.start}; local-judge budget ${a.or_budget}", flush=True)
     for b in (ALL if a.brief == "all" else a.brief.split(",")):
