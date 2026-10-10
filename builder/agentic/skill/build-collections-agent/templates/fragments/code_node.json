@@ -1,5 +1,5 @@
 {
- "name": "mark_wrong_number",
+ "name": "mark_not_their_line",
  "node_type": "code",
  "passthrough": true,
  "passthrough_default_transition": "goodbye_short",

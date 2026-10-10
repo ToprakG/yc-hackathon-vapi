@@ -14,10 +14,10 @@
    "enum_values": [
     "customer",
     "someone_else",
-    "wrong_number",
+    "not_their_line",
     "unclear"
    ],
-   "description": "Who answered: customer (clear yes or own name), someone_else, wrong_number, unclear.",
+   "description": "Who answered: customer (clear yes or own name), someone_else, not_their_line, unclear.",
    "min_confidence": 0.6
   }
  ],
@@ -53,7 +53,7 @@
    }
   },
   {
-   "target_node": "mark_wrong_number",
+   "target_node": "mark_not_their_line",
    "description": "Wrong number",
    "condition": {
     "logic": "or",
@@ -61,7 +61,7 @@
      {
       "variable": "who",
       "operator": "equals",
-      "operand": "wrong_number"
+      "operand": "not_their_line"
      }
     ]
    }

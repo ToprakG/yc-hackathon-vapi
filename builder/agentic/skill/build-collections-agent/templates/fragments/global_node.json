@@ -15,7 +15,7 @@
  "passthrough_default_transition": "__previous__",
  "excluded_nodes": [
   "setup",
-  "mark_wrong_number",
+  "mark_not_their_line",
   "third_party_prep",
   "id_failed",
   "load_account",

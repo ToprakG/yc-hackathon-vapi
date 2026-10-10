@@ -35,7 +35,7 @@ design goal is: **every record and every number is decided by code or by a route
   address form (e.g. `{{title}} {{last_name}}`).
 - `system_prompt` + task: nothing about the reason for the call, the product, money or the forbidden words before
   verification. This holds for anyone on the line.
-- Extract who answered as an enum: `customer`, `someone_else`, `wrong_number`, `deceased`, `unclear` (only the values
+- Extract who answered as an enum: `customer`, `someone_else`, `not_their_line`, `deceased`, `unclear` (only the values
   the brief needs). Only the confirmations the brief lists count as `customer`.
 - The brief's ask limit ("ask once more", "answer their question first, the next ask is the second"): a
   `max_node_turns` + `max_turn_transition` to the "unclear" ending, or an extracted counter.

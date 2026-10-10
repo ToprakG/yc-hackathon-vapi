@@ -1,0 +1,9 @@
+{
+ "_doc": "Generic words that may appear in the skill although some testbed config uses them as a value. Each entry needs a justification. Keep this list short: a bank name, a date, a code or a fixed sentence never belongs here.",
+ "allow": {
+  "currency": "policy-schema value of tools.create_promise.amount_unit (major units); generic vocabulary",
+  "cents": "policy-schema value of tools.create_promise.amount_unit (minor units); the kit docs ask for cents conversion",
+  "human": "canonical queue_map key in policy-schema.md (restructuring / human / support) and plain English in prose about transfers",
+  "declined": "plain English verb used to describe a refusal to answer security questions"
+ }
+}
