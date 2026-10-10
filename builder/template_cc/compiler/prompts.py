@@ -157,7 +157,7 @@ def id_intent_desc(f2: bool, f3: bool) -> str:
             "asks what the call is about instead of answering;" + human + " other = anything else.")
 
 
-def negotiate_task(policy: dict, multi: bool) -> str:
+def negotiate_task(policy: dict, multi: bool, typed: bool = False) -> str:
     parts = [
         "You stated the debt and asked the first question. Get a payment promise where you can, within these rules:",
         "- Start by asking for the whole past-due amount. Never ask how much the customer can pay: you propose every amount.",
@@ -175,6 +175,8 @@ def negotiate_task(policy: dict, multi: bool) -> str:
         "order. Refusing the latest date or the minimum amount is a refusal. When the attempts of a product are used up "
         "and the customer still refuses, stop: never repeat an offer the customer refused, and CALL the refusal "
         "transition for that product.",
+        ("- The system checks every amount and date the customer names and reads it back by itself. Never read back, "
+         "record or confirm anything yourself; when a line tells you what to say, say it.") if typed else
         f"- Before recording, read back the product, the amount and the date and ask: {quoted(policy, 'confirm_question')}. "
         "CALL create_promise only after a clear yes. If the customer changes the date or the amount, check it again "
         "and read it back again.",
@@ -184,6 +186,7 @@ def negotiate_task(policy: dict, multi: bool) -> str:
         "- Offering the latest date (because the customer's date was too late) is not a persuasion attempt and does "
         "not change the amount: the amount stays the full past-due amount, unless the customer already said the full "
         "amount is too much. Only flat refusals move to the next attempt proposal.",
+        ("- Never say that anything is recorded or saved unless a line you are given says so.") if typed else
         "- Until create_promise succeeds, never say that anything is recorded or saved. After it succeeds, follow "
         "what_to_do_next.",
     ]
@@ -195,6 +198,7 @@ def negotiate_task(policy: dict, multi: bool) -> str:
             "again at attempt 1 for each product.",
             "- If the customer names one date for everything and it is after one product's latest date, that product "
             "gets its own latest date: say so in the read-back. The other products keep the named date.",
+            ("- Each product is checked and confirmed on its own.") if typed else
             "- Read all agreed promises back together and ask once for confirmation. Then CALL create_promise once per "
             "product, one call per message.",
         ]
@@ -261,6 +265,14 @@ EXTRACT = {
                   "about instead of answering; answering = anything else.",
     "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
                        "is NOT that); no = anything else.",
+    "offer_intent": "proposes = the customer names an amount or a date for paying; accepts_offer = the customer agrees to your "
+                    "last offer; none = anything else (a refusal, a question, a vague time).",
+    "offer_amount_text": "The payment amount the customer names in their last message, or the amount of your last offer when "
+                         "they just agree to it, copied as said (words or digits). Empty if there is none.",
+    "offer_date_text": "The payment date the customer names in their last message, or the date of your last offer when they "
+                       "just agree to it, copied as said. Empty if there is none.",
+    "rb_answer": "yes = a clear yes to what you just read back; no = no, they do not want that; change = they name a "
+                 "different amount or date; other = anything else.",
     "id_answer_text": "The customer's answer to the security question just asked, copied exactly as said (words or digits). "
                       "If they gave it over several messages, join the parts. Empty if no answer.",
     "side": "What the customer's last message is about: hardship = illness, a death in the family or job loss; "

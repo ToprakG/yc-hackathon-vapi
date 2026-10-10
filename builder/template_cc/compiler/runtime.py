@@ -1167,3 +1167,27 @@ def date_from_speech(text, now_iso):
     except Exception:
         pass
     return None, False
+
+
+def slot_summary(vars, cfg):
+    """F12: what is known and what is missing, in at most four short lines (written by every state-changing step)."""
+    try:
+        rows = jget(vars, 'products', [])
+        pst = jget(vars, 'pstate', dict())
+        agreed = jget(vars, 'agreed', dict())
+        passed = jget(vars, 'id_passed', [])
+        verified = str(vars.get('id_state') or '') == 'passed'
+        known = 'Known: identity ' + ('verified' if verified else 'not verified yet')
+        if rows:
+            known += '; ' + '; '.join([str(r['label']) + ' ' + money(r['past_due']) + ' owed, ' + str(pst.get(r['pid'], 'open')) for r in rows])
+        said = 'Customer said: amount ' + (str(vars.get('said_amount') or '') or '-') + ', date ' + (str(vars.get('said_date') or '') or '-')
+        done = 'Agreed so far: ' + ('; '.join([str(k) + ' ' + str(v) for k, v in agreed.items()]) if agreed else 'nothing')
+        if not verified:
+            left = [q for q in cfg['identity']['questions'] if q not in passed]
+            need = 'Still needed: the answer to ' + (left[0] if left else 'the security questions')
+        else:
+            op = [r for r in rows if pst.get(r['pid'], 'open') == 'open']
+            need = 'Still needed: ' + (('an agreed amount and date for ' + str(op[0]['label'])) if op else 'nothing, close the call')
+        return '\n'.join([known, said, done, need])
+    except Exception:
+        return ''

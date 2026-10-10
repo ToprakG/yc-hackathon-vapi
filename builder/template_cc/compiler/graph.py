@@ -7,6 +7,7 @@ ZoneBook so patches can only touch unlocked zones. Code and hooks come from comp
 from __future__ import annotations
 
 import re
+import textwrap
 
 from builder.template_cc.compiler import prompts as P
 from builder.template_cc.compiler import runtime as RT
@@ -111,6 +112,8 @@ class Graph:
         self.queues = {k: v for k, v in (policy.get("queue_map") or {}).items() if v}
         self.limits = policy.get("ask_limits") or {}
         self.non_conv: list[str] = []
+        if "f11_promise_typed" in self.f:
+            self.cfg["vague_limit"] = int(self.limits.get("vague_date", 1))
         routes = policy.get("routes") or {}  # F3: a request for a person is honoured before identity is verified
         self.human_first = ("f3_human_first" in self.f and "human" in self.queues
                             and routes.get("human_before_verify", True) is not False)
@@ -124,6 +127,8 @@ class Graph:
         """task_message = task + facts + brief rules (locked) + rules + examples (unlocked)."""
         b = self.book
         parts = [{"zone": b.add(f"node:{stage}/task", task, True, purpose="the compiled job of this step")}]
+        if "f12_slot_summary" in self.f and nid in self.SUMMARY_PREFIX:
+            parts.insert(0, {"zone": b.add("node:state/summary", "State:\n{{slot_summary}}", True, purpose="what is known and what is missing")})
         if facts:
             parts.append({"zone": b.add(f"node:{stage}/facts", facts, True, purpose="computed facts"), "title": "Facts"})
         br = P.brief_rules(self.p, brief_stage or stage)
@@ -169,6 +174,9 @@ class Graph:
                               "key": k})
             self.book.target(base + "/post_process_code", "hook_msgs", parts)
 
+    SUMMARY_PREFIX = ("identity", "negotiate", "negotiate_resume", "promise_confirm", "hardship")
+    SUMMARY_NODES = ("setup", "id_check", "facts", "promise_check", "after_promise", "side_mark", "hardship_mark")
+
     # --- node constructors ------------------------------------------------------------------------------------------
     def conv(self, nid: str, *, on_enter=None, transitions=(), tools=(), extraction=(), max_turns=None, turn_target=None,
              first_only=False, passthrough_to=None, is_global=False, **extra) -> dict:
@@ -193,6 +201,10 @@ class Graph:
 
     def code(self, nid: str, body: str, transitions: list, uses=(), fallback="pass") -> dict:
         trs = list(transitions)
+        if "f12_slot_summary" in self.f and nid in self.SUMMARY_NODES:
+            body = textwrap.dedent(body).strip("\n") + "\nvars['slot_summary'] = slot_summary(vars, CFG)"
+            uses = tuple(uses) + ("slot_summary",)
+            fallback = textwrap.dedent(fallback).strip("\n") + "\nvars['slot_summary'] = str(vars.get('slot_summary') or '')"
         if nid not in ("setup", "wrap"):  # the sandbox can be unreachable: never loop, close the call
             trs.insert(0, any_of("wrap", "the code step failed", [leaf(f"{nid}_failure_count", "greater_than", 0)]))
         default = trs[-1]["target_node"]
@@ -363,8 +375,16 @@ ID_INIT        vars['cb_state'] = 'none'
 """)
         else:
             body = body.replace("ID_INIT", "")
-        if "f4_discount" in self.f:
-            body = body.replace("        vars['id_wrong'] = '0'\n", "        vars['id_wrong'] = '0'\n        vars['say_line'] = ''\n", 1)
+        extra = ""
+        if "f11_promise_typed" in self.f and self.multi:
+            body = body.replace("vars['side_product'] = ''", "vars['side_product'] = 'none'")
+        if "f4_discount" in self.f or "f11_promise_typed" in self.f:
+            extra += "        vars['say_line'] = ''\n"
+        if "f11_promise_typed" in self.f:
+            extra += ("        vars['offer_intent'] = 'none'\n        vars['offer_amount_text'] = ''\n"
+                      "        vars['offer_date_text'] = ''\n        vars['rb_answer'] = 'other'\n")
+        if extra:
+            body = body.replace("        vars['id_wrong'] = '0'\n", "        vars['id_wrong'] = '0'\n" + extra, 1)
         second = int(self.limits.get("right_party", 2)) >= 2
         routes = self._who_transitions("who1", "opening_ask2" if second else "mark_nr_unclear")
         self.code("setup", body, routes + [always("mark_nr_unclear", "nobody confirmed")],
@@ -564,8 +584,12 @@ ID_INIT        vars['cb_state'] = 'none'
                                           "                vars['id_state'] = 'next'\n                vars['id_q'] = nxt\n")
             post_body = post_body.replace("        result['data'] = d\n",
                                           "        vars['id_say'] = re.sub(r' \\(field: [^)]*\\)', '', str(d.get('what_to_do_next') or ''))\n"
-                                          "        result['data'] = d\n")
-        post = self.hook(post_body, uses=("truthy", "num", "jget", "jput", "refresh_close"), msgs=msgs)
+                                          + ("        vars['slot_summary'] = slot_summary(vars, CFG)\n" if "f12_slot_summary" in self.f else "")
+                                          + "        result['data'] = d\n")
+        post_uses = ("truthy", "num", "jget", "jput", "refresh_close")
+        if "f1_id_complete" in self.f and "f12_slot_summary" in self.f:
+            post_uses += ("slot_summary",)
+        post = self.hook(post_body, uses=post_uses, msgs=msgs)
         if "f1_id_complete" in self.f:  # run by the engine from id_verify with the complete answer id_check hands over
             body = {**T.customer_leaf(self.api, "verify_identity"),
                     f["field"]: {"type": "string", "default": "{{id_send_field}}"},
@@ -917,7 +941,7 @@ ID_INIT        vars['cb_state'] = 'none'
         tool = T.api_tool(self.api, "create_promise", body, description=desc, pre=pre, post=post)
         return tool, msgs, cents
 
-    def _side_transitions(self, nid: str) -> list:
+    def _side_transitions(self, nid: str, with_offer: bool = True) -> list:
         out = [eq("wrap", "every product is resolved", "neg_state", "done"),
                eq("hardship", "the customer mentioned a hardship", "side", "hardship"),
                eq("side_mark", "dispute or already paid", "side", "dispute", "paid_already")]
@@ -929,6 +953,9 @@ ID_INIT        vars['cb_state'] = 'none'
         if "human" in self.queues:
             out.append(eq("human_offer", "asks for a person", "side", "human"))
         out.append(eq("stop_count", "does not want to talk", "side", "stop_talking"))
+        if "f11_promise_typed" in self.f and with_offer:
+            out.append(eq("promise_check", "the customer names or accepts an amount or a date", "offer_intent",
+                          "proposes", "accepts_offer"))
         for i in range(1, self.nmax + 1):
             k = len(out)
             desc = (f"Product {i} of the facts: its persuasion attempts are used up and the customer still refuses, "
@@ -939,6 +966,152 @@ ID_INIT        vars['cb_state'] = 'none'
                         [f"/nodes/{nid}/transitions/{k}/description", f"/nodes/{nid}/transitions/{k}/condition/description"], desc)
         return out
 
+    def _promise_nodes(self, cents: bool, fields: list, f4: bool):
+        """F11: the model only extracts what the customer said; code checks it against the product, the customer
+        confirms a read-back, and the engine records the promise."""
+        cp = self.p["tools"]["create_promise"]
+        check = """
+        rows = jget(vars, 'products', [])
+        op = open_pids(vars)
+        pids = pick_products(vars, vars.get('side_product'))
+        pid = pids[0] if pids else ''
+        if op and pid not in op:
+            pid = op[0]
+        row = [r for r in rows if r['pid'] == pid]
+        at = str(vars.get('offer_amount_text') or '').strip()
+        dt = str(vars.get('offer_date_text') or '').strip()
+        if at:
+            vars['said_amount'] = at[:40]
+        if dt:
+            vars['said_date'] = dt[:40]
+        vars['offer_intent'] = 'none'
+        vars['offer_amount_text'] = ''
+        vars['offer_date_text'] = ''
+        vars['rb_answer'] = 'other'
+        vars['cp_route'] = 'back'
+        say = ''
+        if row:
+            r = row[0]
+            now = parse_now(vars.get('now'))
+            today = now.date()
+            hol = hol_set(CFG)
+            past = float(r['past_due'])
+            floor = float(r['floor'])
+            dl = datetime.date.fromisoformat(r['deadline'])
+            amt, ac = amount_from_speech(at) if at else (None, False)
+            if ac == 'full':
+                amt = past
+            amt = past if amt is None else float(amt)
+            d_iso, dc = date_from_speech(dt, vars.get('now')) if dt else (None, False)
+            if not d_iso and dt:
+                d_iso = to_iso(dt, today)
+            if not d_iso:
+                n = int(num(vars.get('vague_n'))) + 1
+                vars['vague_n'] = str(n)
+                if n <= int(CFG['vague_limit']):
+                    say = 'On which day exactly would you like to pay it?'
+                else:
+                    say = 'The latest date I can record is ' + spoken(dl) + '. Could you pay on that date?'
+            else:
+                d = datetime.date.fromisoformat(d_iso)
+                if amt < floor - 0.005:
+                    say = 'I cannot record less than ' + money(floor) + '. Could you pay that amount?'
+                elif amt > past + 0.005:
+                    say = 'The amount owed is ' + money(past) + ', so I cannot record more than that. Could you pay ' + money(past) + '?'
+                elif d < today:
+                    say = 'I need a date from today on. The next business day is ' + spoken(bd_on_or_after(today, hol)) + '. Would that work?'
+                elif d > dl:
+                    say = 'The latest date I can record is ' + spoken(dl) + '. Could you pay on that date?'
+                elif not is_bd(d, hol):
+                    nb = bd_on_or_after(d, hol)
+                    nb = dl if nb > dl else nb
+                    say = 'That day is not a business day. The next business day is ' + spoken(nb) + '. Would that work?'
+                else:
+                    cents = CFG['cp_fields'].get('amount_unit') == 'cents'
+                    vars['rb_pid'] = pid
+                    vars['rb_amount'] = str(int(round(amt * 100))) if cents else str(round(amt, 2))
+                    vars['rb_date'] = d.isoformat()
+                    vars['rb_text'] = money(amt) + ' on ' + spoken(d)
+                    vars['cp_route'] = 'confirm'
+                    say = 'So that is ' + money(amt) + ' on ' + spoken(d) + ' for ' + r['label'] + '. ' + str(CFG['lines'].get('confirm_question') or 'Shall I record that?')
+        vars['say_line'] = say
+        """
+        self.code("promise_check", check, [eq("promise_confirm", "a valid promise to read back", "cp_route", "confirm"),
+                                           always("negotiate_resume")],
+                  uses=("jget", "open_pids", "pick_products", "parse_now", "hol_set", "amount_from_speech", "date_from_speech",
+                        "to_iso", "num", "money", "spoken", "bd_on_or_after", "is_bd"),
+                  fallback="vars['cp_route'] = 'back'\nvars['say_line'] = ''")
+        # the read-back is spoken from say_line; the customer answers yes / no / change
+        text = "{{say_line}}"
+        self.conv("promise_confirm", on_enter=self.tts("promise_confirm", text),
+                  extraction=self.extraction("promise_confirm", "promise_confirm",
+                                             [("rb_answer", ["yes", "no", "change", "other"])] + fields,
+                                             descs={"side": P.side_desc()} if f4 else None),
+                  transitions=[eq("promise_write", "a clear yes", "rb_answer", "yes"),
+                               eq("promise_check", "a different amount or date", "rb_answer", "change"),
+                               eq("negotiate_resume", "no", "rb_answer", "no")],
+                  max_turns=6, turn_target="negotiate_resume")
+        tr = self._side_transitions("promise_confirm", with_offer=False)
+        node = self.nodes["promise_confirm"]
+        node["transitions"] = tr + node["transitions"]
+        # the intent zones of the tool-call transitions point at the side list, which now starts at index 0 again
+        self.task_zones("promise", "promise_confirm", "The customer is answering the read-back you just said. Say nothing "
+                        "about recording or saving. No tool call is allowed in this turn.", brief_stage=("debt", "negotiate"))
+        # the engine records it
+        body = {**T.customer_leaf(self.api, "create_promise"),
+                cp["product_id"]: T.baked(self.api, "create_promise", cp["product_id"], "{{rb_pid}}"),
+                cp["amount"]: T.baked(self.api, "create_promise", cp["amount"], "{{rb_amount}}"),
+                cp["date"]: T.baked(self.api, "create_promise", cp["date"], "{{rb_date}}")}
+        if cents and body[cp["amount"]].get("type") == "integer":
+            body[cp["amount"]]["type"] = "number"
+        msgs = {"recorded": "Your promise is recorded.", "dup": "That product already has a recorded promise.",
+                "failed": "I could not save that because of a technical problem."}
+        post = self.hook("""
+        result.pop('header', None)
+        d = result.get('data') if isinstance(result.get('data'), dict) else dict()
+        pid = str(vars.get('rb_pid') or '')
+        vars['cp_state'] = 'failed'
+        if jget(vars, 'pstate', dict()).get(pid) == 'promised':
+            vars['cp_state'] = 'dup'
+            vars['say_line'] = MSG['dup']
+        elif truthy(d.get('ok')):
+            set_status(vars, pid, 'promised')
+            vars['promises_n'] = str(int(num(vars.get('promises_n'))) + 1)
+            vars['cp_state'] = 'recorded'
+            vars['say_line'] = MSG['recorded']
+            ag = jget(vars, 'agreed', dict())
+            ag[pid] = str(vars.get('rb_text') or '')
+            jput(vars, 'agreed', ag)
+        else:
+            fails = jget(vars, 'cp_fails', dict())
+            n = int(fails.get(pid, 0)) + 1
+            fails[pid] = n
+            jput(vars, 'cp_fails', fails)
+            if n <= int(CFG['retries'].get('create_promise', 1)):
+                vars['cp_state'] = 'retry'
+            else:
+                set_status(vars, pid, 'service_error')
+                vars['say_line'] = MSG['failed']
+        result['data'] = d
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        SUMMARY
+        """.replace("SUMMARY", "vars['slot_summary'] = slot_summary(vars, CFG)" if "f12_slot_summary" in self.f else "pass"),
+                         uses=("truthy", "num", "jget", "jput", "set_status", "neg_flag", "refresh_close")
+                         + (("slot_summary",) if "f12_slot_summary" in self.f else ()), msgs=msgs)
+        tool = T.api_tool(self.api, "create_promise", body, description="Record one payment promise.", post=post)
+        self.api_node("promise_write", tool, [eq("promise_write", "the call failed once: try again", "cp_state", "retry"),
+                                               always("after_promise")],
+                      response_mapping=[{"path": "data.ok", "variable": "cp_ok"}])
+        parts = [{"zone": self.book.add(f"hook:create_promise/msg/{k}", v, False, P.BUDGET["hook"], "line said after the call"),
+                  "key": k} for k, v in msgs.items()]
+        self.book.target("/nodes/promise_write/pre_actions/0/post_process_code", "hook_msgs", parts)
+        self.code("after_promise", """
+        neg_flag(vars)
+        refresh_close(vars, CFG)
+        """, [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")],
+                  uses=("neg_flag", "refresh_close"))
+
     def _restructuring_notes(self) -> bool:
         return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]
                     and (self.p.get("note_map") or {}).get(self.p["notes_on_restructuring"]))
@@ -946,23 +1119,33 @@ ID_INIT        vars['cb_state'] = 'none'
     def _negotiation(self):
         tool, msgs, cents = self._promise_tool()
         f4 = "f4_discount" in self.f
+        f11 = "f11_promise_typed" in self.f
+        sl = f4 or f11
         fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
                    + (["discount"] if f4 else []))]
         if self.multi:
-            fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]))
+            fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]
+                           + (["none"] if "f11_promise_typed" in self.f else [])))
+        offer_fields = [("offer_intent", ["proposes", "accepts_offer", "none"]), ("offer_amount_text", None),
+                        ("offer_date_text", None)]
+        if f11:
+            fields = fields + offer_fields
         refusal = ("When a product's persuasion attempts are used up and the customer still refuses, CALL "
                    + " / ".join(f"transition_to_refused_{i}" for i in range(1, self.nmax + 1))
                    + " (the number is the product's position in the facts).")
-        task = P.negotiate_task(self.p, self.multi) + "\n" + refusal + "\n" + P.negotiate_tool_hint(self.p, cents)
+        task = P.negotiate_task(self.p, self.multi, typed=f11) + "\n" + refusal
+        if not f11:
+            task += "\n" + P.negotiate_tool_hint(self.p, cents)
         for nid, entry in (("negotiate", self.tts("negotiate", "{{debt_statement}} {{first_ask_line}}")),
-                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, f4)})):
-            self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[tool],
+                           ("negotiate_resume", {"type": "llm", "prompt": P.resume_entry(self.p, sl)})):
+            self.conv(nid, on_enter=entry, first_only=(nid == "negotiate"), tools=[] if f11 else [tool],
                       extraction=self.extraction("negotiate", nid, fields, descs={"side": P.side_desc()} if f4 else None),
                       transitions=self._side_transitions(nid),
                       max_turns=40, turn_target="wrap")
-            self.tool_zones(nid, 0, tool, msgs)
+            if not f11:
+                self.tool_zones(nid, 0, tool, msgs)
             self.task_zones("negotiate", nid, task, facts="{{facts_text}}", brief_stage=("debt", "negotiate"))
-        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, f4), True, purpose="entry line on re-entry")
+        self.book.add("node:negotiate/resume_entry", P.resume_entry(self.p, sl), True, purpose="entry line on re-entry")
         self.book.target("/nodes/negotiate_resume/on_enter/prompt", "text", [{"zone": "node:negotiate/resume_entry"}])
         reset = """
         vars['side'] = 'none'
@@ -970,8 +1153,16 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['hs_choice'] = 'none'
         vars['human_choice'] = 'none'
         """
-        if f4:
+        if f11 and self.multi:  # '' is not in the enum and the platform drops the write: reset to a value inside it
+            reset = reset.replace("vars['side_product'] = ''", "vars['side_product'] = 'none'")
+        if sl:
             reset += "vars['say_line'] = ''\n        "
+        if f11:
+            reset += ("vars['offer_intent'] = 'none'\n        vars['offer_amount_text'] = ''\n"
+                      "        vars['offer_date_text'] = ''\n        ")
+        if f11:
+            self._promise_nodes(cents, fields, f4)
+        if f4:
             self.code("discount_reply", reset + "vars['say_line'] = " + repr(P.NO_DISCOUNT) + "\n", [always("negotiate_resume")],
                       fallback=reset)
         back = [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")]
@@ -1028,6 +1219,7 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['human_choice'] = 'none'
         vars['who_wants_human'] = 'no'
         vars['id_intent'] = 'other'
+        RESET_OFFER
         if str(vars.get('phase')) == 'products':
             vars['back_to'] = 'products'
         elif str(vars.get('who1')) == 'customer' or str(vars.get('who2')) == 'customer':
@@ -1035,6 +1227,8 @@ ID_INIT        vars['cb_state'] = 'none'
         else:
             vars['back_to'] = 'opening'
         """
+                back = back.replace("        RESET_OFFER\n", ("        vars['offer_intent'] = 'none'\n        vars['offer_amount_text'] = ''\n"
+                                                 "        vars['offer_date_text'] = ''\n") if "f11_promise_typed" in self.f else "")
                 self.code("human_back", back, [eq("negotiate_resume", "the products were already discussed", "back_to", "products"),
                                                eq("identity", "the customer is confirmed", "back_to", "identity"),
                                                always("opening_ask2" if int(self.limits.get("right_party", 2)) >= 2 else "mark_nr_unclear")],
@@ -1168,7 +1362,7 @@ ID_INIT        vars['cb_state'] = 'none'
         """Every conversation node after the opening can end the call: the model calls transition_to_wrap when the
         conversation is over, and a global catches a customer's goodbye after the agent's own goodbye. Without these,
         a finished call loops on 'goodbye' until the turn cap (seen on the platform)."""
-        for nid in self.FINISH_NODES:
+        for nid in self.FINISH_NODES + (("promise_confirm",) if "f11_promise_typed" in self.f else ()):
             node = self.nodes.get(nid)
             if node is None:
                 continue
@@ -1212,7 +1406,8 @@ ID_INIT        vars['cb_state'] = 'none'
                                    eq("__previous__", "accepts help", "human_choice", "continues")],
                       max_turns=3, turn_target="transfer_human",
                       description=intent, condition={"operator": "matches_intent", "description": intent},
-                      excluded_nodes=excluded + ["negotiate", "negotiate_resume", "human_offer", "hardship", "g_ai", "g_scam"])
+                      excluded_nodes=excluded + ["negotiate", "negotiate_resume", "human_offer", "hardship", "g_ai", "g_scam"]
+                      + (["promise_confirm"] if "f11_promise_typed" in self.f else []))
             self.book.target("/global_nodes/g_human/extraction_schema/0/description", "text",
                              [{"zone": "extract:human/human_choice/description"}])
             self.intent("global:g_human/intent", ["/global_nodes/g_human/condition/description", "/global_nodes/g_human/description"], intent)
