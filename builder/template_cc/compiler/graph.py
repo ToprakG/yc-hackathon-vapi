@@ -111,6 +111,9 @@ class Graph:
         self.queues = {k: v for k, v in (policy.get("queue_map") or {}).items() if v}
         self.limits = policy.get("ask_limits") or {}
         self.non_conv: list[str] = []
+        routes = policy.get("routes") or {}  # F3: a request for a person is honoured before identity is verified
+        self.human_first = ("f3_human_first" in self.f and "human" in self.queues
+                            and routes.get("human_before_verify", True) is not False)
 
     # --- zones -----------------------------------------------------------------------------------------------------
     def _ptr(self, nid: str, is_global: bool = False) -> str:
@@ -383,18 +386,26 @@ ID_INIT        vars['cb_state'] = 'none'
         opening = " ".join(x for x in (P.line(self.p, "opening"), P.line(self.p, "right_party_question")) if x)
         second = int(self.limits.get("right_party", 2)) >= 2
         who = ["customer", "someone_else", "not_their_number", "customer_died", "unclear"]
+        hf = self.human_first
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
-                  extraction=self.extraction("opening", "opening", [("who1", who)]),
-                  transitions=[any_of("setup", "the person answered", [leaf("who1", "is_set")])],
+                  extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])),
+                  transitions=([eq("human_offer", "asks for a person", "who_wants_human", "yes")] if hf else [])
+                  + [any_of("setup", "the person answered", [leaf("who1", "is_set")])],
                   max_turns=4, turn_target="setup")
         self.task_zones("opening", "opening", P.opening_task(self.p))
         if second:
             self.conv("opening_ask2", on_enter={"type": "llm"},
                       extraction=[{"name": "who2", "type": "string", "enum_values": who, "description": P.EXTRACT["who1"],
-                                   "min_confidence": MIN_CONF}],
-                      transitions=self._who_transitions("who2", "mark_nr_unclear"), max_turns=3, turn_target="mark_nr_unclear")
+                                   "min_confidence": MIN_CONF}]
+                      + ([{"name": "who_wants_human", "type": "string", "enum_values": ["yes", "no"],
+                           "description": P.EXTRACT["who_wants_human"], "min_confidence": MIN_CONF}] if hf else []),
+                      transitions=([eq("human_offer", "asks for a person", "who_wants_human", "yes")] if hf else [])
+                      + self._who_transitions("who2", "mark_nr_unclear"), max_turns=3, turn_target="mark_nr_unclear")
             self.book.target("/nodes/opening_ask2/extraction_schema/0/description", "text",
                              [{"zone": "extract:opening/who1/description"}])
+            if hf:
+                self.book.target("/nodes/opening_ask2/extraction_schema/1/description", "text",
+                                 [{"zone": "extract:opening/who_wants_human/description"}])
             self.task_zones("opening_ask2", "opening_ask2", P.opening_ask2_task(self.p), brief_stage="opening")
 
     # third party ------------------------------------------------------------------------------------------------------
@@ -610,14 +621,16 @@ ID_INIT        vars['cb_state'] = 'none'
 
     def _identity_f1_f2(self, tool, msgs):
         """The identity step when F1 (complete answers verified by the engine) and/or F2 (a question is not a refusal) is on."""
-        f1, f2, f3 = ("f1_id_complete" in self.f, "f2_question_not_refusal" in self.f, False)
+        f1, f2, f3 = ("f1_id_complete" in self.f, "f2_question_not_refusal" in self.f, self.human_first)
         explain = int(self.limits.get("id_decline", 1)) >= 1
-        vals = ["answer"] + (["asks_question", "refuses"] if f2 else ["declines", "asks_purpose"]) + ["other"]
+        vals = ["answer"] + (["asks_question", "refuses"] if f2 else ["declines", "asks_purpose"]) \
+            + (["wants_human"] if f3 else []) + ["other"]
         descs = {"id_intent": P.id_intent_desc(f2, f3)}
         fields = [("id_intent", vals)] + ([("id_answer_text", None)] if f1 else [])
         refusal = ("refuses", "asks_question") if f2 else ("declines", "asks_purpose")
         trs = ([eq("id_check", "the customer gave an answer", "id_intent", "answer")] if f1 else self._id_state_transitions())
-        trs = trs + [eq("id_refusal_count", "the customer declines or does not answer", "id_intent", *refusal)]
+        trs = ([eq("human_offer", "asks for a person", "id_intent", "wants_human")] if f3 else []) + trs \
+            + [eq("id_refusal_count", "the customer declines or does not answer", "id_intent", *refusal)]
         tools = [] if f1 else [tool]
         self.conv("identity", on_enter={"type": "llm"}, tools=tools,
                   extraction=self.extraction("identity", "identity", fields, descs=descs), transitions=trs,
@@ -683,7 +696,7 @@ ID_INIT        vars['cb_state'] = 'none'
 
     def _identity(self):
         tool, msgs = self._identity_tool()
-        if self.f & {"f1_id_complete", "f2_question_not_refusal"}:
+        if (self.f & {"f1_id_complete", "f2_question_not_refusal"}) or self.human_first:
             return self._identity_f1_f2(tool, msgs)
         explain = int(self.limits.get("id_decline", 1)) >= 1
         values = ["declines", "asks_purpose", "answering"]
@@ -950,10 +963,27 @@ ID_INIT        vars['cb_state'] = 'none'
                   transitions=hs_trs, max_turns=6, turn_target="hardship_mark")
         self.task_zones("hardship", "hardship", P.hardship_task(self.p, has_support), brief_stage="negotiate")
         if "human" in self.queues:
+            if self.human_first:  # the request may come before the products are loaded: go back to where the call was
+                back = """
+        vars['side'] = 'none'
+        vars['human_choice'] = 'none'
+        vars['who_wants_human'] = 'no'
+        vars['id_intent'] = 'none'
+        if str(vars.get('phase')) == 'products':
+            vars['back_to'] = 'products'
+        elif str(vars.get('who1')) == 'customer' or str(vars.get('who2')) == 'customer':
+            vars['back_to'] = 'identity'
+        else:
+            vars['back_to'] = 'opening'
+        """
+                self.code("human_back", back, [eq("negotiate_resume", "the products were already discussed", "back_to", "products"),
+                                               eq("identity", "the customer is confirmed", "back_to", "identity"),
+                                               always("opening_ask2" if int(self.limits.get("right_party", 2)) >= 2 else "mark_nr_unclear")],
+                          fallback="vars['back_to'] = 'products'")
             self.conv("human_offer", on_enter={"type": "llm"},
                       extraction=self.extraction("human", "human_offer", [("human_choice", ["insists", "continues", "none"])]),
                       transitions=[eq("transfer_human", "insists on a person", "human_choice", "insists"),
-                                   eq("resume", "accepts help", "human_choice", "continues")],
+                                   eq("human_back" if self.human_first else "resume", "accepts help", "human_choice", "continues")],
                       max_turns=3, turn_target="transfer_human")
             self.task_zones("human", "human_offer", P.human_task(self.p), brief_stage="global")
 

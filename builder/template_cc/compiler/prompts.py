@@ -243,6 +243,8 @@ EXTRACT = {
                 "none = anything else.",
     "id_refusal": "declines = the customer refuses to answer a security question; asks_purpose = asks what the call is "
                   "about instead of answering; answering = anything else.",
+    "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
+                       "is NOT that); no = anything else.",
     "id_answer_text": "The customer's answer to the security question just asked, copied exactly as said (words or digits). "
                       "If they gave it over several messages, join the parts. Empty if no answer.",
     "side": "What the customer's last message is about: hardship = illness, a death in the family or job loss; "

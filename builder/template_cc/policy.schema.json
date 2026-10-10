@@ -140,7 +140,7 @@
   },
   "retries": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
   "ask_limits": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
-  "routes": {"type": "object", "additionalProperties": {"type": "object"}},
+  "routes": {"type": "object", "properties": {"human_before_verify": {"type": "boolean"}}, "additionalProperties": {"type": "object"}},
   "extra_rules": {
    "type": "array",
    "items": {
