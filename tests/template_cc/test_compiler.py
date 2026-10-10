@@ -370,3 +370,25 @@ def test_a_failing_code_node_never_loops():
 def test_too_much_is_not_restructuring():
     from builder.template_cc.compiler import prompts as P
     assert "too much" in P.EXTRACT["side"] and "NOT restructuring" in P.EXTRACT["side"]
+
+
+@pytest.mark.parametrize("pid", IDS)
+def test_every_conversation_after_the_opening_can_end_the_call(pid):
+    """A finished call must route to wrap instead of looping on goodbye (seen on the platform)."""
+    wf, book, *_ = compiled(pid)
+    convs = [nid for nid, n in wf["nodes"].items() if n["node_type"] == "conversation" and nid not in ("opening", "opening_ask2")]
+    assert convs
+    for nid in convs:
+        fin = [t for t in wf["nodes"][nid]["transitions"] if t.get("is_tool_call") and t["target_node"] == "wrap"]
+        assert len(fin) == 1, nid
+    g = wf["global_nodes"]["g_goodbye"]
+    assert g["transitions"] == [{"target_node": "wrap", "description": "always", "condition": {"operator": "always"}}]
+    assert {"opening", "opening_ask2", "setup", "wrap", "end"} <= set(g["excluded_nodes"])
+    assert not book.zones["transition:finish/intent"]["locked"] and not book.zones["global:g_goodbye/intent"]["locked"]
+
+
+def test_prompts_forbid_offers_outside_the_facts():
+    wf, *_ = compiled("brief-a")
+    assert "Never offer or advertise any product" in wf["system_prompt"]
+    assert "transition_to_wrap" in wf["system_prompt"]
+    assert "Never offer anything that is not in your facts" in wf["nodes"]["negotiate_resume"]["on_enter"]["prompt"]

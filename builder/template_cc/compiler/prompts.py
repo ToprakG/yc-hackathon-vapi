@@ -75,7 +75,9 @@ def system_honesty(policy: dict) -> str:
             "so. Never invent figures, dates, terms, discounts, plans or reasons. If a question cannot be answered from "
             f"your facts, {quoted(policy, 'no_info') or 'say you do not have that information'}. After every tool "
             "result, speak to the customer or call the next tool; never end a turn with nothing. Call one tool per "
-            "message. Follow what_to_do_next in a tool result.")
+            "message. Follow what_to_do_next in a tool result. Never offer or advertise any product, account, service, plan "
+            "or discount that is not in your facts. When the conversation is finished, CALL transition_to_wrap if you "
+            "have it; never keep repeating goodbye.")
 
 
 # --- nodes -----------------------------------------------------------------------------------------------------------
@@ -184,9 +186,18 @@ def human_task(policy: dict) -> str:
 
 
 def resume_entry(policy: dict) -> str:
-    return ("Continue the conversation from where it is: briefly acknowledge what the customer just said and go on with "
-            "the next open product or the next step. If the customer said they already paid, "
-            f"{quoted(policy, 'paid_reply')}.")
+    return ("Continue the conversation from where it is, in one or two short sentences: briefly acknowledge what the "
+            "customer just said and go on with the next open product from your facts. If the customer said they already "
+            f"paid, {quoted(policy, 'paid_reply')}. Never offer anything that is not in your facts: no other product, "
+            "account, service, plan or discount. If nothing is left to discuss, CALL transition_to_wrap.")
+
+
+FINISH = ("The conversation is finished: everything is settled or cannot go on (for example a technical problem), and "
+          "the customer is saying goodbye or has nothing more to discuss. Never use it while an agreed promise is "
+          "still waiting to be recorded.")
+
+GOODBYE_INTENT = ("The person says goodbye or thanks you to end the call, after you have already said goodbye or said "
+                  "that the call is over.")
 
 
 # --- extraction descriptions -----------------------------------------------------------------------------------------

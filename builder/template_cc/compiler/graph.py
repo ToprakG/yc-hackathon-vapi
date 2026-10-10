@@ -220,6 +220,7 @@ class Graph:
         self._marks()
         self._wrap_and_close()
         self._globals()
+        self._finish_routes()
         wf = {"initial_node": "setup", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
               "test_variables": self._test_variables()}
         if self.close_form == "lifecycle":
@@ -893,6 +894,33 @@ class Graph:
         extra = {"alwaysRunsAt": ["end_of_call"]} if lifecycle else None
         return T.api_tool(self.api, "close_call", {**T.customer_leaf(self.api, "close_call"), **body},
                           description="Close the call record.", pre=pre, config_extra=extra)
+
+    # ending the call --------------------------------------------------------------------------------------------------
+    FINISH_NODES = ("third_party", "identity", "identity_explain", "negotiate", "negotiate_resume", "hardship", "human_offer")
+
+    def _finish_routes(self):
+        """Every conversation node after the opening can end the call: the model calls transition_to_wrap when the
+        conversation is over, and a global catches a customer's goodbye after the agent's own goodbye. Without these,
+        a finished call loops on 'goodbye' until the turn cap (seen on the platform)."""
+        for nid in self.FINISH_NODES:
+            node = self.nodes.get(nid)
+            if node is None:
+                continue
+            k = len(node["transitions"])
+            node["transitions"].append({"target_node": "wrap", "description": P.FINISH, "is_tool_call": True,
+                                        "condition": {"operator": "matches_intent", "description": P.FINISH}})
+            self.intent("transition:finish/intent", [f"/nodes/{nid}/transitions/{k}/description",
+                                                     f"/nodes/{nid}/transitions/{k}/condition/description"], P.FINISH)
+        excluded = sorted(set(self.non_conv) | {"opening", "opening_ask2"} | (set(self.globals) - {"g_goodbye"}))
+        self.globals["g_goodbye"] = {
+            "name": "g_goodbye", "node_type": "conversation", "task_message": "", "on_enter": {"type": "silent"},
+            "passthrough": True, "passthrough_default_transition": "wrap", "transitions": [always("wrap")],
+            "description": P.GOODBYE_INTENT, "condition": {"operator": "matches_intent", "description": P.GOODBYE_INTENT},
+            "excluded_nodes": excluded}
+        self.intent("global:g_goodbye/intent", ["/global_nodes/g_goodbye/condition/description",
+                                                "/global_nodes/g_goodbye/description"], P.GOODBYE_INTENT)
+        self.task_zones("g_goodbye", "g_goodbye", "The call is ending. No tool call is allowed in this turn.",
+                        is_global=True, brief_stage="close")
 
     # globals ----------------------------------------------------------------------------------------------------------
     def _globals(self):
