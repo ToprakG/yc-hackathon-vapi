@@ -24,6 +24,10 @@ def run_path(root: Path, run: dict[str, Any]) -> Path:
     return shared(root) / "runs" / run["task_id"] / run["agent_version"] / f"{run['scenario_id']}.json"
 
 
+def test_run_path(root: Path, run: dict[str, Any]) -> Path:
+    return shared(root) / "runs" / run["task_id"] / run["agent_version"] / "tests" / f"{run['scenario_id']}.json"
+
+
 def run_phase2(
     root: Path,
     *,
@@ -78,14 +82,16 @@ def run_phase2(
             continue
         if runtime is None:
             runtime = VapiRuntime.from_env()
-        binding = load_binding(root, config)
-        if not binding or not binding.get("assistant_id"):
-            binding = runtime.publish(config)
-            from loop.store import save_binding
+        from loop.store import save_binding
 
-            save_binding(root, config, binding)
-            print(f"published {config['id']} -> {binding['assistant_id']}")
-        runs = runtime.simulate(config, scenarios, binding["assistant_id"], task, attempts=150, interval=5)
+        binding = load_binding(root, config)
+        existing_id = binding.get("assistant_id") if binding else None
+        binding = runtime.publish(config, existing_id=existing_id)
+        save_binding(root, config, binding)
+        print(f"published {config['id']} -> {binding['assistant_id']}")
+        runs = runtime.simulate(
+            config, scenarios, binding["assistant_id"], task, attempts=150, interval=5, verbatim=True
+        )
         if not 3 <= len(runs) <= 5:
             print(f"{config['id']} simulation returned {len(runs)} transcripts; expected 3 to 5")
             return 1

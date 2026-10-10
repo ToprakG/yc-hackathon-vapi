@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +115,11 @@ def _accept_tests(task: dict[str, Any], report: dict[str, Any], payload: dict[st
         if not isinstance(test, dict):
             raise SchemaError([f"tests[{index}] must be an object"])
         validated = validate_unit_test(_normalize_test(task, test, index))
+        bug = next((item for item in report["bugs"] if item["id"] == validated["bug_id"]), None)
+        if bug is not None:
+            reproduced = _assertion_reproduces_bug(task, bug, validated)
+            if reproduced:
+                raise SchemaError([reproduced])
         if validated["bug_id"] not in bug_ids:
             raise SchemaError([f"unknown bug_id {validated['bug_id']}"])
         if validated["task_id"] != task["id"]:
@@ -138,6 +144,36 @@ def _accept_tests(task: dict[str, Any], report: dict[str, Any], payload: dict[st
     if missing:
         raise SchemaError([f"missing a unit test or untestable entry for {missing}"])
     return {"tests": accepted, "untestable_bug_ids": skipped}
+
+
+def _assertion_reproduces_bug(task: dict[str, Any], bug: dict[str, Any], test: dict[str, Any]) -> str | None:
+    write_tools = {tool["name"] for tool in task["tools"] if tool.get("side_effects") == "write"}
+    text = f"{bug.get('statement', '')} {bug.get('suggested_invariant', '')}".lower()
+    if _explicit_yes(test.get("scripted_turns") or []):
+        return None
+    for assertion in test["assertions"]:
+        if assertion.get("type") != "tool_called":
+            continue
+        tool = assertion.get("tool")
+        if tool not in write_tools or tool.lower() not in text:
+            continue
+        if any(
+            phrase in text
+            for phrase in ("without", "before", "noncommittal", "never", "only after", "only called", "no explicit", "unconfirmed")
+        ):
+            return (
+                f"test {test['id']} asserts {tool} was called, which is the bug. "
+                "Assert tool_not_called unless a scripted turn is an explicit yes."
+            )
+    return None
+
+
+def _explicit_yes(turns: list[Any]) -> bool:
+    pattern = re.compile(
+        r"\b(yes|yeah|yep)\b|that(?:'s| is) (?:correct|right)|go ahead|book it|please book",
+        re.IGNORECASE,
+    )
+    return any(isinstance(turn, str) and pattern.search(turn) for turn in turns)
 
 
 def _normalize_test(task: dict[str, Any], test: dict[str, Any], index: int) -> dict[str, Any]:

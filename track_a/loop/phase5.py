@@ -7,7 +7,7 @@ from typing import Any
 
 from loop.gate import evaluate_gate
 from loop.paths import shared
-from loop.phase2 import run_path, scenarios_path
+from loop.phase2 import run_path, scenarios_path, test_run_path
 from loop.phase3 import generalized_report, load_runs, report_path
 from loop.phase4 import tests_path
 from loop.schema import dump_json, load_json, validate_agent, validate_failure_report, validate_gate_decision, validate_run, validate_unit_test
@@ -48,7 +48,11 @@ def run_phase5(
             validate_unit_test(test)
             for test in load_json(tests_path(root, task["id"]))["tests"]
         ]
-        parent_runs = load_runs(root, task["id"], parent["id"])
+        scenarios = load_json(scenarios_path(root, task["id"], "v1"))["scenarios"]
+        scenario_ids = {scenario["id"] for scenario in scenarios}
+        parent_runs = [
+            run for run in load_runs(root, task["id"], parent["id"]) if run["scenario_id"] in scenario_ids
+        ]
         if len(parent_runs) < 3:
             print(f"{parent['id']} has no V1 transcripts. Run phase2 --simulate first.")
             return 1
@@ -56,8 +60,8 @@ def run_phase5(
             runtime = VapiRuntime.from_env()
         parent_binding = _published(root, runtime, parent)
         candidate_binding = _published(root, runtime, candidate)
-        scenarios = load_json(scenarios_path(root, task["id"], "v1"))["scenarios"]
         candidate_runs = _scenario_runs(root, runtime, candidate, scenarios, candidate_binding["assistant_id"], task)
+        candidate_runs = [run for run in candidate_runs if run["scenario_id"] in scenario_ids]
         parent_test_runs = _play_tests(root, runtime, parent, task, tests, parent_binding["assistant_id"])
         candidate_test_runs = _play_tests(root, runtime, candidate, task, tests, candidate_binding["assistant_id"])
         decision = evaluate_gate(
@@ -107,7 +111,7 @@ def _scenario_runs(
         return [validate_run(load_json(path)) for path in paths]
     return _store_runs(
         root,
-        runtime.simulate(config, scenarios, assistant_id, task, attempts=150, interval=5),
+        runtime.simulate(config, scenarios, assistant_id, task, attempts=300, interval=5, verbatim=True),
     )
 
 
@@ -121,6 +125,11 @@ def _play_tests(
 ) -> list[dict[str, Any]]:
     if not tests:
         return []
+    directory = shared(root) / "runs" / task["id"] / config["id"] / "tests"
+    paths = [directory / f"{test['id']}.json" for test in tests]
+    if all(path.exists() for path in paths):
+        print(f"using {len(paths)} stored test transcripts for {config['id']}")
+        return [validate_run(load_json(path)) for path in paths]
     return _store_runs(
         root,
         runtime.simulate(
@@ -128,18 +137,19 @@ def _play_tests(
             playback_scenarios(task, tests),
             assistant_id,
             task,
-            attempts=150,
+            attempts=300,
             interval=5,
             verbatim=True,
         ),
+        path_for=test_run_path,
     )
 
 
-def _store_runs(root: Path, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _store_runs(root: Path, runs: list[dict[str, Any]], path_for=run_path) -> list[dict[str, Any]]:
     stored = []
     for run in runs:
         saved = validate_run(run)
-        path = run_path(root, saved)
+        path = path_for(root, saved)
         dump_json(path, saved)
         print(f"stored transcript {saved['scenario_id']} -> {path}")
         stored.append(saved)

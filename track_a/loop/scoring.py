@@ -43,7 +43,44 @@ def score_tests(tests: list[dict[str, Any]], runs: list[dict[str, Any]]) -> list
 def _passes(test: dict[str, Any], run: dict[str, Any] | None) -> bool:
     if run is None:
         return False
-    return _assertions_hold(test["assertions"], run)
+    return _assertions_hold(test["assertions"], _clip_to_script(test, run))
+
+
+def _clip_to_script(test: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
+    """Score only the call through the last scripted line. Later chatter does not count."""
+    script = [turn.strip().lower() for turn in test.get("scripted_turns") or [] if str(turn).strip()]
+    transcript = run.get("transcript") or []
+    if not script or not isinstance(transcript, list):
+        return run
+    matched = 0
+    cut: int | None = None
+    for position, turn in enumerate(transcript):
+        if not isinstance(turn, dict) or turn.get("role") != "user" or matched >= len(script):
+            continue
+        if script[matched] in str(turn.get("content") or "").lower():
+            matched += 1
+            if matched == len(script):
+                cut = position + 1
+                while cut < len(transcript) and (
+                    not isinstance(transcript[cut], dict) or transcript[cut].get("role") != "user"
+                ):
+                    cut += 1
+                break
+    if cut is None:
+        return run
+    clipped = [turn for turn in transcript[:cut] if isinstance(turn, dict)]
+    if not any(isinstance(turn, dict) and turn.get("role") == "tool" for turn in transcript):
+        return {**run, "transcript": clipped}
+    names = [str(turn.get("content") or "").split(" ", 1)[0] for turn in clipped if turn.get("role") == "tool"]
+    pool = [event for event in run.get("tool_events") or [] if isinstance(event, dict)]
+    events = []
+    for name in names:
+        for index, event in enumerate(pool):
+            if event.get("name") == name:
+                events.append(event)
+                del pool[index]
+                break
+    return {**run, "transcript": clipped, "tool_events": events}
 
 
 def _assertions_hold(assertions: list[dict[str, Any]], run: dict[str, Any]) -> bool:

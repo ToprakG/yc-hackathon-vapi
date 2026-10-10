@@ -5,13 +5,13 @@
 **Track B (partner):** tasks and prompts. Files live in `track_b/`. See `track_b/README.md`.
 **Runtime:** Vapi today (`POST /assistant` to publish, `POST /chat` when the builder itself runs through Vapi). Freya replaces that adapter later. The builder never calls the provider directly.
 
-**Status:** Phases 0–5 have run on the three development tasks. The gate discarded both patches, so `BEST` stays `v1` for every task. Holdout has no task files, so Phase 6 did not score a holdout. Live calls need `VAPI_API_KEY` in `.env` and `BUILDER_PROVIDER=vapi`.
+**Status:** The development loop was re-run on the filled prompts (`adversary-v1`, `analyzer-v1`, `test-generator-v1`, `patcher-v1`). The gate discarded every V2, so `BEST` stays `v1`. Holdout tasks exist and have not been scored. Live calls need `VAPI_API_KEY` in `.env` and `BUILDER_PROVIDER=vapi`.
 
-| Task | Transcripts | Gate |
-|---|---|---|
-| book_clinic_appointment | 5 on V1, 5 on V2 | DISCARD. Targeted tests failed on V2. Scenarios 2 and 4 did not improve. |
-| reserve_table | 4 on V1 | No generalized bug. No V2. |
-| track_order | 5 on V1, 5 on V2 | DISCARD. Scenario 4 did not improve. |
+| Task | Gate |
+|---|---|
+| book_clinic_appointment | DISCARD. One targeted test failed, the slot-taken bug had no test, and four scenarios did not improve. |
+| reserve_table | DISCARD. Two scenarios did not improve, and `sc_missing_confirmation` is a new severe failure. |
+| track_order | DISCARD. The targeted tests failed, and two scenarios did not improve. |
 
 ```bash
 python3 track_a/scripts/run_loop.py phase0

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from loop.vapi_runtime import assistant_spoke
+
 
 def evaluate_gate(
     *,
@@ -51,14 +53,18 @@ def evaluate_gate(
         if parent_run is None or candidate_run is None:
             reasons.append(f"Targeted scenario {scenario_id} is missing from the replay.")
             continue
+        if not assistant_spoke(parent_run) or not assistant_spoke(candidate_run):
+            continue
         parent_failed = (not parent_run["passed"]) or parent_run["severe_failure"]
         candidate_ok = candidate_run["passed"] and not candidate_run["severe_failure"]
         if parent_failed and not candidate_ok:
             reasons.append(f"Targeted scenario {scenario_id} did not improve.")
 
     for scenario_id, candidate_run in candidate_by_scenario.items():
+        if not assistant_spoke(candidate_run):
+            continue
         parent_run = parent_by_scenario.get(scenario_id)
-        parent_severe = False if parent_run is None else parent_run["severe_failure"]
+        parent_severe = False if parent_run is None or not assistant_spoke(parent_run) else parent_run["severe_failure"]
         if candidate_run["severe_failure"] and not parent_severe:
             reasons.append(f"New severe failure on {scenario_id}.")
 
