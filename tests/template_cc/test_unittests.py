@@ -31,7 +31,7 @@ def test_suite_targets_real_nodes_and_api_fields(pid, policy, api):
             if a["type"] == "routing":
                 assert a["target"] in nodes, (t["name"], a)
             if a["type"] == "tool_call" and "args" in a:
-                assert set(a["args"]["body"]) <= set(api.request(a["tool"])), (t["name"], a)
+                assert set(a["args"]) <= set(api.request(a["tool"])), (t["name"], a)
     neg = next(t for t in tests if "confirmed read-back" in t["name"])
     snap = neg["messages"][-2]["workflowSnapshot"]["variableTable"]
     assert snap["facts_state"]["value"] == "ok" and "Date table" in snap["facts_text"]["value"]

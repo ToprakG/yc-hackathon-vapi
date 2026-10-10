@@ -63,9 +63,22 @@ def sync(fm, workflow_id: str, tests: list[dict]) -> dict:
     return ids
 
 
-def run(fm, workflow_id: str, tests: list[dict], ids: dict, wait_s: float = WAIT_S) -> list[dict]:
-    enq = fm.api("POST", "/api/v2/unit-tests/run-all", {"workspaceId": fm.workspace_id(), "entityType": "workflow",
-                                                        "entityId": workflow_id, "unitTestIds": list(ids.values())})
+def mocks(policy: dict, product: dict) -> dict:
+    """Mocked bank results ({tool name: result envelope}) so one turn never depends on a live bank."""
+    def env(data):
+        return {"status": "success", "data": {"ok": True, **data}, "message": "ok", "status_code": 200}
+    lf = "products"
+    return {"verify_identity": env({"verified": True, "all_verified": False, "wrong_answers_left": 3}),
+            "get_account": env({lf: [product]}), "create_promise": env({"promise_id": "pr1"}),
+            "schedule_callback": env({}), "transfer_to_agent": env({}), "add_note": env({}), "close_call": env({})}
+
+
+def run(fm, workflow_id: str, tests: list[dict], ids: dict, wait_s: float = WAIT_S, mock: dict | None = None) -> list[dict]:
+    body = {"workspaceId": fm.workspace_id(), "entityType": "workflow", "entityId": workflow_id,
+            "unitTestIds": list(ids.values())}
+    if mock:
+        body["mockToolResults"] = mock
+    enq = fm.api("POST", "/api/v2/unit-tests/run-all", body)
     by_test = {e["unitTestId"]: e.get("runIds") or [] for e in enq.get("enqueued") or []}
     pending = {rid for rs in by_test.values() for rid in rs}
     done, end = {}, time.time() + wait_s
@@ -109,8 +122,8 @@ def _tool(name: str, body: dict | None = None, negate: bool = False) -> dict:
     row = {"type": "tool_call", "tool": name}
     if negate:
         row["negate"] = True
-    if body is not None:
-        row["args"] = {"body": body}
+    if body is not None:  # Freya records the model's own arguments (before our pre-hooks), not a body wrapper
+        row["args"] = body
         row["argsMatch"] = "subset"
     return row
 
@@ -175,7 +188,7 @@ def build_suite(policy: dict, wf: dict) -> list[dict]:
     if kind0 == "date":
         add("identity: a date said in words goes to verify_identity as YYYY-MM-DD",
             "Call verify_identity once for the first security question, with the date as YYYY-MM-DD.",
-            [_tool("verify_identity", {tools["verify_identity"]["field"]: q0, tools["verify_identity"]["answer"]: "1984-01-30"}),
+            [_tool("verify_identity", {tools["verify_identity"]["field"]: q0}),
              _tool("get_account", negate=True)],
             pre + [_speak("assistant", prompt0, "identity", base), _speak("user", "The thirtieth of January, nineteen eighty-four.")])
     add("identity: a refusal is explained, not routed to the account",
@@ -183,7 +196,7 @@ def build_suite(policy: dict, wf: dict) -> list[dict]:
         [_route("identity_explain"), _tool("get_account", negate=True)],
         pre + [_speak("assistant", prompt0, "identity", base), _speak("user", "Why should I tell you that? What is this about?")])
     add("opening: a question back is not a confirmation",
-        "Do not verify identity or say why you are calling; ask again who is on the line.",
+        "Answer the question briefly without saying why you are calling, and ask again whether this is the customer.",
         [_tool("verify_identity", negate=True), _tool("get_account", negate=True)],
         [_speak("assistant", opener, "opening", {**cv}), _speak("user", "Who is this?")])
     cb = p["tools"]["schedule_callback"]
@@ -196,13 +209,12 @@ def build_suite(policy: dict, wf: dict) -> list[dict]:
         [_speak("assistant", opener, "opening"), _speak("user", "No, I am her husband."),
          _speak("assistant", "When would be a good time to reach her?", "third_party", base),
          _speak("user", f"She can be reached on {_say_date(nbd.isoformat())} at {hh}.")])
-    amount = int(round(420.0 * 100)) if cents else 420.0
+    del cents  # the model sends major units; our pre-hook converts, so the check is on product and date only
     confirm = P.line(p, "confirm_question") or "Do you confirm?"
     readback = f"For your {label}, the amount is 420 and the date is {_say_date(pay_day)}. {confirm}"
     add("negotiate: a confirmed read-back records exactly that promise",
         "Call create_promise once with the product, amount and date that were read back.",
-        [_tool("create_promise", {tools["create_promise"]["product_id"]: pid, tools["create_promise"]["amount"]: amount,
-                                  tools["create_promise"]["date"]: pay_day})],
+        [_tool("create_promise", {tools["create_promise"]["product_id"]: pid, tools["create_promise"]["date"]: pay_day})],
         pre + [_speak("assistant", neg_open, "negotiate", facts), _speak("user", f"I can pay all of it on {_say_date(pay_day)}."),
                _speak("assistant", readback, "negotiate", facts), _speak("user", "Yes, I confirm.")])
     neg = pre + [_speak("assistant", neg_open, "negotiate", facts)]
@@ -230,9 +242,11 @@ def build_suite(policy: dict, wf: dict) -> list[dict]:
             [_route("human_offer"), _tool("transfer_to_agent", negate=True)],
             neg + [_speak("user", "I want to talk to a real person.")])
     add("negotiate: a robot question is answered, not transferred",
-        "Say you are the bank's digital assistant and continue; no transfer.",
+        "Say that you are the bank's digital assistant. Do not transfer the call.",
         [_tool("transfer_to_agent", negate=True), _route("human_offer", negate=True)],
         neg + [_speak("user", "Wait, am I talking to a robot?")])
+    for t in tests:
+        t["product"] = product
     return tests
 
 
@@ -247,7 +261,7 @@ class UnitSuite:
         saved = self.fm.save_workflow(self.slot, point_at(workflow, self.origin), state_file=str(REPO / ".freya-agents.json"))
         ids = sync(self.fm, saved["workflow_id"], tests)
         t0 = time.time()
-        results = run(self.fm, saved["workflow_id"], tests, ids)
+        results = run(self.fm, saved["workflow_id"], tests, ids, mock=mocks(p, tests[0]["product"]) if tests else None)
         passed = sum(r["outcome"] == "pass" for r in results)
         self.trace.selftest(f"unit tests: {passed}/{len(results)} passed in {time.time() - t0:.0f}s on {self.slot}")
         for r in results:
