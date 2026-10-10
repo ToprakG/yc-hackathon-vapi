@@ -303,11 +303,66 @@ def neg_flag(vars):
     return vars['neg_state']
 
 
+NUM_WORDS = {'zero': 0, 'oh': 0, 'one': 1, 'first': 1, 'two': 2, 'second': 2, 'three': 3, 'third': 3, 'four': 4,
+             'fourth': 4, 'five': 5, 'fifth': 5, 'six': 6, 'sixth': 6, 'seven': 7, 'seventh': 7, 'eight': 8,
+             'eighth': 8, 'nine': 9, 'ninth': 9, 'ten': 10, 'tenth': 10, 'eleven': 11, 'eleventh': 11, 'twelve': 12,
+             'twelfth': 12, 'thirteen': 13, 'thirteenth': 13, 'fourteen': 14, 'fourteenth': 14, 'fifteen': 15,
+             'fifteenth': 15, 'sixteen': 16, 'sixteenth': 16, 'seventeen': 17, 'seventeenth': 17, 'eighteen': 18,
+             'eighteenth': 18, 'nineteen': 19, 'nineteenth': 19, 'twenty': 20, 'twentieth': 20, 'thirty': 30,
+             'thirtieth': 30, 'forty': 40, 'fifty': 50, 'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90}
+
+
+def _number(vals):
+    """A run of number-word values -> its digits: cardinals with hundred/thousand, or a spoken year (19 89)."""
+    if 100 in vals or 1000 in vals:
+        total, cur = 0, 0
+        for v in vals:
+            if v == 100:
+                cur = (cur or 1) * 100
+            elif v == 1000:
+                total += (cur or 1) * 1000
+                cur = 0
+            else:
+                cur += v
+        return str(total + cur)
+    groups, cur = [], 0
+    for v in vals:
+        if cur and not (cur >= 20 and cur % 10 == 0 and v < 10):
+            groups.append(cur)
+            cur = 0
+        cur += v
+    groups.append(cur)
+    if len(groups) == 2 and 10 <= groups[0] <= 20 and groups[1] < 100:
+        return str(groups[0] * 100 + groups[1])
+    return ' '.join(str(g) for g in groups)
+
+
+def words_to_digits(text):
+    """'twenty-third of February nineteen eighty-nine' -> '23 of february 1989'. Digits stay as they are."""
+    words = str(text or '').lower().replace('-', ' ').replace(',', ' , ').split()
+    out, run = [], []
+    for i, w in enumerate(words):
+        if w in NUM_WORDS or w in ('hundred', 'thousand'):
+            run.append(NUM_WORDS.get(w, 100 if w == 'hundred' else 1000))
+        elif w == 'and' and run and i + 1 < len(words) and words[i + 1] in NUM_WORDS:
+            continue
+        else:
+            if run:
+                out.append(_number(run))
+                run = []
+            out.append(w)
+    if run:
+        out.append(_number(run))
+    return ' '.join(out)
+
+
 def to_iso(text, today):
     """A date said or written in many ways -> YYYY-MM-DD (day-first for numeric dates). '' when unreadable."""
     s = str(text or '').strip().lower()
     if not s:
         return ''
+    if re.search(r'[a-z]', s) and not re.search(r'\d', s):
+        s = words_to_digits(s)
     m = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})', s)
     if m:
         try:

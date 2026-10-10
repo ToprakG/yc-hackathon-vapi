@@ -168,6 +168,8 @@ class Graph:
 
     def code(self, nid: str, body: str, transitions: list, uses=(), fallback="pass") -> dict:
         trs = list(transitions)
+        if nid not in ("setup", "wrap"):  # the sandbox can be unreachable: never loop, close the call
+            trs.insert(0, any_of("wrap", "the code step failed", [leaf(f"{nid}_failure_count", "greater_than", 0)]))
         default = trs[-1]["target_node"]
         n = {"name": nid, "node_type": "code", "passthrough": True, "passthrough_default_transition": default,
              "on_enter": {"type": "silent"}, "disable_inactivity_monitor": True,
@@ -260,9 +262,11 @@ class Graph:
                 later = '%02d:%02d' % (t.hour, t.minute)
                 start = later if later > start else start
             if start <= cb['end']:
-                parts.append(spoken_full(d) + ' from ' + start + ' to ' + cb['end'])
+                rel = 'today' if d == today else ('tomorrow' if d == today + datetime.timedelta(days=1) else 'the next business day')
+                parts.append(rel + ', ' + spoken_full(d) + ', from ' + start + ' to ' + cb['end'])
                 allowed.append(dict(date=d.isoformat(), start=start, end=cb['end']))
-        vars['cb_window_text'] = ('Allowed callback times: ' + '; or '.join(parts) + '. Never outside these times.') if parts else 'No callback time is possible now.'
+        head = 'Today is ' + spoken_full(today) + ', ' + now.strftime('%H:%M') + '. '
+        vars['cb_window_text'] = head + (('Allowed callback times: ' + '; or '.join(parts) + '. Never outside these times. Resolve words like today and tomorrow with these dates.') if parts else 'No callback time is possible now.')
         jput(vars, 'cb_allowed', allowed)
         vars['today_iso'] = today.isoformat()
         vars['today_spoken'] = spoken(today)
@@ -414,7 +418,7 @@ class Graph:
         qs = self.p["identity"]["questions"]
         body = {**T.customer_leaf(self.api, "verify_identity"),
                 f["field"]: T.model_leaf(self.api, "verify_identity", f["field"], "Which question the answer is for: " + ", ".join(qs), enum=qs),
-                f["answer"]: T.model_leaf(self.api, "verify_identity", f["answer"], "The customer's answer, as they said it")}
+                f["answer"]: T.model_leaf(self.api, "verify_identity", f["answer"], "The customer's answer. A date as YYYY-MM-DD (convert spoken words to digits), digits as digits")}
         pre = self.hook("""
         b = config.get('body') or dict()
         F = CFG['id_fields']

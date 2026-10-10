@@ -202,7 +202,8 @@ EXTRACT = {
                   "about instead of answering; answering = anything else.",
     "side": "What the customer's last message is about: hardship = illness, a death in the family or job loss; "
             "dispute = the debt or product is not theirs, or was closed or paid off in the past; paid_already = they "
-            "already paid this past-due amount; restructuring = asks for a new payment plan or lower instalments; "
+            "already paid this past-due amount; restructuring = explicitly asks for a new payment plan, a restructuring or lower instalments (saying the amount "
+            "is too much or that they cannot pay is NOT restructuring: that is none); "
             "human = asks for a person; stop_talking = does not want to talk; none = anything else, including dates, "
             "amounts and refusals to pay.",
     "side_product": "Which product the customer's last message is about, by its position in the facts (1, 2, 3), or "

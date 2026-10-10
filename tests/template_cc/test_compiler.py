@@ -338,3 +338,35 @@ def test_lines_with_account_placeholders_are_cut_not_garbled():
         "I am calling from the team about a late payment."
     assert P.spoken("Am I speaking with {title} {last_name}?", pol) == "Am I speaking with {{title}} {{last_name}}?"
     assert P.spoken("{amount} is due.", pol) == ""
+
+
+@pytest.mark.parametrize("said, iso", [
+    ("Twenty-third of February nineteen eighty-nine", "1989-02-23"),
+    ("the fourth of July nineteen seventy", "1970-07-04"),
+    ("fourteenth March two thousand one", "2001-03-14"),
+    ("first of May two thousand and three", "2003-05-01"),
+    ("23/02/1989", "1989-02-23"),
+])
+def test_dates_said_in_words_are_normalised(said, iso):
+    from builder.template_cc.compiler import runtime
+    assert runtime.norm_answer("date", said, dt.date(2026, 10, 14)) == iso
+
+
+def test_callback_window_names_today_and_tomorrow():
+    wf, _, p, _ = compiled("brief-a")
+    v = run_code(wf, "setup", call_vars(p, "2026-10-14T11:00"))
+    t = v["cb_window_text"]
+    assert t.startswith("Today is Wednesday 14 October") and "today, Wednesday 14 October" in t and "tomorrow, Thursday 15 October" in t
+
+
+def test_a_failing_code_node_never_loops():
+    wf, *_ = compiled("fixture")
+    for nid, n in wf["nodes"].items():
+        if n["node_type"] == "code" and nid not in ("setup", "wrap"):
+            first = n["transitions"][0]
+            assert first["target_node"] == "wrap" and first["condition"]["conditions"][0]["variable"] == f"{nid}_failure_count"
+
+
+def test_too_much_is_not_restructuring():
+    from builder.template_cc.compiler import prompts as P
+    assert "too much" in P.EXTRACT["side"] and "NOT restructuring" in P.EXTRACT["side"]
