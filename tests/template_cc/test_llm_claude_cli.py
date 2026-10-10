@@ -45,6 +45,7 @@ def test_json_is_parsed_and_the_user_text_goes_on_stdin(run, monkeypatch):
     assert cmd[cmd.index("--tools") + 1] == "" and "--output-format" in cmd
     assert "CLAUDECODE" not in kw["env"] and "CLAUDE_CODE_ENTRYPOINT" not in kw["env"]
     assert kw["cwd"] != os.getcwd()
+    assert "--strict-mcp-config" in cmd and "--disable-slash-commands" in cmd and cmd[cmd.index("--setting-sources") + 1] == ""
     assert "ONE JSON object" in cmd[cmd.index("--system-prompt") + 1]
 
 

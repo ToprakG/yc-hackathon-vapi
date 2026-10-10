@@ -129,8 +129,10 @@ def _claude_cli(system: str, user: str, model: str, max_tokens: int, timeout: fl
     inside a Claude Code session. temperature and max_tokens are not options of the CLI and are ignored."""
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith("CLAUDE_CODE_")
            and not (k == "ANTHROPIC_API_KEY" and not v)}
+    # no MCP servers, skills or user/project settings: they cost ~270k tokens per call otherwise (measured), ~600 with these flags
     cmd = ["claude", "-p", "--model", model, "--output-format", "json", "--system-prompt", system, "--tools", "",
-           "--no-session-persistence"]
+           "--no-session-persistence", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands",
+           "--setting-sources", ""]
     try:
         r = subprocess.run(cmd, input=user, capture_output=True, text=True, timeout=timeout, cwd=tempfile.mkdtemp(), env=env)
     except subprocess.TimeoutExpired as e:
