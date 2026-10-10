@@ -190,12 +190,15 @@ class VendorRunner:
 
     # --- TestRunner -------------------------------------------------------------------------------------------------
     customer_model: str | None = None  # set to e.g. "deepseek/deepseek-v4.1-flash" to play the customer with that model
+    label: list | None = None  # [brief, tag] for the live scoreboard
+    max_concurrency: int | None = None  # adaptive ceiling; None = 3 x the start (the worker halves on 5xx)
 
     def _work(self, wid: str, cases: list[dict], reps: int, concurrency: int) -> list[dict]:
         job = self.dir / f"job-{int(time.time() * 1000)}.json"
         out = job.with_suffix(".out.json")
         job.write_text(json.dumps({"workflow_id": wid, "origin": self.origin, "cases": cases, "reps": reps,
-                                   "concurrency": concurrency, "customer_model": self.customer_model}), encoding="utf-8")
+                                   "concurrency": concurrency, "max_concurrency": self.max_concurrency, "label": self.label,
+                                   "customer_model": self.customer_model}), encoding="utf-8")
         proc = subprocess.run([self.worker_python, str(HERE / "vendor_worker.py"), "--vendor", str(self.vendor),
                                "--job", str(job), "--out", str(out)], capture_output=True, text=True,
                               timeout=self.run_timeout_s, env=os.environ.copy())

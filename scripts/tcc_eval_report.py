@@ -6,15 +6,27 @@ from pathlib import Path
 
 D = Path(__file__).resolve().parents[1] / "out" / "template_cc" / "eval"
 tags = sys.argv[1:] or ["s10"]
+LIVE = {}  # (brief, tag) -> rows from running workers (*.partial.jsonl next to their job files)
+import glob as _g, os as _o, tempfile as _t
+for part in _g.glob(_o.path.join(_t.gettempdir(), "tcc-selftest-*", "job-*.out.json.partial.jsonl")):
+    meta = Path(part[: -len(".out.json.partial.jsonl")] + ".json")
+    try:
+        job = json.loads(meta.read_text())
+        brief, tag = job.get("label", ["?", "?"])
+    except Exception:
+        continue
+    LIVE.setdefault((brief, tag), []).extend(json.loads(l) for l in open(part) if l.strip())
 tot = collections.Counter()
 fam = collections.defaultdict(collections.Counter)
 print(f"{'brief':<18}{'passed':>8}{'scored':>8}{'unscored':>10}")
-for f in sorted({p.name.split('.')[0] for p in D.glob("*.json")}):
+for f in sorted({p.name.split('.')[0] for p in D.glob("*.json")} | {k[0] for k in LIVE}):
     rows = []
     for t in tags:
         p = D / f"{f}.{t}.json"
         if p.exists():
             rows += json.loads(p.read_text())["rows"]
+        else:  # still running: the live partial results of its worker
+            rows += LIVE.get((f, t), [])
     if not rows:
         continue
     sc = [r for r in rows if not r.get("infra")]

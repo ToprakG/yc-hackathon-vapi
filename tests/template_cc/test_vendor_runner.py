@@ -230,3 +230,22 @@ def test_run_sims_tool_tries_the_patched_candidate(fx_api, fx_policy, fx_brief, 
         assert "not available" in a.call("run_sims", {"n": 2})
     finally:
         session.remove_workspace(w)
+
+
+def test_adaptive_concurrency_halves_on_infra_errors_and_grows_back():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_tcc_worker", HERE / "vendor_worker.py")
+    W = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(W)
+    g = W.Adaptive(4, 8)
+    g.report(True)
+    assert g.limit == 2
+    g.report(True)
+    g.report(True)
+    assert g.limit == 1
+    for _ in range(6):
+        g.report(False)
+    assert g.limit == 4
+    for _ in range(20):
+        g.report(False)
+    assert g.limit == 8

@@ -71,6 +71,7 @@ def evaluate(brief: str, limit: int, reps: int, concurrency: int, port: int, fre
     trace = Trace(REPO / "traces" / f"tcc-eval-{brief}-{time.strftime('%Y%m%d-%H%M%S')}", {"brief": brief, "cases": len(chosen)})
     runner = VendorRunner(f"tcc-{brief}", config, ApiModel.load(api_path), trace, freya, port=port,
                           concurrency=concurrency, slot_suffix="-eval", run_timeout_s=7200)
+    runner.label = [brief, tag]
     t0 = time.time()
     try:
         results = runner.run(wf, chosen, {}, config, reps)

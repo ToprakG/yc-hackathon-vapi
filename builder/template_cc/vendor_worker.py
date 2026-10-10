@@ -21,6 +21,38 @@ CLOSE_WAIT_S = 20
 INFRA = re.compile(r"/api/v2/chat/\S* -> 5\d\d|timed out|Connection reset|Temporary failure|Max retries", re.I)
 
 
+class Adaptive:
+    """A concurrency limit that halves on an infrastructure error (chat API 5xx) and grows by one after a few clean
+    runs: as fast as the platform allows, without flooding it. Same cases, same judge: only the pace changes."""
+
+    def __init__(self, start: int, cap: int):
+        import threading
+        self.limit, self.cap, self.active, self.clean = start, cap, 0, 0
+        self.lock = threading.Lock()
+        self.cond = threading.Condition(self.lock)
+
+    def __enter__(self):
+        with self.cond:
+            while self.active >= self.limit:
+                self.cond.wait()
+            self.active += 1
+
+    def __exit__(self, *exc):
+        with self.cond:
+            self.active -= 1
+            self.cond.notify_all()
+
+    def report(self, infra: bool):
+        with self.cond:
+            if infra:
+                self.limit, self.clean = max(1, self.limit // 2), 0
+            else:
+                self.clean += 1
+                if self.clean >= 2 and self.limit < self.cap:
+                    self.limit, self.clean = self.limit + 1, 0
+            self.cond.notify_all()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vendor", required=True)
@@ -127,8 +159,22 @@ def main():
         return row
 
     jobs = [(c, r) for c in job["cases"] for r in range(1, int(job.get("reps", 1)) + 1)]
-    with ThreadPoolExecutor(max_workers=int(job.get("concurrency", 4))) as pool:
-        rows = list(pool.map(lambda cr: play(*cr), jobs))
+    start = max(1, int(job.get("concurrency", 2)))
+    cap = max(start, int(job.get("max_concurrency") or start * 3))
+    gate = Adaptive(start, cap)
+    partial = Path(a.out + ".partial.jsonl")
+
+    def one(cr):
+        with gate:
+            row = play(*cr)
+        gate.report(bool(row.get("infra")))
+        with gate.lock:  # every finished run is visible at once (live scoreboard)
+            with partial.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        return row
+
+    with ThreadPoolExecutor(max_workers=cap) as pool:
+        rows = list(pool.map(one, jobs))
     Path(a.out).write_text(json.dumps(rows, ensure_ascii=False, default=str))
 
 
