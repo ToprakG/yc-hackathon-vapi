@@ -6,7 +6,29 @@
   "text": "Hello, this is the automated assistant of Example Bank, and this call is recorded. Am I speaking with {{title}} {{last_name}}?"
  },
  "on_enter_first_entry_only": true,
- "task_message": "Find out whether you are speaking with {{title}} {{last_name}}. Only a clear yes or their own name confirms it. If the answer is unclear, ask once more. Say nothing about why you are calling. No tool call is allowed in this turn.",
+ "task_message": "Find out whether you are speaking with {{title}} {{last_name}}. Only a clear yes or their own name confirms it. If the answer is unclear, ask once more. Say nothing about why you are calling. Call end_call only right after you said goodbye.",
+ "tools": [
+  {
+   "type": "function",
+   "config": {
+    "timeoutMs": 10000
+   },
+   "function": {
+    "name": "end_call",
+    "handler": "__function__:end_call",
+    "description": "Ends the call. CALL it right after you said goodbye, with no other text.",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "message_mode": {
+       "type": "string",
+       "default": "none"
+      }
+     }
+    }
+   }
+  }
+ ],
  "extraction_schema": [
   {
    "name": "who",

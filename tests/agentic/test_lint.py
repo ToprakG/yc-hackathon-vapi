@@ -188,3 +188,45 @@ def test_literal_vars_assignments_need_no_try(base_agent, kit_api):
     assert not [w for w in warnings(wf, kit_api) if "try/except" in w]
     wf["nodes"]["prep"]["pre_actions"][0]["function"]["parameters"]["properties"]["code"]["default"] = "vars['n'] = int(vars.get('n'))\n"
     assert [w for w in warnings(wf, kit_api) if "try/except" in w]
+
+
+def _load_node(wf, code):
+    """A passthrough get_account node with a list mapping, followed by a code node running `code`."""
+    wf["nodes"]["load"] = {"name": "load", "node_type": "api_request", "passthrough": True, "passthrough_default_transition": "facts",
+                           "on_enter": {"type": "silent"}, "pre_actions": [copy.deepcopy(_tool(wf, "collection", "get_account"))],
+                           "response_mapping": [{"path": "data.products", "variable": "products"}],
+                           "transitions": [{"target_node": "facts", "description": "always", "condition": {"operator": "always"}}]}
+    facts = copy.deepcopy(CODE_NODE)
+    facts.update(name="facts", passthrough_default_transition="collection")
+    facts["transitions"] = [{"target_node": "collection", "description": "always", "condition": {"operator": "always"}}]
+    facts["pre_actions"][0]["function"]["parameters"]["properties"]["code"]["default"] = code
+    wf["nodes"]["facts"] = facts
+    wf["nodes"]["identity"]["transitions"][0]["target_node"] = "load"
+
+
+def test_reading_a_mapped_list_is_an_error(base_agent, kit_api):
+    wf = with_prep(base_agent)
+    _load_node(wf, "try:\n    ps = vars.get('products') or []\n    vars['n'] = str(len(ps))\nexcept Exception:\n    pass\n")
+    assert any("reads the mapped list 'products'" in e for e in errors(wf, kit_api))
+    _load_node(wf, "try:\n    ps = list_from_vars(vars, 'products', ['load_response.data.products'])\nexcept Exception:\n    pass\n")
+    assert not any("mapped list" in e for e in errors(wf, kit_api))
+
+
+def test_post_hook_reading_args_is_warned(base_agent, kit_api):
+    wf = copy.deepcopy(base_agent)
+    _tool(wf, "collection", "create_promise")["post_process_code"] = (
+        "try:\n    vars['last'] = str(vars.get('create_promise_args.product_id'))\nexcept Exception:\n    pass\n")
+    assert any("holds only one call's values" in w for w in warnings(wf, kit_api))
+
+
+def test_finishing_node_without_end_call_is_warned(base_agent, kit_api):
+    wf = copy.deepcopy(base_agent)
+    from tests.agentic.test_lint import END_NODE  # noqa: PLC0415
+
+    wf["nodes"]["bye"] = copy.deepcopy(END_NODE)
+    coll = wf["nodes"]["collection"]
+    coll["tools"] = [t for t in coll["tools"] if t["function"]["handler"] != "__function__:end_call"]
+    coll["transitions"] = [{"target_node": "bye", "description": "done",
+                            "condition": {"logic": "or", "conditions": [{"variable": "create_promise_success_count", "operator": "greater_than", "operand": 0}]}}]
+    assert any("$.nodes.collection" in w["path"] and "no end_call tool" in w["msg"] for w in lint.lint(wf, kit_api)["warnings"])
+    assert not any("$.nodes.identity" in w["path"] and "no end_call tool" in w["msg"] for w in lint.lint(wf, kit_api)["warnings"])

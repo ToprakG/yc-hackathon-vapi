@@ -497,6 +497,69 @@ def _check_list_mappings(wf, api, r: Report):
             check(path, tool.get("response_mapping"), [_fn(tool).get("name")], _fn(tool).get("name"))
 
 
+def _snippets(wf):
+    """(path, kind, code) for every code node snippet and hook."""
+    for path, owner, tool, placement in _tools_of(wf):
+        if not isinstance(tool, dict):
+            continue
+        code = _code_of(tool)
+        if placement == "pre_actions" and _handler(tool) == CODE_EXEC and isinstance(code, str):
+            yield f"{path}.function.parameters.properties.code.default", "code node", code
+        for hook in ("pre_process_code", "post_process_code"):
+            if isinstance(tool.get(hook), str) and tool[hook].strip():
+                yield f"{path}.{hook}", hook, tool[hook]
+
+
+def _list_mapping_targets(wf, api) -> dict:
+    """Variable name -> flattened prefix, for every mapping of an API list field."""
+    out = {}
+    for _, nid, node, _ in _all_nodes(wf):
+        names = [_fn(t).get("name") for t in node.get("pre_actions") or [] if _handler(t) == API_CALL]
+        for m in node.get("response_mapping") or []:
+            parts = str((m or {}).get("path", "")).split(".")
+            for name in names:
+                spec = (api["tools"].get(name) or {}).get("response", {}).get(parts[-1]) if len(parts) == 2 else None
+                if spec and spec.get("type") == "array" and m.get("variable"):
+                    out[m["variable"]] = f"{nid}_response.{m['path']}"
+    return out
+
+
+def _check_platform_facts(wf, api, r: Report):
+    """Behaviour seen in practice runs on Freya (reference/platform-facts.md), checked where the JSON shows it."""
+    lists = _list_mapping_targets(wf, api)
+    for path, kind, code in _snippets(wf):
+        # Fact 1: a mapped list stays unset; code must rebuild it from the flattened keys.
+        for var, prefix in lists.items():
+            reads = re.search(r"vars(\.get\(|\[)\s*['\"]" + re.escape(var) + r"['\"]", code)
+            if reads and "_response.data." not in code and "list_from_vars" not in code:
+                r.err(path, f"reads the mapped list {var!r}, which stays unset on the platform; rebuild it from "
+                            f"'{prefix}.<i>.<field>' with list_from_vars")
+        # Fact 2: several calls of one tool in one message; <tool>_args keeps one call's values.
+        if kind == "post_process_code" and re.search(r"_args\.", code):
+            r.warn(path, "reads <tool>_args in a post-hook: with several calls in one message it holds only one call's "
+                         "values. Count successes, or queue ids from the pre-hook's config['body']")
+    # Fact 3: a completion flag can stay false; the agent then says goodbye until the turn cap. Safety net: end_call.
+    nodes = wf.get("nodes") or {}
+    graph = {nid: [t.get("target_node") for t in n.get("transitions") or [] if isinstance(t, dict)]
+             + [n.get("passthrough_default_transition")] for nid, n in nodes.items()}  # the turn cap does not count
+    for nid, node in nodes.items():
+        if node.get("node_type") != "conversation" or is_terminal(node):
+            continue
+        seen, todo, finishes = set(), list(graph.get(nid, [])), False
+        while todo and not finishes:
+            m = todo.pop()
+            if m in seen or m not in nodes:
+                continue
+            seen.add(m)
+            if nodes[m].get("node_type") == "end_call":
+                finishes = True
+            elif nodes[m].get("node_type") in ("code", "api_request"):
+                todo += graph.get(m, [])
+        if finishes:
+            r.warn(f"$.nodes.{nid}.tools", "the call can finish from this node but it has no end_call tool; add one "
+                                           "(message_mode none) so a goodbye always ends the call")
+
+
 def _check_tools(wf, api, r: Report, names, prefixes, call_vars):
     for path, owner, tool, placement in _tools_of(wf):
         if not isinstance(tool, dict):
@@ -626,6 +689,7 @@ def lint(wf, api_summary: dict, call_vars=None, unused_tools=()) -> dict:
     _check_extraction(wf, r)
     _check_tools(wf, api_summary, r, names, prefixes, call_vars)
     _check_list_mappings(wf, api_summary, r)
+    _check_platform_facts(wf, api_summary, r)
     _check_prompts(wf, r, names, prefixes)
     _check_collections(wf, api_summary, r, set(unused_tools or ()))
     return r.as_dict()

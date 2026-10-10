@@ -17,7 +17,7 @@ number the model had to work out by itself. So: read everything, extract everyth
 | `input/tools.openapi.json` | The bank's tool API. Field names, enums and URLs come only from here. |
 | `docs/` | The kit docs: `workflow-format.md`, `tools-and-code.md`, `api.md`. Read sections when a question comes up. |
 | `examples/pattern_demo.workflow.json` | A lint-clean example with **invented** values and its invented API `examples/pattern_demo.openapi.json`. Copy shapes, never values. |
-| `.claude/skills/build-collections-agent/reference/` | `call-architecture.md`, `freya-cookbook.md`, `policy-schema.md`, `self-check.md`. |
+| `.claude/skills/build-collections-agent/reference/` | `platform-facts.md`, `call-architecture.md`, `freya-cookbook.md`, `policy-schema.md`, `self-check.md`. |
 | `.claude/skills/build-collections-agent/templates/` | `calendar.py` (business-day and money helpers) and `fragments/*.json`. |
 | `out/` | The only place you may write. |
 
@@ -42,7 +42,8 @@ Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`,
 2. Call `openapi_summary`. Note every renamed field, the amount unit (currency or integer cents), the callback field
    shape (date + time, or one datetime), the close shape (outcome + reason, or one code), enums, hints, counters and
    the 5xx wording.
-3. Read `reference/call-architecture.md` and `reference/freya-cookbook.md`. Skim `examples/pattern_demo.workflow.json`.
+3. Read `reference/platform-facts.md` (what Freya really does, from practice runs), `reference/call-architecture.md`
+   and `reference/freya-cookbook.md`. Skim `examples/pattern_demo.workflow.json`.
 
 ### 2. Extract (at most 6 minutes)
 
