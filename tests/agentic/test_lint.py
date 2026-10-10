@@ -180,3 +180,11 @@ def test_list_mapping_is_warned(base_agent, kit_api):
     wf["nodes"]["identity"]["transitions"][0]["target_node"] = "load"
     ws = warnings(wf, kit_api)
     assert any("load_response.data.products.<i>.<field>" in w for w in ws), ws
+
+
+def test_literal_vars_assignments_need_no_try(base_agent, kit_api):
+    wf = with_prep(base_agent)
+    wf["nodes"]["prep"]["pre_actions"][0]["function"]["parameters"]["properties"]["code"]["default"] = "vars['close_outcome'] = 'x'\nvars['n'] = '0'\n"
+    assert not [w for w in warnings(wf, kit_api) if "try/except" in w]
+    wf["nodes"]["prep"]["pre_actions"][0]["function"]["parameters"]["properties"]["code"]["default"] = "vars['n'] = int(vars.get('n'))\n"
+    assert [w for w in warnings(wf, kit_api) if "try/except" in w]

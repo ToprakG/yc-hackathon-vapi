@@ -450,10 +450,11 @@ def _literal(node) -> bool:
 
 
 def _try_wrapped(tree: ast.Module) -> bool:
-    """Imports, docstrings, function definitions and literal assignments may sit outside the try; nothing else."""
+    """Imports, docstrings, function definitions and literal assignments (to a name or to vars['x']) cannot raise,
+    so they may sit outside the try; nothing else."""
     rest = [n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom, ast.Expr, ast.FunctionDef))
             and not (isinstance(n, ast.Assign) and _literal(n.value))]
-    return any(isinstance(n, ast.Try) for n in rest) and all(isinstance(n, ast.Try) for n in rest)
+    return all(isinstance(n, ast.Try) for n in rest)  # nothing left that can raise counts as wrapped
 
 
 def _check_snippet(path, code, r: Report, kind):
