@@ -1,16 +1,44 @@
 # Test Planı ve Karar Kuralları — Collections Builder
 
-"Gürültü" = baseline'ı 3 kez koşturunca ölçülen 2×SD değeri. Bu eşiğin altındaki farka kazanç denmez.
 Takip için: `Test_Plani.xlsx` (aynı içerik + Durum / Gerçek sonuç / Not sütunları).
+
+## Ön koşul: collections domain klasörü (kickoff'tan önce)
+
+Bu olmadan hiçbir test koşamaz. Gerçek brief 13:00'te gelince sadece bir klasör daha olur; sahte olanlar genelleme seti olur.
+
+- 2–3 sahte collections brief'i: farklı limitler, farklı disclosure kuralları, en az bir "plan yok" bankası
+- Tool'lar: `verify_identity`, `get_account`, `log_promise_to_pay`, `log_dispute`, `schedule_callback`, `mark_do_not_call`, `transfer_to_human` + mock veri
+- Persona kütüphanesi: 16 collections case tipi, her birinde o brief'in policy'sinden doldurulmuş `successCriteria`
+- Dört kritik an için unit testler: üçüncü şahıs, belirsiz söz, "beni aramayın", limit dışı plan
+
+## Gürültü ve karar istatistiği
+
+**Aggregate 2×SD kuralı kullanılmaz.** 30 case'te iki konfigürasyonun aggregate farkı için dürüst eşik ~±12–13 puan; tek değişikliklerin çoğu bunu geçemez. Bunun yerine:
+
+1. **Eşleştirilmiş case bazında test.** İki konfigürasyon aynı case'lerde koşar. Her case için A ve B'nin 3 run'daki geçme sayısı alınır; case bazında farklar test edilir (McNemar / sign test). Ortak case zorluğu sıfırlanır, efektif gürültü kabaca yarıya iner.
+2. **Ayrıştırmayan case'ler dev setinden çıkar.** Her konfigürasyonda 3/3 geçen veya 0/3 kalan case'ler sadece gürültü ekler. Tam suite sadece final onayında koşar.
+3. **Gürültü varsayılmaz, ölçülür.** Baseline × 3, case başına gerçek run-to-run varyansı verir. Collections case'leri çoğu zaman neredeyse deterministiktir; gerçek gürültü binom tahmininin altında olabilir.
+4. **Az ve cesur deney.** Değişiklikler paket halinde test edilir (Tier 1 paketi, P1). Paket kaybederse bölünür.
+5. **Büyük suite en son ve sadece lokalde.** Lokal yargıç kalibrasyonu geçerse brief başına 60–90 lokal varyant. Geçmezse hassasiyet hacimden değil, eşleştirilmiş test + ayrıştıran case'lerden alınır.
+
+**Bir değişiklik "kazanç" sayılır** ⇔ eşleştirilmiş testte p < 0.1 **ve** hiçbir kritik case tipinde (üçüncü şahıs, doğrulama, söz verme) düşüş yok.
+Aşağıdaki tablolarda **"gürültünün üstünde önde"** = bu kazanç tanımı; **"eşit"** = eşleştirilmiş testte anlamlı fark yok.
 
 ## 0. Önce ölçülecekler (diğer her şey bunlara bağlı)
 
+Sıra: practice baseline × 3 → **yargıç uyum kontrolü** → dal seçimi. Uyum ancak ilk collections practice run'ları Freya verdict'iyle döndükten sonra ölçülebilir.
+
+**Uyum ölçülmeden önce yargıç düzeltilir** (bilinen sebepten fail etmesin; dünkü yargıç agent'ın kendi eylemleri konusunda fazla gevşekti):
+- Yargıca transcript'le birlikte **tool-call log** verilir.
+- Agent'ın **eylemleri** sözlerinden ayrı sorulur: "`log_promise_to_pay` tarih ve tutarla çağrıldı mı?", "Doğrulama başarılı olmadan herhangi bir tutar söylendi mi?"
+- Her kontrol için tek bir evet/hayır sorusu, sıcaklık 0, serbest metin verdict yok.
+- Uyum **case tipi bazında** raporlanır; aggregate %85 olup üçüncü şahıs case'leri %60'ta kalabilir.
+
 | Test | Sonuç | Ne yapılır |
 |---|---|---|
-| **Baseline × 3** | 2×SD = gürültü eşiği | Bu eşiğin altındaki hiçbir farka "kazanç" denmez. |
-| **Lokal yargıç ile Freya verdict uyumu** | ≥ %85 | Lokal simülatör iç döngü olur, Freya yalnızca onaylar. GEPA açılır. |
-| | %70–85 | Lokal yalnızca bariz kötüleri eler; sıralama Freya'da yapılır. |
-| | < %70 | Lokal yargıç bırakılır, yalnızca Freya verdict'i kullanılır. GEPA iptal. |
+| **Baseline × 3** | Case başına run-to-run varyansı | Ayrıştıran case seti ve eşleştirilmiş test için temel. Cache'lenir, ortam değişmedikçe tekrar koşmaz. |
+| **Lokal yargıç ile Freya verdict uyumu** | ≥ %85 genelde **ve** üçüncü şahıs / doğrulama / söz verme case'lerinde | Lokal simülatör iç döngü olur, Freya yalnızca onaylar. Bölüm 3–4'ün tamamı açılır. |
+| | Bunun altında | **Fallback dalı:** bölüm 3'ün simülasyonlu kısımları (best-of-K, onarım turu) ve bölüm 4'ün tamamı düşer. Sadece Freya: builder-prompt düzeltmeleri + dersler kütüphanesi + ayrıştıran case'lerde eşleştirilmiş test. Lokal yargıç sadece dev triage için kalır. |
 | **Unit test skoru ile Freya skoru sıralaması** (5 varyantta) | Spearman ≥ 0.6 | Unit testler varyant eleme ve best-of-K puanlaması için kullanılır. |
 | | < 0.6 | Unit testler yalnızca regresyon kontrolü olarak kalır. |
 
