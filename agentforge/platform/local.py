@@ -7,6 +7,7 @@ Same simulator and judge as the Vapi adapter, so scores are comparable apart fro
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from datetime import date
@@ -34,8 +35,10 @@ def kasko_tools(session_id: str, name: str, args: dict[str, Any]) -> Any:
 
 
 class LocalPlatform(Platform):
-    def __init__(self, run_tool: ToolRunner = kasko_tools, client=None, add_date: bool = False, agent_model: str | None = None):
+    def __init__(self, run_tool: ToolRunner = kasko_tools, client=None, add_date: bool = False, agent_model: str | None = None,
+                 canonical: Callable[[str], str] = lambda name: name):
         self.run_tool = run_tool
+        self.canonical = canonical  # brief tool name -> canonical name, for workflow nodes
         self._client = client
         self.add_date = add_date  # off by default so results stay comparable with the Vapi runs
         # The agent model is a platform choice here (AGENT_MODEL), so saved configs run on whatever key we have.
@@ -60,12 +63,19 @@ class LocalPlatform(Platform):
     def run_conversation(self, cfg: AgentConfig, persona: Persona, run_idx: int) -> RunResult:
         session_id = f"{cfg.version_label}-{_slug(persona.name)}-{run_idx}-{uuid.uuid4().hex[:8]}"
         simulator_system = SIMULATOR_PROMPT.format(persona=persona.prompt)
-        messages = [{"role": "system", "content": self._system(cfg)}, {"role": "assistant", "content": cfg.first_message}]
-        transcript = [Turn(role="assistant", text=cfg.first_message, turn_idx=0)]
+        first_message = fill_variables(cfg.first_message, persona.variables)
+        messages = [{"role": "system", "content": self._system(cfg, persona.variables)},
+                    {"role": "assistant", "content": first_message}]
+        transcript = [Turn(role="assistant", text=first_message, turn_idx=0)]
         tool_calls: list[ToolCallRecord] = []
         usage = [0, 0]
         ended_reason = "max-turns"
         started = time.monotonic()
+        cursor = None
+        if cfg.workflow:
+            from agentforge.optimize.aflow import WorkflowCursor
+
+            cursor = WorkflowCursor(cfg, self.canonical)
 
         for _ in range(MAX_TURNS):
             caller_text = str(
@@ -79,15 +89,27 @@ class LocalPlatform(Platform):
             if finished:
                 ended_reason = "caller-ended"
                 break
+            step_cfg = cfg
+            if cursor:  # workflow: the current node decides the prompt and the tools
+                step_cfg = cursor.node_config()
+                messages[0] = {"role": "system", "content": self._system(step_cfg, persona.variables)}
             try:
-                calls = self._agent_step(cfg, messages, transcript, session_id, usage)
+                calls = self._agent_step(step_cfg, messages, transcript, session_id, usage)
             except Exception as error:
                 ended_reason = f"error: {error}"[:300]
                 break
             tool_calls.extend(calls)
-            if any(call.name in TRANSFER_TOOLS for call in calls):
+            if any(self.canonical(call.name) in TRANSFER_TOOLS or call.name in TRANSFER_TOOLS for call in calls):
                 ended_reason = "transfer"
                 break
+            if cursor:
+                from agentforge.run.scorer import render_context
+
+                cursor.advance(calls, render_context(RunResult(persona_name=persona.name, agent_version=cfg.version_label,
+                                                               transcript=transcript, tool_calls=tool_calls), True, False))
+                if cursor.ended:
+                    ended_reason = "workflow-end"
+                    break
 
         return RunResult(
             persona_name=persona.name,
@@ -99,12 +121,12 @@ class LocalPlatform(Platform):
             ended_reason=ended_reason,
             duration_s=round(time.monotonic() - started, 2),
             cost_usd=self._cost(usage),
-            raw={"session_id": session_id},
+            raw={"session_id": session_id, **({"workflow_path": cursor.path} if cursor else {})},
         )
 
     def run_unit_test(self, cfg: AgentConfig, test: UnitTest) -> Verdict:
         session_id = f"ut-{_slug(test.name)}-{uuid.uuid4().hex[:8]}"
-        messages = [{"role": "system", "content": self._system(cfg)}, *prefix_messages(test.prefix_turns)]
+        messages = [{"role": "system", "content": self._system(cfg, test.customer_variables)}, *prefix_messages(test.prefix_turns)]
         transcript = list(test.prefix_turns)
         try:
             calls = self._agent_step(cfg, messages, transcript, session_id, [0, 0])
@@ -134,10 +156,11 @@ class LocalPlatform(Platform):
         price_in, price_out = PRICES.get(split_model(self.agent_model)[1], (0.0, 0.0))
         return round(usage[0] * price_in + usage[1] * price_out, 5)
 
-    def _system(self, cfg: AgentConfig) -> str:
+    def _system(self, cfg: AgentConfig, variables: dict[str, str] | None = None) -> str:
+        prompt = fill_variables(cfg.system_prompt, variables or {})
         if not self.add_date:
-            return cfg.system_prompt
-        return f"{cfg.system_prompt}\n\nBugünün tarihi: {date.today().isoformat()}."
+            return prompt
+        return f"{prompt}\n\nBugünün tarihi: {date.today().isoformat()}."
 
     def _agent_step(self, cfg, messages, transcript, session_id, usage) -> list[ToolCallRecord]:
         """One agent turn: call tools until the model answers in text."""
@@ -222,6 +245,11 @@ def to_anthropic(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         else:
             out.append({"role": "user", "content": m["content"] or "..."})
     return out
+
+
+def fill_variables(text: str, variables: dict[str, str]) -> str:
+    """Freya-style {{name}} substitution; unknown names stay as written, like an unset customer variable."""
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str(variables.get(m.group(1), m.group(0))), text)
 
 
 def prefix_messages(turns: list[Turn]) -> list[dict[str, Any]]:

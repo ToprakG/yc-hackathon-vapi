@@ -55,17 +55,43 @@ BUILDER_SCHEMA = {
 }
 
 
-def builder_user_message(task_md: str, tools: list[ToolDef]) -> str:
+def builder_user_message(task_md: str, tools: list[ToolDef], variables: list[str] | None = None) -> str:
     tool_lines = json.dumps([tool.model_dump(mode="json") for tool in tools], ensure_ascii=False, indent=2)
-    return f"# TASK (SOP)\n\n{task_md}\n\n# TOOLS\n\n{tool_lines}"
+    message = f"# TASK (SOP)\n\n{task_md}\n\n# TOOLS\n\n{tool_lines}"
+    if variables:
+        # Freya fills {{name}} per call from the campaign's customer variables (outbound calls).
+        message += ("\n\n# CUSTOMER VARIABLES\n\nFilled in per call; write them as {{name}} in the system prompt and first "
+                    f"message where needed: {', '.join(variables)}")
+    return message
 
 
-def build_agent(task_md: str, tools: list[ToolDef], model: str | None = None) -> AgentConfig:
+READINGS = {
+    "conservative": "Where the brief is ambiguous, read it conservatively: if a behaviour is not clearly allowed, the agent does "
+                    "not do it and offers a callback or a human instead.",
+    "liberal": "Where the brief is ambiguous, read it liberally: anything the brief does not forbid is allowed if it helps the "
+               "customer reach a valid outcome.",
+}
+
+
+def builder_system(prompt_language: str = "tr", reading: str | None = None) -> str:
+    """TEST_PLAN T2.5 (instruction language) and T2.6 (ambiguous-rule reading) as builder options; defaults = today's builder."""
+    system = BUILDER_SYSTEM
+    if prompt_language == "en":
+        system = system.replace("Write the system prompt (in Turkish)",
+                                "Write the system prompt in English (the agent still speaks Turkish on the call; keep the "
+                                "Turkish section names)")
+    if reading:
+        system += f"\n\n{READINGS[reading]}"
+    return system
+
+
+def build_agent(task_md: str, tools: list[ToolDef], model: str | None = None, variables: list[str] | None = None,
+                label: str = "v1", prompt_language: str = "tr", reading: str | None = None) -> AgentConfig:
     # Models occasionally return JSON without the required keys; one retry fixes it.
     for attempt in range(2):
         payload = llm.call_llm(
-            BUILDER_SYSTEM,
-            builder_user_message(task_md, tools),
+            builder_system(prompt_language, reading),
+            builder_user_message(task_md, tools, variables),
             model=model or settings().builder_model,
             json_schema=BUILDER_SCHEMA,
             temperature=0.2,
@@ -83,21 +109,46 @@ def build_agent(task_md: str, tools: list[ToolDef], model: str | None = None) ->
         for tool in tools
     ]
     return AgentConfig(
-        version_label="v1",
+        version_label=label,
         system_prompt=payload["system_prompt"].strip(),
         first_message=payload["first_message"].strip(),
         tools=merged,
         model=settings().agent_model,
         parent_version=None,
-        notes="LLM builder output",
+        notes=f"LLM builder output (language={prompt_language}, reading={reading or 'default'})",
     )
 
 
 def main(argv: list[str]) -> None:
+    """python -m agentforge.build.builder [kasko | collections/<brief id>]"""
     domain = argv[0] if argv else "kasko"
-    task_md, tools = load_domain(domain)
-    cfg = build_agent(task_md, tools)
-    path = save_json(RUNS_DIR / "v1" / "agent.json", cfg)
+    if domain.startswith("collections/"):
+        from agentforge.domain.collections import brief_dir, load_personas
+
+        from agentforge.build.addons import apply_addons, load_locked
+        from agentforge.domain.collections import load_policy
+
+        brief = domain.split("/", 1)[1]
+        task_md, tools = load_domain(brief_dir(brief))
+        variables = sorted(load_personas(brief)[0].variables)
+        from agentforge.build.addons import load_builder_options
+
+        cfg = build_agent(task_md, tools, variables=variables, label=f"col-{brief}-v1", **load_builder_options())
+        # Section-2 winners become part of the builder: every new build gets the locked add-ons.
+        from agentforge.build.addons import load_locked_rules
+
+        locked, rules = load_locked(), load_locked_rules()
+        if locked or rules:
+            cfg = apply_addons(cfg, load_policy(brief_dir(brief)), locked, label=cfg.version_label, rules=rules)
+        from agentforge.build.addons import load_locked_workflow
+
+        if workflow := load_locked_workflow():
+            cfg = cfg.model_copy(update={"workflow": workflow})
+        path = save_json(RUNS_DIR / cfg.version_label / "agent.json", cfg)
+    else:
+        task_md, tools = load_domain(domain)
+        cfg = build_agent(task_md, tools)
+        path = save_json(RUNS_DIR / "v1" / "agent.json", cfg)
     print(f"saved {path}")
     print(f"system prompt: {len(cfg.system_prompt)} chars, first message: {cfg.first_message!r}")
 

@@ -1,0 +1,74 @@
+[
+  {
+    "account_id": "ES-100207",
+    "customer_name": "Ayşe Yılmaz",
+    "tckn": "12345678904",
+    "birth_date": "1985-03-14",
+    "phone": "05321112233",
+    "product": "kredi kartı",
+    "overdue_amount_tl": 4250.0,
+    "total_balance_tl": 18500.0,
+    "days_past_due": 23,
+    "status": "overdue"
+  },
+  {
+    "account_id": "ES-100214",
+    "customer_name": "Mehmet Demir",
+    "tckn": "23456789018",
+    "birth_date": "1972-11-02",
+    "phone": "05334445566",
+    "product": "ihtiyaç kredisi",
+    "overdue_amount_tl": 12800.0,
+    "total_balance_tl": 64000.0,
+    "days_past_due": 41,
+    "status": "overdue"
+  },
+  {
+    "account_id": "ES-100221",
+    "customer_name": "Elif Şahin",
+    "tckn": "34567890126",
+    "birth_date": "1993-07-29",
+    "phone": "05367778899",
+    "product": "kredi kartı",
+    "overdue_amount_tl": 1900.0,
+    "total_balance_tl": 1900.0,
+    "days_past_due": 12,
+    "status": "overdue"
+  },
+  {
+    "account_id": "ES-100228",
+    "customer_name": "Can Öztürk",
+    "tckn": "45678901234",
+    "birth_date": "1968-01-09",
+    "phone": "05301234567",
+    "product": "taşıt kredisi",
+    "overdue_amount_tl": 27500.0,
+    "total_balance_tl": 210000.0,
+    "days_past_due": 58,
+    "status": "overdue"
+  },
+  {
+    "account_id": "ES-100235",
+    "customer_name": "Zeynep Arslan",
+    "tckn": "56789012342",
+    "birth_date": "2000-12-05",
+    "phone": "05449876543",
+    "product": "kredi kartı",
+    "overdue_amount_tl": 8000.0,
+    "total_balance_tl": 15200.0,
+    "days_past_due": 30,
+    "status": "overdue"
+  },
+  {
+    "account_id": "ES-100242",
+    "customer_name": "Hasan Koç",
+    "tckn": "67890123450",
+    "birth_date": "1955-05-17",
+    "phone": "05552223344",
+    "product": "ihtiyaç kredisi",
+    "overdue_amount_tl": 3600.0,
+    "total_balance_tl": 22000.0,
+    "days_past_due": 9,
+    "status": "overdue"
+  }
+]

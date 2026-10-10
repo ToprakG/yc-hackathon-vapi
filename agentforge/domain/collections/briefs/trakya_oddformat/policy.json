@@ -1,0 +1,49 @@
+{
+  "brief_id": "trakya_oddformat",
+  "bank_name": "Trakya Finans A.Ş.",
+  "agent_name": "Mert",
+  "language": "tr",
+  "strict": false,
+  "must_disclose_ai": true,
+  "must_disclose_recording": false,
+  "required_disclosures": [
+    "Trakya Finans adına arayan yapay zeka asistanı Mert olduğu"
+  ],
+  "debt_only_after_verification": true,
+  "third_party_message": "Trakya Finans olarak kendisine ulaşmak istiyoruz, uygun olduğunda bizi geri arayabilir mi?",
+  "verification_fields": [
+    "tckn_last4",
+    "birth_date"
+  ],
+  "max_verification_attempts": 2,
+  "allow_full_payment": true,
+  "allow_plans": true,
+  "max_installments": 12,
+  "min_first_payment_pct": 15.0,
+  "min_installment_tl": 250.0,
+  "max_promise_days": 14,
+  "allow_discount": false,
+  "max_discount_pct": 0.0,
+  "hardship_action": "transfer",
+  "dispute_action": "log_dispute",
+  "human_request_action": "transfer",
+  "abusive_action": "warn_then_end",
+  "tool_names": {
+    "verify_identity": "kimlik_dogrula",
+    "get_account": "hesap_getir",
+    "log_promise_to_pay": "odeme_sozu_kaydet",
+    "log_dispute": "itiraz_kaydet",
+    "schedule_callback": "geri_arama_planla",
+    "mark_do_not_call": "aranmasin_isaretle",
+    "transfer_to_human": "temsilciye_aktar"
+  },
+  "extra_rules": [
+    "Önce gecikmiş tutarın tamamı teklif edilir.",
+    "Limit dışı talepte ajan limiti söyler ve izin verilen en yakın seçeneği önerir.",
+    "odeme_sozu_kaydet ancak tutar, tarih ve taksit sayısı tekrarlanıp onay alındıktan sonra çağrılır.",
+    "Her taksit en az 250 TL olmalıdır.",
+    "Ajan tehdit etmez; yasal işlem, icra veya kredi notundan bahsetmez.",
+    "Görüşme sonunda sonuç tek cümleyle özetlenir."
+  ],
+  "payment_order": "full_first"
+}

@@ -6,6 +6,7 @@ import os
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from math import comb
+from typing import Callable
 
 from rich.console import Console
 from rich.table import Table
@@ -17,7 +18,11 @@ from agentforge.schemas import AgentConfig, Assertion, Persona, RunResult, Score
 from agentforge.store import save_jsonl
 
 
-def _one(platform: Platform, cfg: AgentConfig, persona: Persona, run_idx: int, assertions: list[Assertion]) -> ScoredRun:
+Scorer = Callable[[RunResult, Persona], ScoredRun]
+
+
+def _one(platform: Platform, cfg: AgentConfig, persona: Persona, run_idx: int, assertions: list[Assertion],
+         scorer: Scorer | None = None) -> ScoredRun:
     try:
         run = platform.run_conversation(cfg, persona, run_idx)
     except Exception as error:
@@ -27,7 +32,7 @@ def _one(platform: Platform, cfg: AgentConfig, persona: Persona, run_idx: int, a
             run_idx=run_idx,
             ended_reason=f"error: {type(error).__name__}: {error}",
         )
-    return score_run(run, persona, assertions)
+    return scorer(run, persona) if scorer else score_run(run, persona, assertions)
 
 
 def run_suite(
@@ -38,11 +43,13 @@ def run_suite(
     runs_per_persona: int = 3,
     concurrency: int | None = None,
     set_name: str = "train",
+    scorer: Scorer | None = None,
 ) -> list[ScoredRun]:
+    """scorer replaces the Freya-style assertion judge, e.g. the decision-model checks for collections."""
     jobs = [(persona, idx) for persona in personas for idx in range(runs_per_persona)]
     concurrency = concurrency or int(os.environ.get("SIM_CONCURRENCY", "12"))
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        futures = [pool.submit(_one, platform, cfg, persona, idx, assertions) for persona, idx in jobs]
+        futures = [pool.submit(_one, platform, cfg, persona, idx, assertions, scorer) for persona, idx in jobs]
         scored = [future.result() for future in futures]
     save_jsonl(RUNS_DIR / cfg.version_label / f"{set_name}.jsonl", scored)
     check_judge_health(scored)

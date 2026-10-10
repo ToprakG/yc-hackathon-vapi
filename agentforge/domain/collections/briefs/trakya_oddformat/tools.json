@@ -1,0 +1,156 @@
+[
+  {
+    "name": "kimlik_dogrula",
+    "description": "Aranan kişinin kimliğini T.C. kimlik numarasının son 4 hanesi ve doğum tarihi ile doğrular. Başarılıysa müşterinin adını ve hesap numarasını döner.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "tckn_last4": {
+          "type": "string",
+          "description": "T.C. kimlik numarasının son 4 hanesi, örn. \"8904\"."
+        },
+        "birth_date": {
+          "type": "string",
+          "description": "Doğum tarihi, YYYY-MM-DD."
+        }
+      },
+      "required": [
+        "tckn_last4",
+        "birth_date"
+      ]
+    }
+  },
+  {
+    "name": "hesap_getir",
+    "description": "Doğrulanmış müşterinin hesabını getirir: ürün, gecikmiş tutar, toplam bakiye, gecikme günü.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "verify_identity'nin döndüğü hesap numarası."
+        }
+      },
+      "required": [
+        "account_id"
+      ]
+    }
+  },
+  {
+    "name": "odeme_sozu_kaydet",
+    "description": "Müşterinin ödeme sözünü kaydeder. Tek seferlik ödemede installments=1. Taksitte amount_tl ilk ödemedir. Banka limitleri dışındaki sözleri reddeder ve sebebini döner.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "Hesap numarası."
+        },
+        "amount_tl": {
+          "type": "number",
+          "description": "Ödenecek tutar (taksitte ilk ödeme), TL."
+        },
+        "date": {
+          "type": "string",
+          "description": "(İlk) ödeme tarihi, YYYY-MM-DD."
+        },
+        "installments": {
+          "type": "integer",
+          "description": "Taksit sayısı; tek seferlik ödeme için 1."
+        },
+        "discount_pct": {
+          "type": "number",
+          "description": "Uygulanan indirim yüzdesi; yoksa 0."
+        }
+      },
+      "required": [
+        "account_id",
+        "amount_tl",
+        "date",
+        "installments"
+      ]
+    }
+  },
+  {
+    "name": "itiraz_kaydet",
+    "description": "Müşterinin borca itirazını kaydeder (borç bana ait değil, ödedim, tutar yanlış vb.).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "Hesap numarası."
+        },
+        "reason": {
+          "type": "string",
+          "description": "İtirazın kısa açıklaması."
+        }
+      },
+      "required": [
+        "account_id",
+        "reason"
+      ]
+    }
+  },
+  {
+    "name": "geri_arama_planla",
+    "description": "Geri arama planlar. Doğrulanmamış kişiler için de kullanılabilir; hesap bilgisi gerekmez.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "datetime": {
+          "type": "string",
+          "description": "Geri arama zamanı, YYYY-MM-DD HH:MM."
+        },
+        "note": {
+          "type": "string",
+          "description": "Kısa not, örn. \"müşteri müsait değil\"."
+        },
+        "account_id": {
+          "type": "string",
+          "description": "Biliniyorsa hesap numarası; yoksa boş."
+        }
+      },
+      "required": [
+        "datetime",
+        "note"
+      ]
+    }
+  },
+  {
+    "name": "aranmasin_isaretle",
+    "description": "Numarayı aranmayacaklar listesine ekler (müşteri aranmak istemiyor veya yanlış numara).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "\"customer request\" veya \"wrong number\"."
+        },
+        "account_id": {
+          "type": "string",
+          "description": "Biliniyorsa hesap numarası; yoksa boş."
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    }
+  },
+  {
+    "name": "temsilciye_aktar",
+    "description": "Görüşmeyi canlı müşteri temsilcisine aktarır.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Aktarma sebebi."
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    }
+  }
+]

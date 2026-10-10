@@ -32,6 +32,7 @@ class AgentConfig(BaseModel):
     model: str
     parent_version: str | None = None
     notes: str = ""
+    workflow: dict[str, Any] | None = None  # AFlow-lite graph (agentforge.optimize.aflow.Graph); None = single prompt
 
 
 class Persona(BaseModel):
@@ -40,6 +41,9 @@ class Persona(BaseModel):
     successCriteria: str
     evaluationPrompt: str | None = None
     tags: list[str] = Field(default_factory=list)
+    # Freya customerVariables for this persona's call ({{name}} in prompts; simulations take a customerVariablesMap).
+    # Not a Freya persona field, so it is left out when personas are uploaded.
+    variables: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("tags")
     @classmethod
@@ -84,6 +88,7 @@ class UnitTest(BaseModel):
     prefix_turns: list[Turn]
     expectation: str
     tool_assertions: list[ToolAssertion] = Field(default_factory=list)
+    customer_variables: dict[str, str] = Field(default_factory=dict)  # Freya input.customerVariables
 
 
 class ToolCallRecord(BaseModel):

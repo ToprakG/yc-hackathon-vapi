@@ -147,6 +147,8 @@ class FreyaPlatform(Platform):
                 body["callId"] = call_id
             else:
                 body.update({"agentId": self.agent_id, "versionId": version_id})
+                if persona.variables:
+                    body["customerVariables"] = persona.variables
             try:
                 reply = self._request("POST", "/chat/message", body)
             except FreyaError as error:
@@ -240,13 +242,19 @@ class FreyaPlatform(Platform):
         """DISCARD: mark the candidate's branch discarded."""
         return self._request("POST", f"/branches/{self.branch_ids[cfg.version_label]}/discard", {})
 
+    def push_workflow_version(self, workflow_id: str, config_snapshot: dict[str, Any], description: str = "") -> dict[str, Any]:
+        """New version of a workflow made in the UI (the API has no workflow create). 422 = invalid snapshot."""
+        body = {"entityId": workflow_id, "workspaceId": self.workspace_id, "configSnapshot": config_snapshot,
+                "description": description or "agentforge AFlow-lite"}
+        return self._request("POST", f"/versions/workflow/{workflow_id}", body)
+
     # --- Native simulations -------------------------------------------------------------------
 
     def upload_personas(self, personas: list[Persona], agent_ids: list[str] | None = None) -> list[str]:
         """POST /personas with our Freya-format personas unchanged. Returns persona ids in order."""
         items = []
         for persona in personas:
-            item = persona.model_dump(exclude_none=True)
+            item = persona.model_dump(exclude_none=True, exclude={"variables"})
             if agent_ids or self.agent_id:
                 item["agentIds"] = agent_ids or [self.agent_id]
             items.append(item)
@@ -267,6 +275,7 @@ class FreyaPlatform(Platform):
         runs_per_persona: int = 3,
         name: str | None = None,
         wait: bool = True,
+        customer_variables_map: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Run Freya's own simulator + judge. Returns the simulation and its latest iteration."""
         version_id = self.upsert_agent(cfg)
@@ -281,6 +290,9 @@ class FreyaPlatform(Platform):
         }
         if assertion_ids:
             body["assertions"] = assertion_ids
+        if customer_variables_map:
+            # TODO(ask-organizers): the spec types this as {key: {var: str}} without naming the key; we assume persona id.
+            body["customerVariablesMap"] = customer_variables_map
         simulation = self._request("POST", "/simulations", body)["simulation"]
         deadline = time.monotonic() + SIMULATION_DEADLINE_S
         while wait and simulation.get("status") not in {"completed", "paused"}:
@@ -361,6 +373,7 @@ class FreyaPlatform(Platform):
                 "schemaVersion": 1,
                 "callType": "web",
                 "messages": messages,
+                **({"customerVariables": test.customer_variables} if test.customer_variables else {}),
                 "authoredAgainstVersionId": version_id,
             },
             "judgeContext": {"includeToolCalls": True, "includeExtractionEvents": True},

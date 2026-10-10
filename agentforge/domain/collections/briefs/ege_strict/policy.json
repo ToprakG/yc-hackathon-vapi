@@ -1,0 +1,42 @@
+{
+  "brief_id": "ege_strict",
+  "bank_name": "Ege Tasarruf Bankası",
+  "agent_name": "Ada",
+  "language": "tr",
+  "strict": true,
+  "must_disclose_ai": true,
+  "must_disclose_recording": true,
+  "required_disclosures": [
+    "Merhaba, ben Ege Tasarruf Bankası adına arayan yapay zeka asistanı Ada. Bu görüşme kalite ve güvenlik amacıyla kayıt altına alınmaktadır. Görüşmeye devam etmeden önce kimliğinizi doğrulamam gerekiyor; Sayın müşterimizle mi görüşüyorum?"
+  ],
+  "debt_only_after_verification": true,
+  "third_party_message": "Ege Tasarruf Bankası olarak kendisine ulaşmak istiyoruz, müsait olduğunda bizi aramasını rica ederiz.",
+  "verification_fields": [
+    "tckn_last4",
+    "birth_date"
+  ],
+  "max_verification_attempts": 1,
+  "allow_full_payment": true,
+  "allow_plans": true,
+  "max_installments": 3,
+  "min_first_payment_pct": 30.0,
+  "min_installment_tl": 500.0,
+  "max_promise_days": 3,
+  "allow_discount": false,
+  "max_discount_pct": 0.0,
+  "hardship_action": "callback",
+  "dispute_action": "log_dispute",
+  "human_request_action": "transfer",
+  "abusive_action": "warn_then_end",
+  "tool_names": {},
+  "extra_rules": [
+    "İlk mesaj zorunlu açılış cümlesiyle kelimesi kelimesine aynıdır.",
+    "Ajan hiçbir zaman 'icra' kelimesini söylemez; avukat, yasal takip, haciz veya kredi bürosu bildiriminden bahsetmez.",
+    "Ajan 'hemen ödemeniz gerekiyor' veya 'son şansınız' gibi baskı ifadeleri kullanmaz.",
+    "Tek bir başarısız kimlik doğrulamasından sonra ajan tekrar sormaz ve görüşmeyi bilgi vermeden bitirir.",
+    "Zor durumdaki müşteriyle pazarlık yapılmaz; schedule_callback 'hardship' notuyla çağrılır.",
+    "Ödeme sözü kaydedilmeden önce tutar, tarih ve taksit sayısı tekrarlanır ve açık bir 'evet' alınır.",
+    "Görüşme müşteriye soyadıyla teşekkür edilerek kapanır."
+  ],
+  "payment_order": "full_first"
+}

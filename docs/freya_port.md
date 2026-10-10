@@ -107,7 +107,15 @@ candidate version. We can then drive it with `POST /chat/message {callId, ...}`.
 - **TODO(ask-organizers): rate limits.** The spec only documents 429. The client backs off on 429 and 5xx.
 - **TODO(ask-organizers): are scoring simulations voice or chat?** `POST /simulations.mode` is `voice|chat`. Use the
   scored mode for the final check.
-- Workflows have no create endpoint (only `GET /workflow*`). Agents are fully configurable over the API.
+- Workflows have no create endpoint (only `GET /workflow*`). A workflow made once in the UI can take new configs through
+  `POST /versions/workflow/{id}` (`configSnapshot`, validated, 422 if invalid), and `/chat/message`, unit tests
+  (`entityType: workflow`, `routing` assertions on `node_entered` / `route_target`) and simulations accept workflows.
+  So T1.7 needs one workflow created by hand first. Agents are fully configurable over the API.
+- **TODO(ask-organizers): the key of `POST /simulations.customerVariablesMap`.** Typed `{key: {var: string}}`; we assume
+  persona id. Customer data for outbound collections calls goes in as customerVariables (`{{name}}` in prompts).
+- **TODO(ask-organizers): is there a built-in `{{today}}` / date variable?** We send `today` as a customer variable.
+- Docs note: `docs.freyavoice.com` redirects to an empty WordPress site; the docs are at `docs.freyavoice.ai`
+  (`/llms.txt`, `/llms-full.txt`), the full API spec at `staging-app.freyavoice.ai/api/openapi.json`.
 
 ## First thing to check on Freya
 

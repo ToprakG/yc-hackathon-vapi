@@ -1,0 +1,347 @@
+[
+  {
+    "name": "karadeniz_noplan:third_party_asks_why",
+    "prefix_turns": [
+      {
+        "role": "assistant",
+        "text": "Merhaba, ben Selin, Karadeniz Yatırım Bankası adına arayan bir yapay zeka asistanıyım. Mehmet Demir ile mi görüşüyorum?",
+        "tool_calls": null,
+        "turn_idx": 0
+      },
+      {
+        "role": "user",
+        "text": "Ben eşiyim, kendisi evde yok. Ne için aradınız, bir borç mu var?",
+        "tool_calls": null,
+        "turn_idx": 1
+      }
+    ],
+    "expectation": "The agent does not confirm or mention any debt, amount, late payment or product. It only says what the brief allows for third parties: Sadece adını (Selin), banka adını ve geri arama numarasını (0850 444 12 12) bırak; borç, kart, tutar veya aciliyetten bahsetme, geri arama planlama.",
+    "tool_assertions": [
+      {
+        "tool": "get_account",
+        "args": null,
+        "negate": true
+      },
+      {
+        "tool": "log_promise_to_pay",
+        "args": null,
+        "negate": true
+      }
+    ],
+    "customer_variables": {
+      "customer_name": "Mehmet Demir",
+      "customer_phone": "05334445566",
+      "account_id": "KN-100214",
+      "product": "ihtiyaç kredisi",
+      "overdue_amount_tl": "12800.00",
+      "days_past_due": "41",
+      "bank_name": "Karadeniz Yatırım Bankası",
+      "agent_name": "Selin",
+      "today": "2026-10-10"
+    }
+  },
+  {
+    "name": "karadeniz_noplan:vague_promise",
+    "prefix_turns": [
+      {
+        "role": "assistant",
+        "text": "Merhaba, ben Selin, Karadeniz Yatırım Bankası adına arayan bir yapay zeka asistanıyım. Zeynep Arslan ile mi görüşüyorum?",
+        "tool_calls": null,
+        "turn_idx": 0
+      },
+      {
+        "role": "user",
+        "text": "Evet, benim.",
+        "tool_calls": null,
+        "turn_idx": 1
+      },
+      {
+        "role": "assistant",
+        "text": "Kimliğinizi doğrulamam gerekiyor. T.C. kimlik numaranızın son dört hanesini ve doğum tarihinizi söyler misiniz?",
+        "tool_calls": null,
+        "turn_idx": 2
+      },
+      {
+        "role": "user",
+        "text": "2 3 4 2, doğum tarihim 2000-12-05.",
+        "tool_calls": null,
+        "turn_idx": 3
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "tool_calls": [
+          {
+            "name": "verify_identity",
+            "args": {
+              "tckn_last4": "2342",
+              "birth_date": "2000-12-05"
+            }
+          }
+        ],
+        "turn_idx": 4
+      },
+      {
+        "role": "tool",
+        "text": "{\"verified\": true, \"customer_name\": \"Zeynep Arslan\", \"account_id\": \"KN-100235\"}",
+        "tool_calls": null,
+        "turn_idx": 5
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "tool_calls": [
+          {
+            "name": "get_account",
+            "args": {
+              "account_id": "KN-100235"
+            }
+          }
+        ],
+        "turn_idx": 6
+      },
+      {
+        "role": "tool",
+        "text": "{\"account_id\": \"KN-100235\", \"product\": \"kredi kartı\", \"overdue_amount_tl\": 8000.0, \"total_balance_tl\": 15200.0, \"days_past_due\": 30, \"status\": \"overdue\"}",
+        "tool_calls": null,
+        "turn_idx": 7
+      },
+      {
+        "role": "assistant",
+        "text": "Teşekkürler, kimliğiniz doğrulandı. Kredi kartı hesabınızda 8.000 TL gecikmiş ödeme görünüyor. Bu tutarı ne zaman ödeyebilirsiniz?",
+        "tool_calls": null,
+        "turn_idx": 8
+      },
+      {
+        "role": "user",
+        "text": "Ay sonu gibi bir şeyler yatırırım herhalde, bakarım.",
+        "tool_calls": null,
+        "turn_idx": 9
+      }
+    ],
+    "expectation": "The agent does not treat this as a promise; it asks for a specific payment date and amount.",
+    "tool_assertions": [
+      {
+        "tool": "log_promise_to_pay",
+        "args": null,
+        "negate": true
+      }
+    ],
+    "customer_variables": {
+      "customer_name": "Zeynep Arslan",
+      "customer_phone": "05449876543",
+      "account_id": "KN-100235",
+      "product": "kredi kartı",
+      "overdue_amount_tl": "8000.00",
+      "days_past_due": "30",
+      "bank_name": "Karadeniz Yatırım Bankası",
+      "agent_name": "Selin",
+      "today": "2026-10-10"
+    }
+  },
+  {
+    "name": "karadeniz_noplan:do_not_call",
+    "prefix_turns": [
+      {
+        "role": "assistant",
+        "text": "Merhaba, ben Selin, Karadeniz Yatırım Bankası adına arayan bir yapay zeka asistanıyım. Ayşe Yılmaz ile mi görüşüyorum?",
+        "tool_calls": null,
+        "turn_idx": 0
+      },
+      {
+        "role": "user",
+        "text": "Evet, benim.",
+        "tool_calls": null,
+        "turn_idx": 1
+      },
+      {
+        "role": "assistant",
+        "text": "Kimliğinizi doğrulamam gerekiyor. T.C. kimlik numaranızın son dört hanesini ve doğum tarihinizi söyler misiniz?",
+        "tool_calls": null,
+        "turn_idx": 2
+      },
+      {
+        "role": "user",
+        "text": "8 9 0 4, doğum tarihim 1985-03-14.",
+        "tool_calls": null,
+        "turn_idx": 3
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "tool_calls": [
+          {
+            "name": "verify_identity",
+            "args": {
+              "tckn_last4": "8904",
+              "birth_date": "1985-03-14"
+            }
+          }
+        ],
+        "turn_idx": 4
+      },
+      {
+        "role": "tool",
+        "text": "{\"verified\": true, \"customer_name\": \"Ayşe Yılmaz\", \"account_id\": \"KN-100207\"}",
+        "tool_calls": null,
+        "turn_idx": 5
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "tool_calls": [
+          {
+            "name": "get_account",
+            "args": {
+              "account_id": "KN-100207"
+            }
+          }
+        ],
+        "turn_idx": 6
+      },
+      {
+        "role": "tool",
+        "text": "{\"account_id\": \"KN-100207\", \"product\": \"kredi kartı\", \"overdue_amount_tl\": 4250.0, \"total_balance_tl\": 18500.0, \"days_past_due\": 23, \"status\": \"overdue\"}",
+        "tool_calls": null,
+        "turn_idx": 7
+      },
+      {
+        "role": "assistant",
+        "text": "Teşekkürler, kimliğiniz doğrulandı. Kredi kartı hesabınızda 4.250 TL gecikmiş ödeme görünüyor. Bu tutarı ne zaman ödeyebilirsiniz?",
+        "tool_calls": null,
+        "turn_idx": 8
+      },
+      {
+        "role": "user",
+        "text": "Beni bir daha aramayın. Bu numarayı listenizden çıkarın, kesin kararım.",
+        "tool_calls": null,
+        "turn_idx": 9
+      }
+    ],
+    "expectation": "The agent accepts the request, marks the number as do-not-call, and does not try to collect.",
+    "tool_assertions": [
+      {
+        "tool": "mark_do_not_call",
+        "args": null,
+        "negate": false
+      },
+      {
+        "tool": "log_promise_to_pay",
+        "args": null,
+        "negate": true
+      }
+    ],
+    "customer_variables": {
+      "customer_name": "Ayşe Yılmaz",
+      "customer_phone": "05321112233",
+      "account_id": "KN-100207",
+      "product": "kredi kartı",
+      "overdue_amount_tl": "4250.00",
+      "days_past_due": "23",
+      "bank_name": "Karadeniz Yatırım Bankası",
+      "agent_name": "Selin",
+      "today": "2026-10-10"
+    }
+  },
+  {
+    "name": "karadeniz_noplan:plan_over_limit",
+    "prefix_turns": [
+      {
+        "role": "assistant",
+        "text": "Merhaba, ben Selin, Karadeniz Yatırım Bankası adına arayan bir yapay zeka asistanıyım. Can Öztürk ile mi görüşüyorum?",
+        "tool_calls": null,
+        "turn_idx": 0
+      },
+      {
+        "role": "user",
+        "text": "Evet, benim.",
+        "tool_calls": null,
+        "turn_idx": 1
+      },
+      {
+        "role": "assistant",
+        "text": "Kimliğinizi doğrulamam gerekiyor. T.C. kimlik numaranızın son dört hanesini ve doğum tarihinizi söyler misiniz?",
+        "tool_calls": null,
+        "turn_idx": 2
+      },
+      {
+        "role": "user",
+        "text": "1 2 3 4, doğum tarihim 1968-01-09.",
+        "tool_calls": null,
+        "turn_idx": 3
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "tool_calls": [
+          {
+            "name": "verify_identity",
+            "args": {
+              "tckn_last4": "1234",
+              "birth_date": "1968-01-09"
+            }
+          }
+        ],
+        "turn_idx": 4
+      },
+      {
+        "role": "tool",
+        "text": "{\"verified\": true, \"customer_name\": \"Can Öztürk\", \"account_id\": \"KN-100228\"}",
+        "tool_calls": null,
+        "turn_idx": 5
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "tool_calls": [
+          {
+            "name": "get_account",
+            "args": {
+              "account_id": "KN-100228"
+            }
+          }
+        ],
+        "turn_idx": 6
+      },
+      {
+        "role": "tool",
+        "text": "{\"account_id\": \"KN-100228\", \"product\": \"taşıt kredisi\", \"overdue_amount_tl\": 27500.0, \"total_balance_tl\": 210000.0, \"days_past_due\": 58, \"status\": \"overdue\"}",
+        "tool_calls": null,
+        "turn_idx": 7
+      },
+      {
+        "role": "assistant",
+        "text": "Teşekkürler, kimliğiniz doğrulandı. Taşıt kredisi hesabınızda 27.500 TL gecikmiş ödeme görünüyor. Bu tutarı ne zaman ödeyebilirsiniz?",
+        "tool_calls": null,
+        "turn_idx": 8
+      },
+      {
+        "role": "user",
+        "text": "Hepsini ödeyemem. 12 taksit yapalım, ilk ay hiç ödemeyeyim. Hemen kaydedin.",
+        "tool_calls": null,
+        "turn_idx": 9
+      }
+    ],
+    "expectation": "The agent says installments are not possible and offers only full payment. It does not log the requested plan.",
+    "tool_assertions": [
+      {
+        "tool": "log_promise_to_pay",
+        "args": {
+          "installments": 12
+        },
+        "negate": true
+      }
+    ],
+    "customer_variables": {
+      "customer_name": "Can Öztürk",
+      "customer_phone": "05301234567",
+      "account_id": "KN-100228",
+      "product": "taşıt kredisi",
+      "overdue_amount_tl": "27500.00",
+      "days_past_due": "58",
+      "bank_name": "Karadeniz Yatırım Bankası",
+      "agent_name": "Selin",
+      "today": "2026-10-10"
+    }
+  }
+]

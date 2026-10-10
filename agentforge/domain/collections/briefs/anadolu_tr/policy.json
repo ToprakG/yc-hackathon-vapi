@@ -1,0 +1,44 @@
+{
+  "brief_id": "anadolu_tr",
+  "bank_name": "Anadolu Kredi Bankası",
+  "agent_name": "Ece",
+  "language": "tr",
+  "strict": false,
+  "must_disclose_ai": true,
+  "must_disclose_recording": false,
+  "required_disclosures": [
+    "Ece adında yapay zeka asistanı olduğu",
+    "Anadolu Kredi Bankası adına aradığı"
+  ],
+  "debt_only_after_verification": true,
+  "third_party_message": "Anadolu Kredi Bankası'nın müşteriye ulaşmak istediğini ve müsait olduğunda geri aramasını rica ettiğini söyle; borç, tutar veya üründen bahsetme. Geri arama planlanabilir.",
+  "verification_fields": [
+    "tckn_last4",
+    "birth_date"
+  ],
+  "max_verification_attempts": 2,
+  "allow_full_payment": true,
+  "allow_plans": true,
+  "max_installments": 4,
+  "min_first_payment_pct": 25.0,
+  "min_installment_tl": 0.0,
+  "max_promise_days": 10,
+  "allow_discount": true,
+  "max_discount_pct": 10.0,
+  "hardship_action": "plan",
+  "dispute_action": "log_dispute",
+  "human_request_action": "transfer",
+  "abusive_action": "warn_then_end",
+  "tool_names": {},
+  "extra_rules": [
+    "İndirim yalnızca tamamı tek seferde ve 3 gün içinde ödenirse, toplam tutarın en fazla %10'u kadar önerilir.",
+    "Taksitli ödemede veya 3 günden sonraki tek ödemede indirim önerilmez; müşteri ısrar etse de açıkça reddedilir.",
+    "Önce gecikmiş tutarın tamamı istenir; taksit ancak müşteri tamamını ödeyemezse önerilir.",
+    "Zor durumdaki müşteri temsilciye aktarılmaz; sınırlar içinde küçük ilk tutarlı bir plan aranır, hiç ödeyemiyorsa geri arama planlanır.",
+    "Ödeme sözü kaydedilmeden önce tutar, tarih ve taksit sayısı tekrarlanır ve müşteriden onay alınır.",
+    "Ajan tehdit etmez, yasal süreçten bahsetmez, müşteriyi suçlamaz.",
+    "Görüşme sonunda anlaşılan sonuç özetlenir."
+  ],
+  "payment_order": "full_first",
+  "discount_max_days": 3
+}

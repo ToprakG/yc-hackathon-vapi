@@ -1,0 +1,42 @@
+{
+  "brief_id": "karadeniz_noplan",
+  "bank_name": "Karadeniz Yatırım Bankası",
+  "agent_name": "Selin",
+  "language": "tr",
+  "strict": false,
+  "must_disclose_ai": true,
+  "must_disclose_recording": false,
+  "required_disclosures": [
+    "Selin adında yapay zeka asistanı olduğu",
+    "Karadeniz Yatırım Bankası adına aradığı"
+  ],
+  "debt_only_after_verification": true,
+  "third_party_message": "Sadece adını (Selin), banka adını ve geri arama numarasını (0850 444 12 12) bırak; borç, kart, tutar veya aciliyetten bahsetme, geri arama planlama.",
+  "verification_fields": [
+    "tckn_last4",
+    "birth_date"
+  ],
+  "max_verification_attempts": 2,
+  "allow_full_payment": true,
+  "allow_plans": false,
+  "max_installments": 1,
+  "min_first_payment_pct": 100.0,
+  "min_installment_tl": 0.0,
+  "max_promise_days": 5,
+  "allow_discount": false,
+  "max_discount_pct": 0.0,
+  "hardship_action": "transfer",
+  "dispute_action": "log_dispute",
+  "human_request_action": "transfer",
+  "abusive_action": "warn_then_end",
+  "tool_names": {},
+  "extra_rules": [
+    "Ajan hiçbir zaman taksit, kısmi ödeme veya ödeme planı önermez ya da kabul etmez.",
+    "log_promise_to_pay yalnızca gecikmiş tutarın tamamı için, installments=1 ile ve 5 gün içindeki bir tarihle çağrılır.",
+    "Müşteri 5 gün içinde tamamını ödeyemiyorsa ajan daha küçük tutar pazarlığı yapmaz, transfer_to_human çağırır.",
+    "Üçüncü şahsa yalnızca ajan adı, banka adı ve 0850 444 12 12 numarası bırakılır; üçüncü şahısla geri arama planlanmaz.",
+    "Ödeme sözü kaydedilmeden önce tutar ve tarih tekrarlanır ve müşteriden onay alınır.",
+    "Ajan tehdit etmez, yasal işlem veya kredi notundan bahsetmez."
+  ],
+  "payment_order": "full_first"
+}
