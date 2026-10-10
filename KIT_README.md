@@ -1,5 +1,11 @@
 # Build the Builder
 
+**Kit version 3** (10 October 2026). The file `VERSION` holds the number. When we update the kit, the number goes up and the changes are listed here.
+
+- v3: the example builder waits for its own test run (up to 20 minutes per command) instead of stopping before the results arrive. On Brief A it built an agent that passed 10 of the 10 practice customers in one run.
+- v2: `examples/base-agent.json` (an example phone agent) and `examples/agent_builder.py` with the skill `.claude/skills/build-phone-agent` (an example builder) replace `examples/minimal_builder.py`.
+- v1: first release.
+
 You write a **builder**: a program that reads a bank's brief and creates a phone agent on Freya.
 We put that phone agent in front of simulated customers. The share it handles correctly is your score.
 
@@ -7,23 +13,27 @@ One simulated customer is one case. A step of a phone agent is called a node in 
 
 ## The ten-minute start
 
-You need Python 3.10 or newer and nothing else.
+You need Python 3.10 or newer.
 
 ```bash
 cp env.example env.sh        # put your Freya API key in it, and a team key you make up
 source env.sh
 
-python3 examples/minimal_builder.py briefs/brief-a.md      # prints {"workflow_id": ..., "agent_id": ...}
+# 1. Put the example agent on Freya and test it. It prints {"workflow_id": ..., "agent_id": ...}
+python3 -c "import freya,json; print(freya.save_workflow('base', json.load(open('examples/base-agent.json'))))"
 python3 tools/run_cases.py <agent_id> --brief A            # ten practice customers, 3 to 11 minutes
 
-python3 examples/minimal_builder.py briefs/brief-a.md briefs/brief-b.md   # Brief B builds on Brief A, so pass both
-python3 tools/run_cases.py <agent_id> --brief B            # three practice customers with several products
+# 2. Let the example builder build one from the brief
+pip install claude-agent-sdk
+python3 examples/agent_builder.py briefs/brief-a.md
+python3 examples/agent_builder.py briefs/brief-a.md briefs/brief-b.md   # Brief B builds on Brief A, so pass both
 ```
 
 `run_cases.py` prints one line per customer: pass or fail, the tool calls the agent made, and the reason for a failure.
-The sample builder passes about half of the ten customers, and not the same half every run. Your job is the rest.
 
-The sample builder has the tools of Briefs A and B typed in by hand. It cannot build for a brief with other tools. Yours has to read them from the brief and from `tools/openapi.json`.
+`examples/base-agent.json` is an agent, not a builder. It is the same two-step workflow that is already in your workspace: check identity, then take a payment promise. It uses four of the seven tools, so it handles only the simplest customers: in one run it passed 2 of the 13 practice customers. Read it to see what a valid workflow looks like.
+
+`examples/agent_builder.py` is a builder. It runs Claude through the Claude Agent SDK with one skill, `.claude/skills/build-phone-agent/SKILL.md`. Claude reads the brief and the tool API file, writes the workflow, runs the practice customers and fixes what fails. The skill is short on purpose. Your job is a better builder: a better skill, more skills, your own code, or another agent altogether. It needs a Claude login or `ANTHROPIC_API_KEY`.
 
 ## What is in this kit
 
@@ -33,7 +43,9 @@ The sample builder has the tools of Briefs A and B typed in by hand. It cannot b
 | `briefs/brief-b.md` | The extra rules for customers with up to three products. It builds on Brief A. |
 | `tools/openapi.json` | The bank's tool API that the phone agent calls during a call. |
 | `public-test-set.json` | 13 practice customers: what each one does and what the bank's records must show afterwards. |
-| `examples/minimal_builder.py` | The smallest builder that works. One step, the brief pasted in as its prompt, seven tools. |
+| `examples/base-agent.json` | An example phone agent: two steps, four tools. The same one that is in your workspace. |
+| `examples/agent_builder.py` | An example builder on the Claude Agent SDK. Claude builds, tests and fixes the agent. |
+| `.claude/skills/build-phone-agent/SKILL.md` | The one skill the example builder uses. |
 | `freya.py` | A small client for the Freya API. Standard library only. |
 | `tools/run_cases.py`, `tools/score.py` | Run the practice customers against a phone agent and score it. |
 | `docs/workflow-format.md` | What a phone agent is made of: steps, prompts, variables, routes. |

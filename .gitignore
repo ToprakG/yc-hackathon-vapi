@@ -13,3 +13,5 @@ results/*.json
 env.sh
 .freya-agents.json
 .personas.json
+.venv310/
+out/
