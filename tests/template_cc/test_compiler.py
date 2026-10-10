@@ -376,7 +376,7 @@ def test_too_much_is_not_restructuring():
 def test_every_conversation_after_the_opening_can_end_the_call(pid):
     """A finished call must route to wrap instead of looping on goodbye (seen on the platform)."""
     wf, book, *_ = compiled(pid)
-    convs = [nid for nid, n in wf["nodes"].items() if n["node_type"] == "conversation" and nid not in ("opening", "opening_ask2")]
+    convs = [nid for nid, n in wf["nodes"].items() if n["node_type"] == "conversation" and nid not in ("start", "opening", "opening_ask2")]
     assert convs
     for nid in convs:
         fin = [t for t in wf["nodes"][nid]["transitions"] if t.get("is_tool_call") and t["target_node"] == "wrap"]
@@ -408,7 +408,9 @@ def test_promise_failure_messages_avoid_the_word_recorded_and_retry_without_aski
 @pytest.mark.parametrize("pid", IDS)
 def test_the_opening_is_spoken_before_any_code_runs(pid):
     wf, *_ = compiled(pid)
-    assert wf["initial_node"] == "opening" and wf["nodes"]["opening"]["on_enter"]["type"] == "tts"
+    assert wf["initial_node"] == "start" and wf["nodes"]["start"]["transitions"] == [
+        {"target_node": "opening", "description": "always", "condition": {"operator": "always"}}]
+    assert "pre_actions" not in wf["nodes"]["start"] and wf["nodes"]["opening"]["on_enter"]["type"] == "tts"
     op = wf["nodes"]["opening"]
     assert [t["target_node"] for t in op["transitions"]] == ["setup"] and op["max_turn_transition"] == "setup"
     targets = [t["target_node"] for t in wf["nodes"]["setup"]["transitions"]]

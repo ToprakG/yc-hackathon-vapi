@@ -221,7 +221,7 @@ class Graph:
         self._wrap_and_close()
         self._globals()
         self._finish_routes()
-        wf = {"initial_node": "opening", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
+        wf = {"initial_node": "start", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
               "test_variables": self._test_variables()}
         if self.close_form == "lifecycle":
             wf["tools"] = [self._close_tool(lifecycle=True)]
@@ -334,6 +334,11 @@ class Graph:
         return out
 
     def _opening(self):
+        # A silent passthrough first step with no code: the opening must be entered through a transition, or the
+        # chat route skips its spoken line (seen on the platform), and no code may run before the first line.
+        self.nodes["start"] = {"name": "start", "node_type": "conversation", "task_message": "No tool call is allowed in this turn.",
+                               "on_enter": {"type": "silent"}, "passthrough": True,
+                               "passthrough_default_transition": "opening", "transitions": [always("opening")]}
         opening = " ".join(x for x in (P.line(self.p, "opening"), P.line(self.p, "right_party_question")) if x)
         second = int(self.limits.get("right_party", 2)) >= 2
         who = ["customer", "someone_else", "not_their_number", "customer_died", "unclear"]
@@ -919,7 +924,7 @@ class Graph:
                                         "condition": {"operator": "matches_intent", "description": P.FINISH}})
             self.intent("transition:finish/intent", [f"/nodes/{nid}/transitions/{k}/description",
                                                      f"/nodes/{nid}/transitions/{k}/condition/description"], P.FINISH)
-        excluded = sorted(set(self.non_conv) | {"opening", "opening_ask2"} | (set(self.globals) - {"g_goodbye"}))
+        excluded = sorted(set(self.non_conv) | {"start", "opening", "opening_ask2"} | (set(self.globals) - {"g_goodbye"}))
         self.globals["g_goodbye"] = {
             "name": "g_goodbye", "node_type": "conversation", "task_message": "", "on_enter": {"type": "silent"},
             "passthrough": True, "passthrough_default_transition": "wrap", "transitions": [always("wrap")],
@@ -932,7 +937,7 @@ class Graph:
 
     # globals ----------------------------------------------------------------------------------------------------------
     def _globals(self):
-        excluded = sorted(set(self.non_conv) | {"opening", "opening_ask2"})
+        excluded = sorted(set(self.non_conv) | {"start", "opening", "opening_ask2"})
         for gid, key, intent in (("g_ai", "ai", "The person asks whether they are talking to a robot, a computer, a machine or an AI."),
                                  ("g_scam", "scam", "The person asks whether this call is a scam or doubts that the call is really from the bank.")):
             text = P.line(self.p, key)
