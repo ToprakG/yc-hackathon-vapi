@@ -30,6 +30,20 @@ if str(REPO) not in sys.path:
 from builder.common.io import InputError, slot_name, split_inputs  # noqa: E402
 
 
+def _commit_export(report: dict, slot: str) -> None:
+    """The Freya export goes to the committed path workflows/<slot>.workflow.json and `saved` becomes that path (the ids stay in `saved_ids`), as for the tcc variant."""
+    exp = report.get("exported")
+    if exp and Path(exp).exists():
+        dest = REPO / "workflows"
+        dest.mkdir(exist_ok=True)
+        target = dest / f"{slot}.workflow.json"
+        if Path(exp).resolve() != target.resolve():
+            shutil.copyfile(exp, target)
+        if isinstance(report.get("saved"), dict):
+            report["saved_ids"] = report["saved"]
+        report["saved"] = str(target)
+
+
 def default_builder_model() -> str:
     """The agentic builder runs on Claude Code (claude_cli): $BUILDER_MODEL counts only when it names a Claude model; an openai:/openrouter-style value in the environment is ignored."""
     m = os.environ.get("BUILDER_MODEL", "").strip()
@@ -44,6 +58,7 @@ def run_agentic(args, briefs, api) -> dict:
                             review=args.review == "on", review_minutes=args.review_minutes, fix_minutes=args.fix_minutes,
                             unit=args.unit == "on", localsim=args.localsim == "on",
                             keep_workspace=args.keep_workspace, self_test=args.self_test))
+    _commit_export(report, args.slot)
     try:   # the Claude Code session log of the builder run goes next to our trace (organizers read it), secrets redacted
         from builder.common.session_log import copy_session_logs  # noqa: PLC0415
         if report.get("workspace_path") and report.get("trace"):

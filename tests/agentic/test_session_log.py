@@ -49,3 +49,14 @@ def test_oauth_token_survives_the_cleaned_environment_of_claude_p(monkeypatch):
     except Exception:  # noqa: BLE001
         pass
     assert seen["env"].get("CLAUDE_CODE_OAUTH_TOKEN") == "dummy-value-not-a-key" and "CLAUDE_CODE_ENTRYPOINT" not in seen["env"]
+
+
+def test_the_agentic_export_is_committed_under_workflows_and_saved_is_that_path(tmp_path, monkeypatch):
+    import builder.build as B
+    monkeypatch.setattr(B, "REPO", tmp_path)
+    exp = tmp_path / "out" / "slot-x.workflow.json"
+    exp.parent.mkdir()
+    exp.write_text("{}")
+    rep = {"exported": str(exp), "saved": {"workflow_id": "w", "agent_id": "a"}}
+    B._commit_export(rep, "slot-x")
+    assert rep["saved"] == str(tmp_path / "workflows" / "slot-x.workflow.json") and rep["saved_ids"]["workflow_id"] == "w" and (tmp_path / "workflows" / "slot-x.workflow.json").exists()
