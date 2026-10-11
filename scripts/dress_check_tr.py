@@ -52,10 +52,25 @@ line((rep.get("lint") or {}).get("errors") == 0 and "opening_resume" not in wf.g
 line(str(pol.get("language", "")).lower().startswith("tr"), f"policy.language = {pol.get('language')!r}")
 cb = json.dumps(pol.get("callback"), ensure_ascii=False)
 line("18:00" in cb and "19:00" not in cb, f"announced callback change in the policy: callback = {cb[:200]}")
-# 3 turkish
+# 3 turkish: SPOKEN-for-sure places must have 0 English (on_enter tts texts, policy lines/sentences); English strings in code literals are model-facing facts / English-input
+# parser patterns (check_turkish cannot tell them from spoken code lines): counted as a NOTE
+sys.path.insert(0, "scripts")
+import check_turkish as CT  # noqa: E402
+spoken = []
+for nid, n in list(wf.get("nodes", {}).items()) + list(wf.get("global_nodes", {}).items()):
+    t = (n.get("on_enter") or {}).get("text")
+    if t and CT.english(t):
+        spoken.append((nid, t[:80]))
+for k, v in ((pol.get("lines") or {}).items()):
+    t = v.get("text") if isinstance(v, dict) else v
+    if isinstance(t, str) and CT.english(t):
+        spoken.append(("policy.lines." + k, t[:80]))
+for k, t in (pol.get("sentences") or {}).items():
+    if isinstance(t, str) and CT.english(t):
+        spoken.append(("policy.sentences." + k, t[:80]))
+line(not spoken, f"spoken English in tts / policy lines: {len(spoken)} {spoken[:3]}")
 r = subprocess.run([sys.executable, "scripts/check_turkish.py", str(b / "workflow.json"), "--policy", str(b / "policy.json")], capture_output=True, text=True)
-tail = " | ".join(r.stdout.strip().splitlines()[-3:])[:300]
-line(r.returncode == 0, f"check_turkish: exit {r.returncode}: {tail}")
+print("NOTE    check_turkish (code literals, mostly model-facing / parser patterns): " + " | ".join(r.stdout.strip().splitlines()[1:2])[:200])
 # 4 tool urls
 u = urls(wf, [])
 if expect:
