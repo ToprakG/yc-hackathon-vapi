@@ -9,3 +9,8 @@ Source: out/dress2_local/build/r0/selftest/transcripts (our own scenarios, not G
 4. Fragment order, ST-07 #9: "Tam olarak hangi gün ödemek istersiniz? Anlıyorum, taşıt kredisi ödemenizi gerçekleştirebilirsiniz." (acknowledgement AFTER the question). ST-08 #11: "235,00 TL tutarından azını kaydedemiyorum. Bu tutarı ödeyebilir misiniz? Anlıyorum, ancak belirttiğiniz tutar minimum limitimizin altında kalıyor." (reason after the ask).
 5. ST-06 #9: "Kısmi ödeme talebinizi not aldım ancak ... tamamının kapatılması gerekmektedir." — "not aldım" reads as accepting; the brief wants "bu tutarı kaydedemiyorum" + the floor offer.
 (Not Turkish: ST-07 deadline 25 Kasım looks computed from max_days (45) instead of deadline_business_days -> logic; ST-08 hardship closes as "refused" and the floor is offered after hardship -> logic.)
+
+## Live dress run 2 (rehearsal-tr, 6/10) — new items
+- ST-10 third_party (TURKISH understanding): #2 user "Hayır, ben Tomas Varga" / #4 "Hayır, ben onun bir akrabasıyım." / #6 "Güvenlik cevaplarını bilmiyorum..., borcunu ben ödeyebilirim." -> the agent keeps asking "Doğum tarihinizi söyler misiniz?" (#3, #5) instead of the third-party path (ask when the customer can be reached, schedule_callback 2026-10-27 11:00). "Hayır ... akrabasıyım" is not routed to who1 = third party. (Title "Mr Varga" in the opening: fixed by aad37fe.)
+- ST-04 robot_turn1: persona answered in ENGLISH ("Twenty-sixth of July...", "Two five one zero") -> "Teşekkür ederim. Devamını da söyler misiniz?"; persona noise, but English number words are not parsed on a tr call (only matters if a real customer mixes languages).
+- ST-06 / ST-08: same logic issues as the local run (floor "not aldım"; persuasion + close reason after hardship).
