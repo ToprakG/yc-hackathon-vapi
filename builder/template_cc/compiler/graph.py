@@ -287,6 +287,16 @@ class Graph:
                 for nid in ("identity", "identity_explain"):
                     if nid in self.nodes:
                         self.nodes[nid]["transitions"].append(always("id_resume"))
+        if "f20_once_flags" in self.f and "human_gate" in self.nodes:  # every way into the help offer goes through the gate
+            for coll in (self.nodes, self.globals):
+                for nid, node in coll.items():
+                    if nid == "human_gate":
+                        continue
+                    for t in node.get("transitions") or []:
+                        if t.get("target_node") == "human_offer":
+                            t["target_node"] = "human_gate"
+            if "human_offer" in self.nodes and "human_gate" in self.non_conv:
+                pass
         wf = {"initial_node": "start", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
               "test_variables": self._test_variables()}
         if self.close_form == "lifecycle":
@@ -304,7 +314,7 @@ class Graph:
         b = self.book
         parts = [{"zone": b.add("system/core", P.system_core(self.p), True, purpose="identity, language, tone")},
                  {"zone": b.add("system/forbidden", P.system_forbidden(self.p), True, purpose="words forbidden before verification")},
-                 {"zone": b.add("system/honesty", P.system_honesty(self.p, "f7_router" in self.f), True, purpose="honesty and tool discipline")},
+                 {"zone": b.add("system/honesty", P.system_honesty(self.p, "f7_router" in self.f, "f20_once_flags" in self.f), True, purpose="honesty and tool discipline")},
                  {"zone": b.add("system/brief_rules", P.brief_rules(self.p, "global"), True, purpose="global brief rules"),
                   "title": "Brief rules"},
                  {"zone": b.add("system/global_rules", "", False, P.BUDGET["global_rules"], "extra global rules"),
@@ -1400,10 +1410,10 @@ ID_INIT        vars['cb_state'] = 'none'
         self.code("hardship_mark", """
         for pid in open_pids(vars):
             set_status(vars, pid, 'hardship')
-        """ + ("vars['said_hardship_sympathy'] = '1'\n        " if said_hs else "") + reset + """
+        """ + (("said_once(vars, 'hardship_sympathy')\n        " if "f20_once_flags" in self.f else "vars['said_hardship_sympathy'] = '1'\n        ") if said_hs else "") + reset + """
         neg_flag(vars)
         refresh_close(vars, CFG)
-        """, back, uses=("open_pids", "set_status", "neg_flag", "refresh_close"), fallback=reset)
+        """, back, uses=("open_pids", "set_status", "neg_flag", "refresh_close") + (("said_once",) if said_hs and "f20_once_flags" in self.f else ()), fallback=reset)
         self.code("stop_count", """
         n = int(num(vars.get('stop_n'))) + 1
         vars['stop_n'] = str(n)
@@ -1474,7 +1484,14 @@ ID_INIT        vars['cb_state'] = 'none'
                              "proposes", "accepts_offer")] if ho_terms else [])
                       + [eq("human_back" if self.human_first else "resume", "accepts help", "human_choice", "continues")],
                       max_turns=3, turn_target="transfer_human")
-            self.task_zones("human", "human_offer", P.human_task(self.p), brief_stage="global")
+            self.task_zones("human", "human_offer", P.human_task(self.p, "f20_once_flags" in self.f), brief_stage="global")
+            if "f20_once_flags" in self.f:  # F20: the help offer is made once; a later request for a person is an insistence
+                limit = int(self.limits.get("human_offer", 1))
+                self.code("human_gate", ("vars['gate'] = 'offer' if said_once(vars, 'human_offer') else 'transfer'\n" if limit >= 1
+                                         else "vars['gate'] = 'transfer'\n")
+                          + ("vars['turn_intent'] = 'none'\n" if "f7_router" in self.f else ""),
+                          [eq("transfer_human", "the offer was made already", "gate", "transfer"), always("human_offer")],
+                          uses=("said_once",), fallback="vars['gate'] = 'offer'")
 
     # transfers --------------------------------------------------------------------------------------------------------
     def _transfers(self):
@@ -1670,4 +1687,4 @@ ID_INIT        vars['cb_state'] = 'none'
             self.book.target("/global_nodes/g_human/extraction_schema/0/description", "text",
                              [{"zone": "extract:human/human_choice/description"}])
             self.intent("global:g_human/intent", ["/global_nodes/g_human/condition/description", "/global_nodes/g_human/description"], intent)
-            self.task_zones("human", "g_human", P.human_task(self.p), is_global=True, brief_stage="global")
+            self.task_zones("human", "g_human", P.human_task(self.p, "f20_once_flags" in self.f), is_global=True, brief_stage="global")
