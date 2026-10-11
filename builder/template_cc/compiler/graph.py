@@ -228,14 +228,14 @@ class Graph:
         (self.globals if is_global else self.nodes)[nid] = n
         return n
 
-    def code(self, nid: str, body: str, transitions: list, uses=(), fallback="pass") -> dict:
+    def code(self, nid: str, body: str, transitions: list, uses=(), fallback="pass", on_fail: str = "wrap") -> dict:
         trs = list(transitions)
         if "f12_slot_summary" in self.f and nid in self.SUMMARY_NODES:
             body = textwrap.dedent(body).strip("\n") + "\nvars['slot_summary'] = slot_summary(vars, CFG)"
             uses = tuple(uses) + ("slot_summary",)
             fallback = textwrap.dedent(fallback).strip("\n") + "\nvars['slot_summary'] = str(vars.get('slot_summary') or '')"
         if nid not in ("setup", "wrap", "wrap_close"):  # the sandbox can be unreachable: never loop, close the call
-            trs.insert(0, any_of("wrap", "the code step failed", [leaf(f"{nid}_failure_count", "greater_than", 0)]))
+            trs.insert(0, any_of(on_fail, "the code step failed", [leaf(f"{nid}_failure_count", "greater_than", 0)]))
         default = trs[-1]["target_node"]
         n = {"name": nid, "node_type": "code", "passthrough": True, "passthrough_default_transition": default,
              "on_enter": {"type": "silent"}, "disable_inactivity_monitor": True,
@@ -1446,7 +1446,7 @@ SCAM_SAY
             # F28: on the platform a failed call (5xx) raises function_call_error: the post-process hook does not run and no response
             # variable is set. cp_state is set to 'none' before the call; if it is still 'none' afterwards the call gave no answer.
             self.code("promise_try", "vars['cp_state'] = 'none'\nvars['cp_route'] = ''\n", [always("promise_write")],
-                      fallback="vars['cp_state'] = 'none'")
+                      fallback="vars['cp_state'] = 'none'", on_fail="promise_write")  # a failed code step: the normal path, as without F28
             pw_trs = [eq("promise_error", "the call gave no answer (service error)", "cp_state", "none")] + pw_trs
             self.code("promise_error", """
             pid = str(vars.get('rb_pid') or '')
@@ -1466,7 +1466,7 @@ SCAM_SAY
                 refresh_close(vars, CFG)
             """, [eq("promise_write", "try the call once more", "cp_route", "retry"), always("after_promise")],
                       uses=("num", "jget", "jput", "set_status", "neg_flag", "refresh_close"),
-                      fallback="vars['cp_route'] = 'after'")
+                      fallback="vars['cp_route'] = 'after'", on_fail="after_promise")
         self.api_node("promise_write", tool, pw_trs, response_mapping=[{"path": "data.ok", "variable": "cp_ok"}])
         parts = [{"zone": self.book.add(f"hook:create_promise/msg/{k}", v, False, P.BUDGET["hook"], "line said after the call"),
                   "key": k} for k, v in msgs.items()]
