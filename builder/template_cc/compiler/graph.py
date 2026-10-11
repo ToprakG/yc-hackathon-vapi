@@ -286,7 +286,9 @@ class Graph:
             if "id_resume" in self.nodes:
                 for nid in ("identity", "identity_explain"):
                     if nid in self.nodes:
-                        self.nodes[nid]["transitions"].append(always("id_resume"))
+                        # F19: told why and still no answer = "still declines"; elsewhere a turn with nothing to act on resumes the step
+                        again = "id_refusal_count" if nid == "identity_explain" and "f19_refusal_rule" in self.f else "id_resume"
+                        self.nodes[nid]["transitions"].append(always(again))
         if "f20_once_flags" in self.f and "human_gate" in self.nodes:  # every way into the help offer goes through the gate
             for coll in (self.nodes, self.globals):
                 for nid, node in coll.items():

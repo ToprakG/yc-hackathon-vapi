@@ -147,3 +147,11 @@ def test_id_decline_is_the_number_of_re_asks_after_the_first_refusal():
                 assert v["id_say"] == pol["identity"]["prompts"]["date_of_birth"]  # a re-ask has no second explanation
         assert got == expect
         assert ("identity_explain" in wf["nodes"]) == (n >= 1)
+
+
+def test_after_the_explanation_a_non_answer_counts_as_a_refusal():
+    wf, _ = build(BASE + ",f18,f19")
+    assert wf["nodes"]["identity_explain"]["transitions"][-1]["target_node"] == "id_refusal_count"
+    assert wf["nodes"]["identity"]["transitions"][-1]["target_node"] == "id_resume"
+    wf, _ = build(BASE + ",f18")
+    assert wf["nodes"]["identity_explain"]["transitions"][-1]["target_node"] == "id_resume"
