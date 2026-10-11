@@ -4,7 +4,8 @@
 #   Rule D: no pipe9g1 result at all by 16:45 (Freya never came back / set missing) -> ship the pipeline.
 # Logs "DECISION ..." to out/template_cc/eval/gate_pipe9.log. Needs out/template_cc/pipe9/<brief>/workflow.json for all 9 briefs.
 cd "$(dirname "$0")/.." || exit 1
-GATE_END=1645 scripts/gate_set.sh pipe9 pipe9g
+SET=${GATE_SET:-pipe9}   # GATE_SET=pipe9fx: the same builds with the right_party / fixups corrections
+GATE_END=1645 scripts/gate_set.sh $SET pipe9g
 E=out/template_cc/eval
 python3 - >> $E/gate_pipe9.log <<'PY'
 import glob, json
