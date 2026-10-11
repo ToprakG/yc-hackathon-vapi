@@ -51,14 +51,14 @@ test("promise, one per product, note, callback, transfer, close; nothing after c
   assert.equal(p.json.ok, true); assert.match(p.json.promise_id, /^pr/);
   assert.equal((await call(b, "create_promise", { customer_id: cid, product_id: "p1", amount: 100, date: "2026-10-21" })).json.ok, false);
   assert.equal((await call(b, "create_promise", { customer_id: cid, product_id: "p9", amount: 100, date: "2026-10-21" })).json.error, "unknown product_id");
-  assert.equal((await call(b, "add_note", { customer_id: cid, product_id: "p1", reason: "bogus" })).json.ok, false);
+  assert.equal((await call(b, "add_note", { customer_id: cid, product_id: "p1", reason: "bogus" })).json.ok, true);
   assert.equal((await call(b, "add_note", { customer_id: cid, product_id: "p1", reason: "hardship", text: "lost job" })).json.ok, true);
     assert.equal((await call(b, "schedule_callback", { customer_id: cid, date: "2026-10-21", time: "10:30" })).json.ok, true);
   assert.equal((await call(b, "transfer_to_agent", { customer_id: cid, queue: "general" })).json.ok, true);
   assert.equal((await call(b, "close_call", { customer_id: cid, outcome: "promise" })).json.ok, true);
   assert.equal((await call(b, "get_account", { customer_id: cid })).json.error, "the call is already closed");
   const l = await b.scorerLedger(cid);
-  assert.equal(l.outcome, "promise"); assert.equal(l.promises.length, 1); assert.equal(l.notes[0].reason, "hardship");
+  assert.equal(l.outcome, "promise"); assert.equal(l.promises.length, 1); assert.equal(l.notes[1].reason, "hardship");
   assert.deepEqual(l.callbacks, [{ date: "2026-10-21", time: "10:30" }]); assert.equal(l.transfers[0].queue, "general");
   assert.equal(l.calls.at(-1).tool, "close_call");
 });
@@ -146,4 +146,20 @@ test("converter spec variants: datetime callback, code close, cents, renamed fie
 test("converter spec without optional config blocks still works", () => {
   const a = adapt({ id: "x", openapi: { info: {}, servers: [{ url: "https://h/x" }], paths: { "/get_account": { post: {} } } }, customers: [] });
   assert.equal(a.base_path, "/x"); assert.equal(a.identity.max_wrong, 3); assert.equal(a.endpoints[0].op, "get_account");
+});
+
+test("rehearsal-style spec: empty note_map and null amount_unit; any note reason is recorded verbatim; amounts work", async () => {
+  const r = JSON.parse(fs.readFileSync(new URL("../specs/spec.rehearsal-tr.json", import.meta.url)));
+  assert.deepEqual(r.config.note_map, {}); assert.equal(r.config.tools.create_promise.amount_unit, null);
+  const a = adapt(r), b = new Bank(a, mem()), c = r.customers[0], k = (p, body) => b.call("POST", "/v1/" + p, body);
+  await k("verify_identity", { customer_id: c.customer_id, field: "date_of_birth", answer: c.identity.date_of_birth });
+  await k("verify_identity", { customer_id: c.customer_id, field: "phone_last4", answer: c.identity.phone_last4 });
+  assert.equal((await k("add_note", { customer_id: c.customer_id, product_id: "p1", reason: "ödeme_sözü_yok", text: "x" })).json.ok, true);
+  assert.equal((await k("create_promise", { customer_id: c.customer_id, product_id: "p1", amount: 126.5, date: "2026-10-20" })).json.ok, true);
+  const l = await b.scorerLedger(c.customer_id);
+  assert.equal(l.notes[0].reason, "ödeme_sözü_yok"); assert.equal(l.promises[0].amount, 126.5);
+  const b2 = new Bank(a, mem()); const k2 = (p, body) => b2.call("POST", "/v1/" + p, body);
+  await k2("verify_identity", { customer_id: c.customer_id, field: "date_of_birth", answer: c.identity.date_of_birth }); await k2("verify_identity", { customer_id: c.customer_id, field: "phone_last4", answer: c.identity.phone_last4 });
+  await k2("create_promise", { customer_id: c.customer_id, product_id: "p1", amount: "400", date: "2026-10-20" });
+  assert.equal((await b2.scorerLedger(c.customer_id)).promises[0].amount, 400);
 });
