@@ -192,6 +192,12 @@ def main(argv=None, *, call_llm=None, query_fn=None, sdk_server=None, freya_mod=
         _write(out / "workflow.json", compiler.dump(final))
         _write(out / "zones.final.json", best_book.to_json())
         report["lint"] = {"errors": len(lint_final["errors"]), "warnings": len(lint_final["warnings"])}
+        wf_body = final.get("workflow", final) if isinstance(final, dict) else {}
+        count = lambda x: len(x) if isinstance(x, (list, dict)) else 0  # noqa: E731
+        report["workflow_stats"] = {"nodes": count(wf_body.get("nodes")), "global_nodes": count(wf_body.get("global_nodes")),
+                                    "tools": count(wf_body.get("tools"))}
+        trace.event("workflow_stats", **report["workflow_stats"])
+        trace.line("workflow stats: " + ", ".join(f"{k} {v}" for k, v in report["workflow_stats"].items()))
         if os.environ.get("FREYA_API_KEY"):
             v = validate_fn(final, f"{slot}-dry-run")
             trace.check("freya validate (dry run)", not (isinstance(v, dict) and v.get("error")), v)
