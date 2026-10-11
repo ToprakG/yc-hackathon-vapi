@@ -298,3 +298,12 @@ def test_final_flags_file_precedence(tmp_path):
     assert run().stdout.strip() == "m2a,m2b"                       # FINAL_FLAGS.txt (m2) beats every M1 file
     (root / "FINAL_FLAGS.txt").write_text("\n")                    # an empty override is ignored
     assert run().stdout.strip() == "m2a,m2b"
+
+
+def test_infra_error_transcript_is_missing_and_half_infra_is_an_outage():
+    import selftest_common as C
+    dead = [{"role": "user", "content": "hi"}, {"role": "tool", "content": "function_call_error close_call: Error code: 530 - cloudflare"}]
+    fine = [{"role": "assistant", "content": "Thanks, I have noted that."}]
+    assert C.infra_error(dead) and not C.infra_error(fine)
+    src = (REPO / "scripts" / "selftest_run.py").read_text()
+    assert "infra_error(transcript)" in src and "2 * len(infra) >= len(chosen)" in src   # wired: infra rows are MISSING, half of them = outage

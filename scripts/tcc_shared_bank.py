@@ -25,6 +25,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("briefs", nargs="+")
     ap.add_argument("--port", type=int, default=8860)
+    ap.add_argument("--origin-file", default="", help="where to write the tunnel origin (default out/template_cc/eval/shared_origin.txt, the main bank's)")
     ap.add_argument("--limit", type=int, default=0, help="0 = every case of each brief")
     a = ap.parse_args()
     d = Path(tempfile.mkdtemp(prefix="tcc-sharedbank-"))
@@ -54,7 +55,7 @@ def main():
         sys.exit(1)
     _wait_http(f"{origin}/{a.briefs[0]}/openapi.json", 120)
     print(f"ORIGIN {origin}", flush=True)
-    (REPO / "out" / "template_cc" / "eval" / "shared_origin.txt").write_text(origin)
+    (Path(a.origin_file) if a.origin_file else REPO / "out" / "template_cc" / "eval" / "shared_origin.txt").write_text(origin)
     try:
         while bank.poll() is None and tun.poll() is None:
             time.sleep(5)

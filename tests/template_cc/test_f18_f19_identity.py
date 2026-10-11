@@ -105,7 +105,7 @@ def test_without_a_policy_line_or_the_flag_nothing_changes():
     pol = compiler.policy_check.complete(copy.deepcopy(json.loads((GOLD / "brief-a.policy.json").read_text())), api)
     pol["lines"]["ai"] = {"text": "", "verbatim": False}  # complete() refills a missing line, so the graph is built directly
     pol["lines"]["scam"] = {"text": "", "verbatim": False}
-    wf, _ = Graph(pol, api, features=FT.parse(BASE + ",f18")).build()
+    wf, _ = Graph(pol, api, features=FT.parse(BASE + ",f18,f18_opening_fallback")).build()
     assert "id_aside" not in wf["nodes"] and "id_resume" not in wf["nodes"]
     wf, _ = build(BASE)
     assert "id_aside" not in wf["nodes"]
@@ -117,7 +117,7 @@ def test_without_a_policy_line_or_the_flag_nothing_changes():
 
 
 def test_a_first_reply_without_a_decision_gets_the_fixed_second_ask():
-    wf, pol = build(BASE + ",f18")
+    wf, pol = build(BASE + ",f18,f18_opening_fallback")
     n = wf["nodes"]
     assert n["opening"]["transitions"][-1]["target_node"] == "opening_resume"
     assert n["opening_ask2"]["on_enter"]["type"] == "tts" and pol["lines"]["ask_again"]["text"].split("{")[0] in n["opening_ask2"]["on_enter"]["text"]
@@ -126,6 +126,8 @@ def test_a_first_reply_without_a_decision_gets_the_fixed_second_ask():
     assert run_code(wf, "opening_resume", {"ai_asked": "no"})["aside_open"] == ""
     off, _ = build(BASE)
     assert "opening_resume" not in off["nodes"] and off["nodes"]["opening_ask2"]["on_enter"] == {"type": "llm"}
+    f18_only, _ = build(BASE + ",f18")      # f18 without the opt-in fallback: the opening stays as without f18
+    assert "opening_resume" not in f18_only["nodes"]
 
 
 def test_id_decline_is_the_number_of_re_asks_after_the_first_refusal():

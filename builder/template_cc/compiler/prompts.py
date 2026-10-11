@@ -308,6 +308,8 @@ GOODBYE_INTENT = ("The person says goodbye or thanks you to end the call, after 
 
 # --- extraction descriptions -----------------------------------------------------------------------------------------
 
+VAGUE_SIGNAL = (" A refusal for today that gives any time hint without an exact day (later, once something happens, when money arrives) "
+                "is vague, not none; none is only a refusal with no hint of a later payment.")
 AMOUNT_TAIL = (" Copy it with any self-correction exactly as said, also when the message stops in the middle of it "
                "(for example 'twelve hundred, sorry, I'): never drop the words after the number.")
 
@@ -326,6 +328,7 @@ EXTRACT = {
                    "is over; finished = everything is settled or cannot go on and the customer has nothing more to discuss "
                    "(never while an agreed promise is still waiting to be recorded); none = anything else.",
     "ai_asked": "yes = the customer asks whether they are talking to a robot, a computer or an AI; no = anything else.",
+    "scam_asked": "yes = the customer asks whether this call is a scam or fraud, or doubts that it is really from the bank; no = anything else.",
     "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
                        "is NOT that); no = anything else.",
     "offer_intent": "proposes = the customer names an amount or a date for paying; accepts_offer = the customer agrees to your "

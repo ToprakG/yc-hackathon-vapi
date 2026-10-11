@@ -4,7 +4,8 @@
 #   GATE_END=<HHMM>  (optional) stop waiting / starting briefs at that time of day, e.g. GATE_END=1645
 #   scripts/gate_set.sh <set> <tag-prefix>        e.g. scripts/gate_set.sh pipe9 pipe9g      (result tag <prefix>1, sealed because it ends in g1)
 cd "$(dirname "$0")/.." || exit 1
-SET=${1:?set}; PFX=${2:?tag prefix}; TAG=${PFX}1
+REP=${REP:-1}   # REP=2: the tag is <prefix>2 (a repeat; finished reps are skipped)
+SET=${1:?set}; PFX=${2:?tag prefix}; TAG=${PFX}${REP}
 E=out/template_cc/eval; LOG=$E/gate_$SET.log; ST=$E/gate_$SET.state; mkdir -p $ST
 BRIEFS=${GATE_BRIEFS:-"brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"}   # GATE_BRIEFS="brief-b f3-kestrel ...": a subset, in that order
 N=$(echo $BRIEFS | wc -w | tr -d " ")
@@ -23,7 +24,7 @@ while [ "$(n_done)" -lt "$N" ] && ! late; do
     late && break
     tries=$(cat $ST/$b.tries 2>/dev/null || echo 0); echo $((tries + 1)) > $ST/$b.tries
     log "$TAG $b (try $((tries + 1)))"
-    ONLY_BRIEFS=$b scripts/run_cases.sh . $SET $PFX --skip 10 --limit 10 1 >> $LOG 2>&1; rc=$?
+    ONLY_BRIEFS=$b scripts/run_cases.sh . $SET $PFX --skip 10 --limit 10 $REP >> $LOG 2>&1; rc=$?
     if [ "$rc" = 3 ]; then echo $tries > $ST/$b.tries; log "lanes busy: waiting 60 s (not a failed try)"; sleep 60; continue; fi
     if [ -f $E/freya/$b.$TAG.json ]; then progressed=1; continue; fi
     if [ "$tries" -ge 1 ]; then touch $ST/$b.abandoned; log "$TAG $b failed twice: abandoned"

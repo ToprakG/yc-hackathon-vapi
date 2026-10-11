@@ -250,3 +250,12 @@ def test_claude_cli_judge_needs_no_api_key(tmp_path, monkeypatch):
     monkeypatch.setattr("builder.template_cc.llm.load_env", lambda *a, **k: None)
     judge = J.make_judge(Models(), NullTrace(), call_llm=lambda *a, **k: {"answer": "yes", "evidence": ""}, vendor_path=tmp_path / "none")
     assert isinstance(judge, J.LocalDecisionJudge)
+
+
+def test_default_judge_is_local_even_with_openai_and_openrouter_keys(monkeypatch):
+    """The final path must not call OpenAI / OpenRouter: the vendor decision model is opt-in (TCC_VENDOR_JUDGE=1)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k-not-real")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k-not-real")
+    monkeypatch.delenv("TCC_VENDOR_JUDGE", raising=False)
+    judge = J.make_judge(Models(), NullTrace(), call_llm=lambda *a, **k: {"answer": "yes", "evidence": ""})
+    assert isinstance(judge, J.LocalDecisionJudge)

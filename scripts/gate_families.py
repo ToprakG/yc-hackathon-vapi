@@ -8,7 +8,10 @@ import glob
 import json
 import sys
 
-tags = sys.argv[1:] or ["pipe9g1", "p6g1"]
+args = sys.argv[1:] or ["pipe9g1", "p6g1"]
+# mixed mode: arguments "tag:brief,brief" combine failures of different tags (e.g. m2bg1:brief-a,f1-nordhavn pipe9g1:f2-ostral)
+MIXED = [(a.split(":")[0], a.split(":")[1].split(",")) for a in args if ":" in a]
+tags = [t for t, _ in MIXED] or args
 
 
 def rows(tag):
@@ -18,6 +21,31 @@ def rows(tag):
         out[d["brief"]] = d["rows"]
     return out
 
+
+if MIXED:
+    fam = {}
+    total = failed = 0
+    for t, bs in MIXED:
+        r = rows(t)
+        for b in bs:
+            for row in r.get(b, []):
+                total += 1
+                if not row["pass"]:
+                    failed += 1
+                    f = fam.setdefault(row.get("family") or "?", {"n": 0, "briefs": set(), "cats": collections.Counter()})
+                    f["n"] += 1
+                    f["briefs"].add(b)
+                    f["cats"].update(row.get("failed") or [])
+    print(f"=== mixed: {failed} failed of {total} cases ({'; '.join(t + ': ' + ','.join(b.split('-')[0] if b.startswith('f') else b for b in bs) for t, bs in MIXED)}) ===")
+    print(f"{'family':24s}{'failed':>7s}  {'briefs':26s} categories")
+    flag = []
+    for name, v in sorted(fam.items(), key=lambda kv: (-kv[1]["n"], kv[0])):
+        bs = ",".join(sorted(b.split("-")[0] if b.startswith("f") else b for b in v["briefs"]))
+        print(f"{name[:23]:24s}{v['n']:>7d}  {bs:26s} " + " ".join(f"{c}:{n}" for c, n in v["cats"].most_common()))
+        if v["n"] >= 3 and len(v["briefs"]) >= 3:
+            flag.append(name)
+    print("families with >= 3 failures across >= 3 briefs:", ", ".join(flag) or "none")
+    sys.exit(0)
 
 first = rows(tags[0])
 briefs = sorted(first)

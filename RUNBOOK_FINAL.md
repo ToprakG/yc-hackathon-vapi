@@ -5,6 +5,35 @@ Hidden briefs open **20:00**, hard deadline **23:00**, our target: **submit by 2
 Two hidden briefs, run **one after the other** (one Freya simulation at a time per workspace). Budget per brief: 30 min, shipped by minute 26.
 Times below assume start at 20:00: brief 1 20:00 to 20:30, brief 2 20:30 to 21:00, packaging by 21:10, submit by 21:30 (23:00 is the hard limit, 90 min of slack for a re-run).
 
+## FINAL FORMAT (read this first; it supersedes the "two briefs" wording further down)
+At **20:00 we get ONE hidden brief** (plus its tool spec and, for the evaluation, its cases). We run `final_run.sh` (at most 30 min), then the evaluation sims on Freya
+(`final_eval.sh`), then package and send. If the entry is in the top 10 the organizers re-run our builder 3 times on other briefs, so the submitted commit (`git describe final-submit`)
+must reproduce: nothing outside the repo, `README_RUN.md` setup, the Claude login, one Freya key.
+
+### Where the 20:00 files go (`<name>` = a short name you choose, e.g. `hidden1`)
+| file | goes to | used by |
+|---|---|---|
+| the brief (one or more `.md`; a brief that builds on another is built together with it, list them in the same job) | `hidden/<name>.md` | `final_run.sh` |
+| the tool spec (OpenAPI json) | `hidden/<name>.openapi.json` and a copy `testbed/fake_briefs/<name>/tools.openapi.json` | `final_run.sh`; `final_eval.sh` (mock bank) |
+| the brief again | `testbed/fake_briefs/<name>/brief.md` (a copy; only documentation) | nobody reads it, keep it for the record |
+| cases / bank config (only if you run `final_eval.sh`, which the final does not) | `testbed/fake_briefs/<name>/cases.json` and `config.json` | `final_eval.sh` |
+`mkdir -p hidden testbed/fake_briefs/<name>` first. The builder (`final_run.sh`) reads only the brief(s) and the tool spec, never cases or config.
+
+### The commands, in order
+The OFFICIAL run command (what the organizers run again for the top-10 re-run) is `python3 builder/build.py <brief> [<more brief files>] <tool-api.json>`; it wraps `scripts/final_run.sh`
+(flags from `FINAL_FLAGS.txt`, patcher mode from `FINAL_MODE.txt`, 3 extractions voted, self-test on Freya, repair rounds, the last-green workflow saved to Freya and exported).
+```bash
+cd <repo>      # the checkout at the tag final-submit (git describe must say final-submit)
+# 1. build (at most 30 min; shipped by minute 26)
+python3 builder/build.py hidden/<name>.md hidden/<name>.openapi.json --out out/final/<name> 2>&1 | tee out/final/build.log
+# 2. package (workflow export from Freya, trace, build report, secret scan, the form fields)
+scripts/package_submission.sh out/final
+```
+Results: `out/final/<name>/workflow.json` (last-green), the Freya export copied to `workflows/<slot>.workflow.json` (the committed path), the trace under `traces/tcc-final-*/` (trace.txt + events.jsonl), and the last line of
+the build prints `{"status": "ok", "slot": ..., "saved": "workflows/...", "trace": "traces/..."}`. A brief that builds on another is built with it automatically (the referenced brief comes from the call or from `briefs/`).
+**The evaluation sims are NOT part of the final**: the organizers score the exported agents, we do not submit sim results. `scripts/final_eval.sh` stays in the repo but is not run (the 19:20 rehearsal is cancelled).
+Check after 1: `build_report.json` has `"status": "ok"`, lint 0; the build.py line says ok. Do not re-run with changed code. Never edit the compiler or policy during the run.
+
 ## 0. Before 20:00 (5 min)
 - `git status` clean on the commit that will be submitted (`git rev-parse HEAD`; S0 merges, so check this is the merged hash).
 - `.env` keys present (**names only**): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_WORKSPACE_ID`, `FREYA_API_URL` (default staging URL).

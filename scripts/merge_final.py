@@ -40,8 +40,8 @@ def features_resolution(path):
 
     ours, theirs = (sh("git", "show", f":{n}:{path}").stdout for n in (2, 3))
     (a1, o1), (a2, o2) = flags(ours), flags(theirs)
-    names = a1 + [n for n in a2 if n not in a1]
     opt = o1 + [n for n in o2 if n not in o1]
+    names = [n for n in a1 + [n for n in a2 if n not in a1] if n not in opt]   # an opt-in flag is never part of ALL
     lines, cur = [], "ALL = ["
     for n in names:
         piece = f'"{n}", '
