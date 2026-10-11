@@ -33,6 +33,10 @@ scripts/final_run.sh --budget-min 30 --ship-min 26 \
 - **Preflight (automatic):** `final_run.sh` starts every brief with one tiny call to the chosen provider (`scripts/llm_preflight.py`, 25 s limit). It logs `LLM preflight ok: provider X ...` or `STOP: no usable LLM provider` with the reason and exits 1 for that brief within 30 s. Run it by hand first: `.venv310/bin/python scripts/llm_preflight.py`. `SKIP_PREFLIGHT=1` turns it off.
 
 Currently `FINAL_MODE.txt` = `patcher_on`. Flags are not passed: `final_run.sh` reads them itself via `scripts/final_flags.sh` = `FINAL_FLAGS.txt` if it exists, else `M1_FLAGS.txt` (17 flags now). **Switching to m2 = write the m2 list into `FINAL_FLAGS.txt`** (one line, comma-separated, committed). Check what will be used: `bash scripts/final_flags.sh . <main checkout>`; the log line `final_run: ... flags: ...` shows it per brief. An explicit `--set-flags` still overrides.
+**Both hidden briefs go in the SAME `final_run.sh` call (two `--job`s, as above).** The call's briefs are the pool for brief references: a brief that says
+"Brief B is Brief A with ..." / "same as Brief X" / "Brief X is not supplied" is built WITH the brief it refers to (found first among the briefs of this call, then in `briefs/*.md` by title letter or file name; the referenced brief goes first, the referring brief overrides).
+Look for `brief refs: ref {...resolved...}` in `<out>/final_run.log` (and `<out>/brief_resolution.json`); `brief refs: WARN ... building alone` means the reference was not found: stop and pass the missing brief as an extra file in that job's first field.
+After the extraction a **policy sanity check** runs (placeholder bands, empty attempt_plan, generic opening line, null transfer outcomes, "not supplied" notes): a degenerate policy is extracted once more; `DEGENERATE:` in `build.out` / `final_run.log` after that is a stop-and-look line (usually a missing referenced brief).
 If a brief has several files, put them space-separated in the first field: `--job "a.md b.md|tools.json|out/final/b1"`.
 Run it in `tmux`/`nohup` so a closed terminal does not kill it.
 
