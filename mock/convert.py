@@ -341,14 +341,14 @@ def check(spec: dict) -> list:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--id"); ap.add_argument("--name", default="")
-    ap.add_argument("--contract"); ap.add_argument("--openapi"); ap.add_argument("--customers")
+    ap.add_argument("--contract", nargs="+", help="one or more files (brief, contract pdf/docx/md...); read and concatenated"); ap.add_argument("--openapi"); ap.add_argument("--customers")
     ap.add_argument("--only-brief", default="", help="json case lists: keep the cases of this brief key (A/B)"); ap.add_argument("--config-from"); ap.add_argument("--out"); ap.add_argument("--check")
     a = ap.parse_args()
     if a.check:
         bad = check(json.loads(Path(a.check).read_text()))
         print("OK" if not bad else "\n".join(bad)); return 1 if bad else 0
     openapi = json.loads(Path(a.openapi).read_text()) if a.openapi else {}
-    contract = read_text(Path(a.contract)) if a.contract else ""
+    contract = "\n\n".join(f"## {Path(f).name}\n" + read_text(Path(f)) for f in a.contract or [])
     spec = {"spec_version": 1, "id": a.id, "name": a.name or a.id, "config": load_config(a.config_from, contract, openapi),
             "openapi": openapi, "customers": load_customers(Path(a.customers), a.only_brief)}
     out = Path(a.out or REPO / "mock" / f"spec.{a.id}.json")
