@@ -262,7 +262,7 @@ def intents_text(policy: dict, values) -> str:
     return " ".join(out)
 
 
-def side_desc(f4: bool = True, refused: int = 0, intents: str = "") -> str:
+def side_desc(f4: bool = True, refused: int = 0, intents: str = "", dispute_first: bool = False) -> str:
     """The side description with the discount value (F4: asking to knock something off is not restructuring) and, for the
     router (F7), the refused_N values that replace the refusal tool transitions."""
     d = EXTRACT["side"]
@@ -274,6 +274,9 @@ def side_desc(f4: bool = True, refused: int = 0, intents: str = "") -> str:
         d = d.replace("stop_talking = does not want to talk;", f"refused_1 .. refused_{refused} = the product at that position in the facts has "
                       "its persuasion attempts used up and the customer still refuses, or refused its last offer (a first flat "
                       "refusal is none); stop_talking = does not want to talk;", 1)
+    if dispute_first:  # a claim that the debt is not theirs / closed / paid in the past wins over a refusal to talk or pay
+        d += (" When the message says the debt or product is not theirs, or was closed or paid off in the past, the value is "
+              "dispute even if the customer also refuses to talk or to pay.")
     return d + (" " + intents if intents else "")
 
 
