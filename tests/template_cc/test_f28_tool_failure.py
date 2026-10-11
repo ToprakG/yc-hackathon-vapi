@@ -80,3 +80,12 @@ def test_off_by_default():
     ref, _, _ = build(BASE)
     wf, _, _ = build("all")
     assert "promise_error" not in wf["nodes"] and "promise_error" not in ref["nodes"]
+
+
+def test_a_failed_code_step_takes_the_normal_path_never_wrap():
+    wf, pol, api = build(BASE + ",f28")
+    for nid, target in (("promise_try", "promise_write"), ("promise_error", "after_promise")):
+        tr = wf["nodes"][nid]["transitions"][0]
+        assert tr["description"] == "the code step failed" and tr["target_node"] == target, nid
+        assert tr["condition"]["conditions"][0]["variable"] == f"{nid}_failure_count"
+    assert compiler.lint(wf, pol, api)["errors"] == []
