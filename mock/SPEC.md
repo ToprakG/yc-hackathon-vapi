@@ -1,4 +1,4 @@
-# mock spec (JSON) — contract between the converter (S3, `mock/convert.py`) and the Worker (S2)
+# mock spec (JSON) — contract between the converter (S3, `mock/convert.py`) and the Worker (S2, `mock/src`)
 
 One file per bank: `mock/spec.<id>.json`.
 
@@ -38,3 +38,12 @@ One file per bank: `mock/spec.<id>.json`.
 - State per customer lives in KV / Durable Object / D1 (Workers are stateless); the seed is loaded from the spec at deploy; it must survive restarts until the results are out.
 
 Validate a spec with `python3 mock/convert.py --check mock/spec.<id>.json`.
+
+## Worker deployment (S2) — what is where
+- Tenant = `spec.id`. The mock URL to give `build.py` is **`https://<worker>/<tenant>`** (e.g. `https://bank-mock.<acct>.workers.dev/brief-a`).
+  `GET <mock_url>/openapi.json` is `spec.openapi` verbatim, with `servers[0].url` rewritten to `<mock_url>/v1` (the base the agent calls).
+- Bundled at deploy: `mock/specs/*.json` (`node scripts/bundle.mjs`, run by `npm run deploy`). Live, no redeploy: `PUT <mock_url>/admin/spec` with the converter JSON (Bearer `ADMIN_TOKEN`); `PUT /admin/customers` merges customers; `POST /admin/reset[?customer_id=]`.
+- Read side is open (no token): `GET <mock_url>/v1/practice/ledger/<customer_id>`, `GET <mock_url>/ledger/<id>`, `GET <mock_url>/records[?customer_id=&limit=]` (all calls, oldest first), `GET <mock_url>/state`. Faults (`500`, nothing recorded) from a top-level `faults: [{op, customer_id|null, times}]` in the spec or header `x-mock-fail: 1`.
+- Ledger keys: `{outcome, reason, promises[{promise_id,product_id,type,amount,date}], notes[{product_id,reason,text}], callbacks[{date,time}], transfers[{queue}], disputes[], calls[{seq,ts,tool,args,result}], closed}`; post-close calls are rejected and not listed in `calls`.
+- Differences from mockbank.py worth knowing: schema check is only required+enum; a day/month swap is not counted as a wrong answer (as mockbank); dispute is an `add_note` reason.
+- State: one Durable Object (SQLite) per tenant; survives redeploys. Tests: `cd mock && npm test` (engine), `test/e2e.sh <url> <ADMIN_TOKEN>` (live).

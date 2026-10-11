@@ -336,7 +336,7 @@ class Graph:
     def _system_prompt(self):
         b = self.book
         parts = [{"zone": b.add("system/core", P.system_core(self.p), True, purpose="identity, language, tone")},
-                 {"zone": b.add("system/forbidden", P.system_forbidden(self.p), True, purpose="words forbidden before verification")},
+                 {"zone": b.add("system/forbidden", P.system_forbidden(self.p, "f31_forbidden_products" in self.f), True, purpose="words forbidden before verification")},
                  {"zone": b.add("system/honesty", P.system_honesty(self.p, "f7_router" in self.f, "f20_once_flags" in self.f), True, purpose="honesty and tool discipline")},
                  {"zone": b.add("system/brief_rules", P.brief_rules(self.p, "global"), True, purpose="global brief rules"),
                   "title": "Brief rules"},

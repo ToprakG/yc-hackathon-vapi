@@ -15,7 +15,7 @@ ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discou
 # f35_tr_llm_lines (fallback for a Turkish case when the Turkish templates are not ready): with policy.language == "tr" every fixed `tts` line becomes an LLM-spoken
 # step ("Say this in natural Turkish, siz form: <text>"). Opt-in, not part of FINAL_FLAGS.
 # Full names of opt-in flags (f28_tool_failure) and short ids (f28) are both accepted in a flag list.
-OPT_IN = ["f22_forbidden_disclosure", "f18_opening_fallback", "f27_vague_signal", "f28_tool_failure", "f29_scam_open", "f35_tr_llm_lines"]
+OPT_IN = ["f22_forbidden_disclosure", "f18_opening_fallback", "f27_vague_signal", "f28_tool_failure", "f29_scam_open", "f35_tr_llm_lines", "f31_forbidden_products"]
 _SHORT: dict = {}
 for _n in ALL + OPT_IN:
     _SHORT.setdefault(_n.split("_", 1)[0], _n)  # a short id names the first flag that has it (f16 = f16_intents)
