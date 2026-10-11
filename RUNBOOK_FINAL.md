@@ -62,17 +62,19 @@ cd mock && cp ../mock/spec.final.json specs/final.json && npm run deploy        
 ## 3. Build (S0), 20:25
 ```bash
 cd <repo>
-python3 builder/build.py case/<folder> <mock_url> --members "Name One,Name Two" 2>&1 | tee out/final/build.log      # ONE command, no manual step; budget 30 min, shipped by minute 26
+mkdir -p out/final
+python3 builder/build.py case/<folder> <mock_url> --members "Name One,Name Two" --out out/final/build > out/final/build.out 2>&1; tail -1 out/final/build.out | tee out/final/build_py.json
+# ONE command, no manual step; budget 30 min, shipped by minute 26 (watch it with: tail -f out/final/build/final_run.log)
 ```
 `build.py` ingests the folder (BRIEF.md, README.md first, then md/docx/pdf/xlsx/csv/html as text with `=== FILE:` headers), takes the tool API from `<mock_url>/openapi.json` (else a spec file in the folder),
 runs `final_run.sh` (flags `FINAL_FLAGS.txt`, mode `FINAL_MODE.txt`, claude_cli only), saves + exports the workflow, writes `submission.json` (members, workflow, trace, mock_url) and prints one JSON line
 `{"status","slot","saved","trace","submission"}`. Prerequisites as always: `claude` logged in, `cloudflared`, `FREYA_API_KEY` + `FREYA_BANK_TEAM_KEY` in `.env`, no other eval on `lane1.lock`. Provider unusable: the preflight stops within 30 s ("STOP: no usable LLM provider").
-Watch `out/tcc/case-<name>/final_run.log`: `stage build`, `LLM preflight ok`, `policy sanity: ok` (a `DEGENERATE:` line = look at the brief ingest), `stage run_r0`, `repair`, `finalize`.
+Watch `out/final/build/final_run.log`: `stage build`, `LLM preflight ok`, `policy sanity: ok` (a `DEGENERATE:` line = look at the brief ingest), `stage run_r0`, `repair`, `finalize`.
 
 ## 4. Checks (S4), 20:55-21:10
 ```bash
-OUT=out/tcc/case-<name>
-python3 scripts/dress_check_case.py $OUT FINAL_FLAGS.txt        # build ok, lint 0, flags == FINAL_FLAGS.txt, ingest order, submission.json, export present, tool URLs == OpenAPI servers[].url
+OUT=out/final/build
+python3 scripts/dress_check_case.py out/final FINAL_FLAGS.txt   # (expects out/final/build and out/final/build_py.json from step 3) build ok, lint 0, flags == FINAL_FLAGS.txt, ingest order, submission.json, export present, tool URLs == OpenAPI servers[].url
 python3 scripts/check_trace.py $OUT --freya --selftest           # trace fields (start/end, model calls, Freya, self-test)
 python3 scripts/check_turkish.py $OUT/workflow.json --policy $OUT/policy.json     # spoken texts in Turkish? (Risk R1)
 python3 -c "import json;p=json.load(open('$OUT/policy.json'));print(p['language'],p['bank'])"   # language must be 'tr'
@@ -81,7 +83,7 @@ Also read `$OUT/selftest_report.md` and `$OUT/patch_report.json` (what the repai
 
 ## 5. Commit and submit (S4 + you), 21:10
 ```bash
-SLOT=case-<name>
+SLOT=$(python3 -c "import json;print(json.load(open('out/final/build_py.json'))['slot'])")      # case-<folder name>
 git status --short | grep -v '^??'                                  # review; never `git add .`, never the whole traces/ or out/
 git add workflows/$SLOT.workflow.json traces/<trace dir printed by build.py>        # the export + the trace (trace.txt, events.jsonl)
 git commit -m "final: workflow and trace for the case" && git push origin <branch>
