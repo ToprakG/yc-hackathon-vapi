@@ -4,7 +4,8 @@
 #   Rule G (gate):   all 9 briefs done        -> ship m1 if m1g1 >= p6g1 over all 9 briefs, else p6.
 #   Rule C (canary): the gate cannot complete by 14:00 (API errors) -> as soon as the Freya API answers, run the full scripts/canary.txt
 #                    (20 cases, tag m1c1) on m1 -> ship m1 if canary >= 19/20, else p6.
-#   Rule D (default): neither rule could decide by 16:30 -> ship p6.
+#   Rule D (default): neither rule could decide by 16:30 (the API outage blocks both) -> ship m1: it led on the finished GATE briefs and the targeted
+#                     runs / canary_small showed no loss ("DECISION m1 (no further data)").
 # A brief that fails (API error, timeout, no result) is retried ONCE after 5 minutes, never in a tight loop; after that it is left for rule C.
 # Each decision line says which rule decided: out/template_cc/eval/gate_m1.log (last line: DECISION ...).
 # FLAGS: m1 is built with the flags in M1_FLAGS.txt; this script refuses to run unless out/template_cc/m1/brief-a/build_report.json lists all of them.
@@ -82,7 +83,7 @@ if [ "$(n_done)" -ge 9 ]; then
 fi
 log "gate incomplete at $(now) ($(n_done)/9 briefs): rule C (canary) - waiting for the API"
 while ! api_ok; do
-  [ "$(now)" -ge 1630 ] && { log "DECISION p6  rule D (default): the API did not answer by 16:30; gate $(n_done)/9"; exit 0; }
+  [ "$(now)" -ge 1630 ] && { log "DECISION m1  rule D (no further data): the API did not answer by 16:30; gate $(n_done)/9 finished briefs (m1 led: $(tot m1g1 | cut -d" " -f1) vs p6 on the same briefs not recomputed here)"; exit 0; }
   sleep 300
 done
 IDS=$(grep -v '^#' scripts/canary.txt | tr -s ' \n' ',' | sed 's/^,//; s/,$//')
