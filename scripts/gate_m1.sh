@@ -26,8 +26,10 @@ print(t, n)
 PY
 }
 
-log "waiting for 12:45 and set m1"
-while [ "$(now)" -lt 1245 ] || [ ! -f out/template_cc/m1/.built ]; do sleep 60; done   # .built: written by build_set.sh when the m1 build + lint are done
+log "waiting for the m1 build (out/template_cc/m1/.built)"
+# Early start: as soon as the m1 build is complete (.built, written by build_set.sh) - no waiting for 12:45. The guard below then
+# checks that it matches M1_FLAGS.txt and policies_fixed, and refuses otherwise.
+while [ ! -f out/template_cc/m1/.built ]; do sleep 60; done
 
 python3 - >> $LOG <<'PY' || { log "REFUSED: set m1 was not built from policies_fixed (rebuild: scripts/build_set.sh m1 <features>)"; exit 3; }
 import json, sys
@@ -61,7 +63,8 @@ while [ "$(n_done)" -lt 9 ] && [ "$(now)" -lt 1400 ]; do
     tries=$(cat $ST/$b.tries 2>/dev/null || echo 0)
     log "m1g1 $b (try $((tries + 1)))"
     echo $((tries + 1)) > $ST/$b.tries
-    ONLY_BRIEFS=$b scripts/run_cases.sh . m1 m1g --skip 10 --limit 10 1 >> $LOG 2>&1
+    ONLY_BRIEFS=$b scripts/run_cases.sh . m1 m1g --skip 10 --limit 10 1 >> $LOG 2>&1; rc=$?
+    if [ "$rc" = 3 ]; then echo $tries > $ST/$b.tries; log "lanes busy: waiting 60 s (not a failed try)"; sleep 60; continue; fi   # exit 3 = no free lane
     if [ -f $E/freya/$b.m1g1.json ]; then progressed=1; continue; fi
     if grep -E "50[234]|Bad Gateway|Gateway Time|Service Unavailable" $E/chain-m1g.log 2>/dev/null | tail -5 | grep -q .; then why="API error (5xx)"; else why="no result"; fi
     if [ "$tries" -ge 1 ]; then touch $ST/$b.abandoned; log "m1g1 $b failed twice ($why): left for rule C"
