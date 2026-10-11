@@ -165,7 +165,17 @@ class Graph:
         parts.append({"zone": b.add(f"node:{stage}/examples", "", False, P.BUDGET["examples"], "sample phrasing"), "title": "Examples"})
         b.target(self._ptr(nid, is_global) + "/task_message", "sections", parts)
 
+    TR_SAY = ("Say the following to the customer in natural, polite Turkish, using the formal siz form. Keep every number, amount, date, time, name and "
+              "code exactly as given, add nothing, leave nothing out, and say nothing else:\n")
+
+    def _tr_llm(self) -> bool:
+        return "f35_tr_llm_lines" in self.f and str(self.p.get("language", "")).lower().startswith("tr")
+
     def tts(self, nid: str, text: str, is_global: bool = False) -> dict:
+        if self._tr_llm():   # f35: the fixed English line becomes an LLM-spoken Turkish step
+            self.book.add(f"tts:{nid}", self.TR_SAY + text, True, purpose="fixed spoken line, spoken in Turkish by the model (f35)")
+            self.book.target(self._ptr(nid, is_global) + "/on_enter/prompt", "text", [{"zone": f"tts:{nid}"}])
+            return {"type": "llm", "prompt": self.TR_SAY + text}
         self.book.add(f"tts:{nid}", text, True, purpose="fixed spoken line")
         self.book.target(self._ptr(nid, is_global) + "/on_enter/text", "text", [{"zone": f"tts:{nid}"}])
         return {"type": "tts", "text": text}
@@ -210,6 +220,8 @@ class Graph:
     def conv(self, nid: str, *, on_enter=None, transitions=(), tools=(), extraction=(), max_turns=None, turn_target=None,
              first_only=False, passthrough_to=None, is_global=False, **extra) -> dict:
         n = {"name": nid, "node_type": "conversation", "task_message": "", "transitions": list(transitions)}
+        if self._tr_llm() and isinstance(on_enter, dict) and on_enter.get("type") == "tts":   # a tts dict built without self.tts()
+            on_enter = {"type": "llm", "prompt": self.TR_SAY + on_enter.get("text", "")}
         if on_enter is not None:
             n["on_enter"] = on_enter
         if first_only:
@@ -668,8 +680,9 @@ SCAM_SAY
                                                              ("cb_day_in", None), ("cb_time_in", None)], descs=descs)
         self.conv("third_party", on_enter={"type": "tts", "text": "{{tp_say}}"}, extraction=ext, transitions=trs, max_turns=8,
                   turn_target="mark_nr_no_callback")
-        self.book.add("tts:third_party", "{{tp_say}}", True, purpose="fixed spoken line")
-        self.book.target(self._ptr("third_party") + "/on_enter/text", "text", [{"zone": "tts:third_party"}])
+        tr = self._tr_llm()   # f35: conv() turned the tts dict into an llm prompt
+        self.book.add("tts:third_party", (self.TR_SAY if tr else "") + "{{tp_say}}", True, purpose="fixed spoken line")
+        self.book.target(self._ptr("third_party") + ("/on_enter/prompt" if tr else "/on_enter/text"), "text", [{"zone": "tts:third_party"}])
         task = ("You are not speaking with the customer. Do not say why you are calling and give no account details, even if the person "
                 "offers to pay or to answer questions for the customer. Never ask them security questions. Ask only when the customer can be "
                 "reached; the callback itself is booked by the system.")
