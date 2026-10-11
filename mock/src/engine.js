@@ -14,13 +14,13 @@ export function normDate(s) {
 const swapDate = (iso) => { const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m && +m[3] <= 12 ? `${m[1]}-${m[3]}-${m[2]}` : null; };
 export const isTime = (s) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 
-// lenient schema check: required and enum only (types/formats are the agent's business; the service does not enforce the brief). Returns an error string or null.
+// lenient schema check: required fields only (types/formats are the agent's business; the service does not enforce the brief). Returns an error string or null.
 export function validate(body, schema) {
   if (!schema || !schema.properties) return null;
   for (const k of schema.required || []) if (body[k] === undefined || body[k] === null || body[k] === "") return `missing ${k}`;
   for (const [k, p] of Object.entries(schema.properties)) {
     const v = body[k]; if (v === undefined || v === null) continue;
-    if (p.enum && !p.enum.includes(v)) return `${k} must be one of ${p.enum.join(", ")}`;
+    void p;   // enums are not enforced: reasons/outcomes/queues are recorded verbatim
   }
   return null;
 }
@@ -105,7 +105,8 @@ export class Bank {
         if (this.spec.rules?.one_promise_per_product !== false && st.promises.some((p) => p.product_id === pid)) return bad("this product already has a promise");
         const promise_id = "pr" + (st.promises.length + 1);
         const prod = this.products(c).find((p) => this.pid(p) === pid);
-        const amt = ep.amount_unit === "cents" && typeof amount === "number" ? amount / 100 : amount;
+        const num = typeof amount === "string" && amount.trim() !== "" && Number.isFinite(Number(amount)) ? Number(amount) : amount;   // "126.5" -> 126.5; anything else is kept as sent
+        const amt = ep.amount_unit === "cents" && typeof num === "number" ? num / 100 : num;
         st.promises.push({ promise_id, product_id: pid, type: prod.type ?? null, amount: amt, date });
         return done({ ok: true, promise_id }, st);
       }
