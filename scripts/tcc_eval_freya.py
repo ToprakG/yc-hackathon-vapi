@@ -187,7 +187,7 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, seal
                          "call_id": v.get("callId"), "tools": [x["tool"] for x in ledger.get("calls") or []]})
     finally:
         runner.close()
-    if freya_retry.is_outage(rows):  # no customer made any tool call: a Freya outage, not an agent failure -> every case MISSING, no result file
+    if freya_retry.is_outage(rows) or (not rows and missing):  # (also: every case without a verdict, e.g. a cancelled queue that never started)  # no customer made any tool call: a Freya outage, not an agent failure -> every case MISSING, no result file
         missing, rows = [c["id"] for c in chosen], []
         print(f"{brief}: FREYA OUTAGE signature (no tool call in any of {len(chosen)} cases): all MISSING, not counted", flush=True)
         (OUT).mkdir(parents=True, exist_ok=True)
