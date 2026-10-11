@@ -1537,6 +1537,11 @@ ID_INIT        vars['cb_state'] = 'none'
         return ("f24_day_once" in self.f and "f11_promise_typed" in self.f and "f7_router" in self.f
                 and verified(self.p, "/ask_limits/vague_date") and "vague_limit" in self.cfg)
 
+    @property
+    def vague_signal(self) -> bool:
+        """F24 sub-switch: only when the brief has the vague-day rule (day_once: the day-ask limit verified against the brief text)."""
+        return "f24_vague_signal" in self.f and self.day_once
+
     def _restructuring_notes(self) -> bool:
         return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]
                     and (self.p.get("note_map") or {}).get(self.p["notes_on_restructuring"]))
@@ -1557,6 +1562,9 @@ ID_INIT        vars['cb_state'] = 'none'
                                 dispute_first=self.dispute_first)
         side_descs = {"side": side_text} if (f4 or f7 or f16 or self.dispute_first) else None
         side_budget = {"side": len(side_text) + 300} if f16 else None
+        if self.vague_signal:  # F24: a "not today, but later" turn is vague, so the exact day is asked instead of a first offer
+            side_descs = dict(side_descs or {}, offer_intent=P.EXTRACT["offer_intent"] + P.VAGUE_SIGNAL)
+            side_budget = dict(side_budget or {}, offer_intent=len(P.EXTRACT["offer_intent"] + P.VAGUE_SIGNAL) + 100)
         if self.amount_assembly:  # the tail of a cut-off self-correction must reach the code
             side_descs = dict(side_descs or {}, offer_amount_text=P.EXTRACT["offer_amount_text"] + P.AMOUNT_TAIL)
         if self.multi:

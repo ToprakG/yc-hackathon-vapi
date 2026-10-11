@@ -77,3 +77,48 @@ def test_f25_dispute_wins_over_a_refusal_and_degrades_without_the_quote():
     ref, _, _ = build(BASE, drop)
     off, _, _ = build(BASE + ",f25_dispute_wins", drop)
     assert json.dumps(off, sort_keys=True) == json.dumps(ref, sort_keys=True)
+
+
+def _offer_desc(wf):
+    return next(e for e in wf["nodes"]["negotiate"]["extraction_schema"] if e["name"] == "offer_intent")["description"]
+
+
+def test_vague_signal_marks_a_not_today_with_a_time_hint_as_vague():
+    wf, pol, api = build(BASE + ",f24_day_once")  # sub-switch is on whenever f24 is on
+    assert "is vague, not none" in _offer_desc(wf)
+    assert compiler.lint(wf, pol, api)["errors"] == []
+    off, _, _ = build(BASE + ",f24_day_once,-f24_vague_signal")
+    assert "is vague, not none" not in _offer_desc(off)
+    nof24, _, _ = build(BASE)
+    assert "is vague, not none" not in _offer_desc(nof24)
+
+
+def test_vague_signal_needs_the_vague_day_rule_of_the_brief():
+    def no_rule(pol):  # the brief has no vague-day rule: no verified limit
+        pol["_source"] = {k: v for k, v in pol["_source"].items() if "vague_date" not in k}
+
+    def unverified(pol):
+        pol["_source"] = {k: ("UNVERIFIED: " + v if "vague_date" in k else v) for k, v in pol["_source"].items()}
+
+    for mut in (no_rule, unverified):
+        ref, _, _ = build(BASE, mut)
+        wf, _, _ = build(BASE + ",f24_day_once", mut)
+        assert "is vague, not none" not in _offer_desc(wf), mut.__name__
+        assert json.dumps(wf, sort_keys=True) == json.dumps(ref, sort_keys=True), mut.__name__
+
+
+def test_attempt_plan_path_is_untouched_by_the_vague_signal():
+    wf, pol, _ = build(BASE + ",f24_day_once")
+    v = after_setup_and_facts(wf, pol, NOW, 1)
+    # a plain refusal (offer_intent none, no day asked yet) is not routed to the day step: the attempt plan keeps its own trigger
+    tr = [t for t in wf["nodes"]["negotiate"]["transitions"] if t["description"].startswith("the exact day was asked")]
+    conds = json.dumps(tr[0]["condition"])
+    assert '"day_asked"' in conds and '"operand": "1"' in conds
+    # a named day after the deadline gets the deadline line, not the day question, and does not mark the day as asked
+    late = run_code(wf, "promise_check", dict(v, offer_intent="proposes", offer_amount_text="the full amount", offer_date_text="the 28th of March"))
+    assert "latest date" in late["say_line"].lower() and late.get("day_asked") != "1"
+    # a vague answer: the day is asked once, then the deadline
+    first = run_code(wf, "promise_check", dict(v, offer_intent="vague"))
+    assert first["day_asked"] == "1" and "which day exactly" in first["say_line"].lower()
+    second = run_code(wf, "promise_check", dict(first, offer_intent="vague"))
+    assert "latest date" in second["say_line"].lower()

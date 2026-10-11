@@ -308,6 +308,8 @@ GOODBYE_INTENT = ("The person says goodbye or thanks you to end the call, after 
 
 # --- extraction descriptions -----------------------------------------------------------------------------------------
 
+VAGUE_SIGNAL = (" A refusal for today that gives any time hint without an exact day (later, once something happens, when money arrives) "
+                "is vague, not none; none is only a refusal with no hint of a later payment.")
 AMOUNT_TAIL = (" Copy it with any self-correction exactly as said, also when the message stops in the middle of it "
                "(for example 'twelve hundred, sorry, I'): never drop the words after the number.")
 
