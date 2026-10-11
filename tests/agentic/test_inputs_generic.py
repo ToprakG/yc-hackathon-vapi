@@ -72,3 +72,20 @@ def test_dotted_operation_names_become_valid_function_names_and_keep_their_url()
     t = S.summarize({"openapi": "3.0.0", "servers": [{"url": "https://svc.example/v1"}],
                      "paths": {"/cards.list": {"post": {"requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"a": {"type": "string"}}}}}}}}}})["tools"]
     assert list(t) == ["cards_list"] and t["cards_list"]["url"] == "https://svc.example/v1/cards.list" and t["cards_list"]["path"] == "/cards.list"
+
+
+def test_scope_limits_must_reach_the_agent():
+    from builder.agentic.tools import lint as L
+    wf = {"system_prompt": "Only the last 3 invoices can be sent; older ones are not available.", "nodes": {}}
+    r = L.Report()
+    L._check_scope_limits(wf, r, [{"request": "all invoices", "limit": "Only the last 3 invoices can be sent"}])
+    assert r.errors == [] and r.warnings == []
+    r = L.Report()
+    L._check_scope_limits(wf, r, [{"request": "all invoices", "limit": "Only the last 3 invoices can be sent"}, {"request": "x", "limit": "Cash advances are not handled here"}])
+    assert r.errors == [] and len(r.warnings) == 1
+    r = L.Report()
+    L._check_scope_limits(wf, r, [{"request": "x", "limit": "Cash advances are not handled here"}])
+    assert len(r.errors) == 1 and "reaches the agent" in r.errors[0]["msg"]
+    r = L.Report()
+    L._check_scope_limits(wf, r, None)
+    assert r.errors == [] and r.warnings == []

@@ -24,6 +24,8 @@ Language: the workflow is entirely in the language of the brief documents (syste
 
 Envelopes and auth: if the API summary shows ENVELOPE or AUTH lines, or the documents define a token, a request wrapper, required headers or a fixed response shape, model them for every tool as reference/envelope-and-auth.md says (pre_process_code hook, token step, response guards); do not call the API as if it were flat.
 
+Scope limits: extract every out-of-scope / not-supported / only-partly-supported item from ALL documents into policy.scope_limits ({{request, limit, quote, source}}) and put each limit sentence into the system prompt. When a caller asks for something only partly supported, say the limit explicitly first, then offer or do the supported part; never imply the unsupported part was done.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:

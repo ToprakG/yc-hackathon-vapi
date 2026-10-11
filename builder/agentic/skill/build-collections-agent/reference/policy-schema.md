@@ -24,6 +24,7 @@ take every value from the brief and the tool API.
 |---|---|---|
 | `bank` | string | The bank's name as the agent says it. |
 | `language` | string | ISO code of the language the brief is written in and the agent speaks (`en`, `de`, `tr`, ...), detected from the brief text. See `language.md`. |
+| `scope_limits` | list[object] | EVERY out-of-scope, not-supported or only-partly-supported item from ALL documents (the "out" lists of analyses, FAQ answers, mails, open points, meeting notes): `{"request": what the caller asks for, "limit": the sentence the agent says about the limit (in the call's language), "quote": exact source quote, "source": file}`. Each `limit` goes verbatim into the system prompt (lint checks). |
 | `currency` | string or null | The currency symbol or word exactly as the brief writes it next to amounts; `null` when the brief names none. Spoken amounts use it. |
 | `address` | string | How to address the customer, with `{field}` placeholders from the call variables, e.g. `"{title} {last_name}"`. |
 | `call_variables` | list[string] | Every call variable the brief says a call starts with, e.g. `["customer_id", "first_name", "now"]`. Lint uses it. |

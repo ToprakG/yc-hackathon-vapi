@@ -62,6 +62,13 @@ Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`,
      its entry with `overridden_by` set to the rule that replaces it.
 3. Raw material: collect rules scattered across messages, apply the latest one, record the override.
 
+#### Scope limits (while extracting)
+Read ALL documents for what the service does NOT do or does only in part (out-of-scope lists, FAQ, mails, open points, "only the last 3 invoices can be sent", "not for business accounts", "handled by an agent").
+Write each into `policy.scope_limits` and put its `limit` sentence into the system prompt. When a caller asks for something only partly supported: say the limit
+explicitly FIRST, then offer or do the supported part; never imply the unsupported part was done (do not say "sent" / "changed" / "recorded" for a request the
+service cannot fulfil as asked). Example from another domain: a caller asks for their invoices of the whole year by mail, but only the last 3 can be sent -> say
+"only the last 3 invoices can be sent", then offer those 3; do not say the year's invoices were sent.
+
 ### 3. Design (at most 2 minutes)
 
 Decide the stages from the documents, not from habit (see 4.1). List the nodes, the global nodes and the close strategy. For every rule decide **where it lives**: a code node, a

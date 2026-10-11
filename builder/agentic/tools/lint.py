@@ -751,7 +751,25 @@ def _strings(o):
             yield from _strings(v)
 
 
-def lint(wf, api_summary: dict, call_vars=None, unused_tools=(), language=None) -> dict:
+def _norm_text(t) -> str:
+    return " ".join(re.sub(r"[^\w]+", " ", str(t or "").lower()).split())
+
+
+def _check_scope_limits(wf, r: Report, scope_limits):
+    """policy.scope_limits = [{request, limit, quote}]: what the documents say is out of scope or only partly supported. The `limit` sentences must reach the agent:
+    in the system prompt, a node prompt, a fixed line or a code sentence. None of them anywhere is an error; a single missing one is a warning."""
+    items = [x for x in (scope_limits or []) if isinstance(x, dict) and str(x.get("limit") or "").strip()]
+    if not items:
+        return
+    blob = _norm_text(json.dumps(wf, ensure_ascii=False))
+    missing = [x for x in items if _norm_text(x["limit"]) not in blob]
+    for x in missing:
+        r.warn("$.system_prompt", f"scope limit not found verbatim in the workflow: {str(x['limit'])[:90]!r} (request: {str(x.get('request') or '')[:60]!r})")
+    if len(missing) == len(items):
+        r.err("$.system_prompt", f"none of the {len(items)} policy.scope_limits reaches the agent: put each limit sentence into the system prompt (or the node that handles the request)")
+
+
+def lint(wf, api_summary: dict, call_vars=None, unused_tools=(), language=None, scope_limits=None) -> dict:
     r = Report()
     if not isinstance(wf, dict):
         r.err("$", "workflow must be a JSON object")
@@ -773,6 +791,7 @@ def lint(wf, api_summary: dict, call_vars=None, unused_tools=(), language=None) 
     _check_prompts(wf, r, names, prefixes)
     _check_collections(wf, api_summary, r, set(unused_tools or ()))
     _check_language(wf, r, language)
+    _check_scope_limits(wf, r, scope_limits)
     return r.as_dict()
 
 
@@ -799,7 +818,8 @@ def lint_file(workflow_path, api_summary: dict, policy_path=None, last_good_path
         except json.JSONDecodeError:
             policy = None
     call_vars, unused = policy_hints(policy)
-    report = lint(wf, api_summary, call_vars, unused, (policy or {}).get("language") if isinstance(policy, dict) else None)
+    report = lint(wf, api_summary, call_vars, unused, (policy or {}).get("language") if isinstance(policy, dict) else None,
+                  (policy or {}).get("scope_limits") if isinstance(policy, dict) else None)
     if not report["errors"] and last_good_path:
         shutil.copyfile(p, last_good_path)
         report["saved_last_good"] = True
