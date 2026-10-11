@@ -99,6 +99,40 @@ def spoken_full(d):
     return spoken(d) + ' (' + d.isoformat() + ')'
 
 
+def clean_line(line, banned, fallback):
+    """F22: a line spoken before identity is verified never holds a banned word; else the fixed fallback line."""
+    low = ' ' + re.sub(r'[^a-z0-9]+', ' ', str(line).lower()) + ' '
+    for w in banned or []:
+        k = re.sub(r'[^a-z0-9]+', ' ', str(w).lower()).strip()
+        if k and ' ' + k + ' ' in low:
+            return fallback
+    return line
+
+
+def cb_window_line(allowed, today):
+    """F22: the spoken form of the allowed callback times (cb_allowed is computed in setup, later than now)."""
+    parts = []
+    for a in allowed:
+        d = datetime.date.fromisoformat(a['date'])
+        rel = 'today' if d == today else ('tomorrow' if d == today + datetime.timedelta(days=1) else '')
+        parts.append((rel + ', ' if rel else '') + spoken(d) + ', from ' + a['start'] + ' to ' + a['end'])
+    return ('We can call back ' + ' or '.join(parts) + '.') if parts else ''
+
+
+def cb_pick(day_text, time_text, allowed, today):
+    """F22: (date, time, inside) from what the person said; inside = a whole allowed day/time pair, bounds included."""
+    low = str(day_text or '').lower()
+    d = to_iso(day_text, today) if str(day_text or '').strip() else ''
+    if not d:
+        if 'tomorrow' in low:
+            d = (today + datetime.timedelta(days=1)).isoformat()
+        elif 'today' in low or 'tonight' in low:
+            d = today.isoformat()
+    t = to_hhmm(time_text) if str(time_text or '').strip() else ''
+    inside = bool(d and t) and any(a['date'] == d and a['start'] <= t <= a['end'] for a in allowed)
+    return d, t, inside
+
+
 def money(x):
     s = '%.2f' % float(x)
     return s[:-3] if s.endswith('.00') else s

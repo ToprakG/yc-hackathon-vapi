@@ -5,6 +5,10 @@
 #   FINAL_VOTES=3  number of independent extractions; id_decline and attempt_plan[*].cap_at_deadline are settled over them by
 #                  builder.template_cc.final_vote (brief-text rule, else majority, else a verifier quote). 1 = a single extraction.
 #   CONFIG=...     optional testbed config.json: also prints the policy_critical misses (scoring only; the builder never reads it)
+#   RULE_COVERAGE=off      skip the rule-coverage step; RULE_COVERAGE_ENFORCE=1 makes it fail the build (default 0: report only)
+# After the compile: unknown_rules.py injects every normative sentence that fits no rule type (verbatim, into its stage's
+# prompt) and writes UNKNOWN.md; rule_coverage.py then lists the rules the compiler enforces only in prompt text or not at
+# all. Report only: it never fails the build unless RULE_COVERAGE_ENFORCE=1.
 # Nothing is sent to Freya (--save none; FREYA_API_KEY is removed from the build's environment).
 cd "$(dirname "$0")/.." || exit 2
 # --disable f17_x,f18_y : switch flags off for THIS brief only (a misbehaving rule), without touching the compiler
@@ -80,3 +84,15 @@ if config:
     r = subprocess.run(["python3", "scripts/policy_critical.py", str(out / "policy.json"), config, "--api", api] + sum([["--brief", b] for b in __import__("os").environ.get("BRIEFS_CSV", "").split(",") if b], []), capture_output=True, text=True)
     print("policy_critical:", r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[:200])
 PY
+
+RC2=0
+if [ "${RULE_COVERAGE:-on}" != "off" ] && [ -f "$OUT/workflow.json" ] && [ -f "$OUT/policy.json" ]; then
+  echo "--- rule coverage ---"
+  env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.unknown_rules "${BRIEFS[@]}" "$OUT/policy.json" "$OUT/workflow.json" \
+    || echo "unknown_rules failed (exit $?)"
+  RULE_COVERAGE_ENFORCE="${RULE_COVERAGE_ENFORCE:-0}" .venv310/bin/python scripts/rule_coverage.py "${BRIEFS[@]}" "$OUT/policy.json" "$OUT/workflow.json" --out "$OUT" --quiet | tee "$OUT/rule_coverage.txt"
+  RC2=${PIPESTATUS[0]}
+  [ "$RC2" -eq 0 ] || echo "needed a human: rule types the compiler does not enforce in code (see $OUT/rule_coverage.txt, GAPS.md)"
+fi
+[ "$RC2" -eq 0 ] || exit "$RC2"
+[ "$RC" -eq 0 ] || exit "$RC"

@@ -9,8 +9,10 @@ ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discou
        "f12_slot_summary", "f13_verifier", "f14_rules_ifthen", "f15_hardship_terms", "f16_intents",
        "f18_side_resume", "f19_refusal_rule", "f20_once_flags", "f21_spoken_answers", "f24_day_once",
        "f25_dispute_wins", "f26_amount_assembly"]
+# opt-in: never part of "all"; a flag with no verified policy parameter changes nothing for that brief
+OPT_IN = ["f22_forbidden_disclosure"]
 _SHORT: dict = {}
-for _n in ALL:
+for _n in ALL + OPT_IN:
     _SHORT.setdefault(_n.split("_", 1)[0], _n)  # a short id names the first flag that has it (f16 = f16_intents)
 
 
