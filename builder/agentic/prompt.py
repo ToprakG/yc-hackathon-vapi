@@ -32,6 +32,8 @@ Efficiency: the whole case folder is already ingested into the brief file(s) und
 
 Claims and handoffs (reference/robustness.md 4-7): say sent/changed/recorded only after the tool confirmed success in this call, after reading the value back and getting an explicit yes; a request for a person gets the documents' handoff sentence and the handoff at once; every answer that is not the documents' success is a failure, including unlisted error codes (never read codes or service messages to the caller); say each currency by name with every amount the documents ask for, and name every currency with nothing owed in one sentence.
 
+Code nodes (reference/robustness.md 8): the engine delivers a tool answer as <node>_response.data (one more `data` level when the API body has its own outer `data`); run every code node that reads an answer through run_snippet on the documents' example success response and on an error response; the service-error ending is only for a failed call, never the fallback of a parsing step.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:

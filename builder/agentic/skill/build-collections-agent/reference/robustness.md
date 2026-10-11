@@ -42,3 +42,12 @@
 - Say each currency by its spoken name as the documents write it (never a code or symbol), every amount the documents ask to read for it (for example the amount owed, the minimum payment, the remaining
   amounts) with its currency, and, when some currencies have nothing owed, ONE sentence that names each of those currencies. A currency block that is missing in the answer is not the same as a
   block that says nothing is owed: do not invent either; follow the documents.
+
+## 8. A code node must read the response the way the engine delivers it (test it on the real shape)
+- The engine stores an API answer under `<node id>_response`; the API's JSON body is `<node id>_response.data`. When the body itself has an outer `data` object (and a `result` / status
+  object), the fields sit one level deeper: `<node id>_response.data.data.<field>`, lists as `...data.data.<list>.<i>.<field>`. Read the documents' example response and write the key
+  paths from it, with that extra level.
+- Before finishing, run EVERY code node that reads a tool answer with `run_snippet` on the documents' example success response (flattened exactly like that) and on an error answer. A code node
+  whose expected key is missing must NOT fall through to the service-error ending when the call actually succeeded: if the count/route cannot be computed, look for the data under both
+  `...data.<list>` and `...data.data.<list>` before giving up.
+- The service-error ending is for a failed call (non-success status or code), never the default branch of a parsing step.
