@@ -44,3 +44,24 @@ def test_auth_scheme_and_envelope_reach_the_agent_text():
     from builder.agentic.tools import openapi_summary as S
     text = S.render(S.summarize(_spec()))
     assert "AUTH scheme gw" in text and "ENVELOPE:" in text and "inside the object 'data'" in text
+
+
+def test_an_oauth2_client_credentials_flow_becomes_a_token_tool_and_the_fragment_lints():
+    import json
+    from pathlib import Path
+    from builder.agentic.tools import openapi_summary as S
+    from builder.agentic.tools.lint import lint
+    spec = {"openapi": "3.0.0", "servers": [{"url": "https://svc.example/api/v1"}],
+            "components": {"securitySchemes": {"oa": {"type": "oauth2", "flows": {"clientCredentials": {"tokenUrl": "/oauth2/token", "scopes": {"read": "r"}}}}}},
+            "security": [{"oa": []}], "paths": {"/do.it": {"post": {"requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"x": {"type": "string"}}}}}}}}}}
+    api = S.summarize(spec)
+    assert api["token_flow"]["tokenUrl"] == "https://svc.example/oauth2/token" and api["tools"]["oauth_token"]["url"] == "https://svc.example/oauth2/token"
+    assert "TOKEN FLOW:" in S.render(api)
+    frag = json.loads((Path(__file__).resolve().parents[2] / "builder/agentic/skill/build-collections-agent/templates/token_step_node.json").read_text())
+    frag["pre_actions"][0]["function"]["parameters"]["properties"]["url"]["default"] = api["tools"]["oauth_token"]["url"]
+    frag["passthrough_default_transition"] = "done"
+    frag["transitions"][0]["target_node"] = "done"
+    wf = {"initial_node": "fetch_token", "system_prompt": "x", "test_variables": {"client_id": "id", "client_secret": "s"},
+          "nodes": {"fetch_token": frag, "done": {"name": "done", "node_type": "end_call", "on_enter": {"type": "silent"}, "transitions": [], "terminal": {"type": "function", "function": {"name": "end_call", "handler": "__function__:end_call", "parameters": {"type": "object", "properties": {"message_mode": {"type": "string", "default": "none"}}}}}}}}
+    errs = [e for e in lint(wf, api)["errors"] if "fetch_token" in e["path"] and "pre_actions" in e["path"]]
+    assert errs == [], errs

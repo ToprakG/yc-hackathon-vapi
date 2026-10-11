@@ -80,6 +80,17 @@ def _security(spec: dict) -> dict:
     return {"schemes": schemes, "global": spec.get("security") or []}
 
 
+def _token_flow(spec: dict, base: str):
+    """An OAuth2 clientCredentials flow with a tokenUrl, if the API declares one (a relative token URL is resolved against the server's origin)."""
+    from urllib.parse import urljoin  # noqa: PLC0415
+    for name, sch in ((spec.get("components") or {}).get("securitySchemes") or {}).items():
+        flow = ((_resolve(spec, sch).get("flows") or {}).get("clientCredentials") or {})
+        if flow.get("tokenUrl"):
+            url = flow["tokenUrl"] if str(flow["tokenUrl"]).startswith("http") else urljoin(base + "/", flow["tokenUrl"])
+            return {"scheme": name, "tokenUrl": url, "scopes": list((flow.get("scopes") or {}).keys())}
+    return None
+
+
 def summarize(spec: dict) -> dict:
     servers = spec.get("servers") or [{}]
     base = str(servers[0].get("url", "")).rstrip("/")
@@ -118,7 +129,15 @@ def summarize(spec: dict) -> dict:
                 "response": response_fields,
                 "statuses": errors,
             }
-    return {"security": _security(spec), "base_url": base, "title": (spec.get("info") or {}).get("title", ""), "tools": tools,
+    tflow = _token_flow(spec, base)
+    if tflow and "oauth_token" not in tools:   # the token request is a tool of its own: the workflow calls it once at the start of the call
+        tools["oauth_token"] = {"envelope": None, "security": [], "headers": [], "method": "POST", "path": tflow["tokenUrl"], "url": tflow["tokenUrl"],
+                                "summary": "OAuth2 client-credentials token request (form-encoded)", "token_flow": tflow,
+                                "request": {"grant_type": {"type": "string", "required": True, "enum": ["client_credentials"]},
+                                            "client_id": {"type": "string", "required": True}, "client_secret": {"type": "string", "required": True}},
+                                "required": ["grant_type", "client_id", "client_secret"],
+                                "response": {"access_token": {"type": "string", "required": True}, "expires_in": {"type": "integer", "required": False}}, "statuses": {}}
+    return {"security": _security(spec), "token_flow": tflow, "base_url": base, "title": (spec.get("info") or {}).get("title", ""), "tools": tools,
             "missing_kit_tools": [t for t in KIT_TOOLS if t not in tools]}
 
 
@@ -140,6 +159,10 @@ def render(summary: dict, max_chars: int = 14000) -> str:
     """Compact text for the agent: one block per tool."""
     out = [f"base URL: {summary['base_url']}"]
     sec = summary.get("security") or {}
+    tf = summary.get("token_flow")
+    if tf:
+        out.append(f"TOKEN FLOW: scheme {tf['scheme']} is OAuth2 client credentials; POST {tf['tokenUrl']} (form-encoded grant_type, client_id, client_secret) ONCE at the start of the call "
+                   "with templates/token_step_node.json (tool 'oauth_token' below), store access_token, and send 'Authorization: Bearer <access_token>' on every other tool.")
     for name, sch in (sec.get("schemes") or {}).items():
         out.append(f"AUTH scheme {name}: {sch}  (global requirement: {sec.get('global') or 'none declared'}) -> send it on every tool call (see reference/envelope-and-auth.md)")
     if summary["missing_kit_tools"] and len(summary["missing_kit_tools"]) < len(KIT_TOOLS):   # only for a kit-shaped API; an API that has none of the kit tools is not missing them

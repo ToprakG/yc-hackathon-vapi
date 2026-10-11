@@ -1,0 +1,84 @@
+{
+ "name": "fetch_token",
+ "node_type": "api_request",
+ "passthrough": true,
+ "passthrough_default_transition": "NEXT_NODE",
+ "on_enter": {
+  "type": "silent"
+ },
+ "disable_inactivity_monitor": true,
+ "pre_actions": [
+  {
+   "type": "function",
+   "config": {
+    "timeoutMs": 10000,
+    "maxRetries": 1
+   },
+   "function": {
+    "name": "oauth_token",
+    "handler": "__function__:api_call",
+    "description": "Fetch the access token once at the start of the call.",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "url": {
+       "type": "string",
+       "default": "TOKEN_URL_FROM_THE_SUMMARY"
+      },
+      "method": {
+       "type": "string",
+       "default": "POST"
+      },
+      "headers": {
+       "type": "object",
+       "properties": {
+        "Content-Type": {
+         "type": "string",
+         "default": "application/x-www-form-urlencoded"
+        }
+       }
+      },
+      "body": {
+       "type": "object",
+       "properties": {
+        "grant_type": {
+         "type": "string",
+         "default": "client_credentials"
+        },
+        "client_id": {
+         "type": "string",
+         "default": "{{client_id}}"
+        },
+        "client_secret": {
+         "type": "string",
+         "default": "{{client_secret}}"
+        }
+       },
+       "required": [
+        "grant_type",
+        "client_id",
+        "client_secret"
+       ]
+      }
+     }
+    }
+   },
+   "pre_process_code": "try:\n    from urllib.parse import urlencode\n    b = config.get('body') or {}\n    if isinstance(b, dict):\n        config['body'] = urlencode(b)\n    config.setdefault('headers', {})['Content-Type'] = 'application/x-www-form-urlencoded'\nexcept Exception:\n    pass\n"
+  }
+ ],
+ "response_mapping": [
+  {
+   "path": "data.access_token",
+   "variable": "access_token"
+  }
+ ],
+ "transitions": [
+  {
+   "target_node": "NEXT_NODE",
+   "description": "always (a failed token request still continues: the other calls send the header anyway)",
+   "condition": {
+    "operator": "always"
+   }
+  }
+ ]
+}

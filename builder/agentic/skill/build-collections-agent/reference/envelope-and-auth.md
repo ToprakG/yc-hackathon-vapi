@@ -22,7 +22,8 @@ config.setdefault('headers', {})['Content-Type'] = 'application/json'
 ## 2. Authentication (`AUTH scheme ...`, or a token section in the documents)
 - Bearer / API-key scheme: every call sends the header the scheme names (`Authorization: Bearer {{access_token}}`). Put it in the same `pre_process_code`
   (`config['headers']['Authorization'] = 'Bearer ' + vars.get('access_token', '')`), with `Accept: application/json` when the documents ask for it.
-- If a token endpoint is documented (a path, form fields, `expires_in`), fetch the token ONCE at the start of the call in an `api_request` node (or code node
+- If the summary prints `TOKEN FLOW:` (an OAuth2 clientCredentials tokenUrl) there is a tool `oauth_token`: copy `templates/token_step_node.json` as an `api_request` node right after the setup node (replace NEXT_NODE and TOKEN_URL_FROM_THE_SUMMARY; `client_id` / `client_secret` are `test_variables` placeholders, never real secrets). Every other tool's hook then sends `Authorization: Bearer <access_token>`.
+- If a token endpoint is documented only in the documents (a path, form fields, `expires_in`), fetch the token ONCE at the start of the call in an `api_request` node (or code node
   that cannot raise), store it in `access_token` and its lifetime in a variable; if the fetch fails, continue and still send the header (a test environment may
   not check it). The credentials come from call/context variables or placeholders declared in `test_variables`; never invent secrets, never print them.
 - On 401 with a token: fetch a new one and retry once, as the documents say.
