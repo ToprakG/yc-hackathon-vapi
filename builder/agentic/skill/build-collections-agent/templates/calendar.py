@@ -184,9 +184,55 @@ def resolve_date_words(text, today, next_weekday_weeks=1):
     return parse_date_words(s, today)
 
 
+# Spoken names per language (index 0 = Monday / January). English is the default; add the brief's language here when it is missing.
+NAMES = {
+    'en': (['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+           ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']),
+    'tr': (['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'],
+           ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']),
+    'de': (['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'],
+           ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']),
+    'fr': (['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'],
+           ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']),
+    'es': (['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'],
+           ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']),
+}
+
+
 def spoken_date(d):
     """'Friday 7 March'. Adapt the words to the brief's language."""
     return WEEKDAYS[d.weekday()].title() + ' ' + str(d.day) + ' ' + MONTHS[d.month - 1].title()
+
+
+def spoken_date_in(d, lang='en'):
+    """The date in the brief's language (the NAMES table): English 'Friday 7 March', 'tr' '7 Mart Cuma' (day, month, weekday outside English)."""
+    code = str(lang or 'en').lower()[:2]
+    if code not in NAMES or code == 'en':
+        return spoken_date(d)
+    days, months = NAMES[code]
+    return str(d.day) + ' ' + months[d.month - 1] + ' ' + days[d.weekday()]
+
+
+def money_say(amount, lang='en', currency=''):
+    """An amount the way it is spoken and written in the brief's language: 1234.5 -> '1.234,50' (tr, de, es, it, nl, pt),
+    '1 234,50' (fr); English '1,234.50'. A whole amount has no decimals. The currency word or symbol the BRIEF uses comes after the
+    number (pass it from policy.currency; leave it empty when the brief names none). Amounts sent to a tool stay plain numbers."""
+    v = round(float(amount), 2)
+    code = str(lang or 'en').lower()[:2]
+    whole, frac = ('%.2f' % v).split('.')
+    groups = []
+    while len(whole) > 3:
+        groups.insert(0, whole[-3:])
+        whole = whole[:-3]
+    groups.insert(0, whole)
+    if code in ('tr', 'de', 'es', 'it', 'nl', 'pt'):
+        text = '.'.join(groups) + ('' if frac == '00' else ',' + frac)
+    elif code == 'fr':
+        text = ' '.join(groups) + ('' if frac == '00' else ',' + frac)
+    else:
+        text = ','.join(groups) + ('' if frac == '00' else '.' + frac)
+    cur = str(currency or '').strip()
+    return text + (' ' + cur if cur else '')
 
 
 def parse_hhmm(text):

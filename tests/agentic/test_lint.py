@@ -236,3 +236,32 @@ def test_tool_call_on_entry_is_warned(base_agent, kit_api):
     wf = copy.deepcopy(base_agent)
     wf["nodes"]["collection"]["on_enter"] = {"type": "llm", "prompt": "Call create_promise for the agreed item, then confirm."}
     assert any("entry prompt makes the model call create_promise" in w for w in warnings(wf, kit_api))
+
+
+def _spoken(wf, text):
+    wf = copy.deepcopy(wf)
+    wf["system_prompt"] = text
+    return wf
+
+
+def test_language_check_flags_english_in_a_turkish_workflow(base_agent, kit_api):
+    en = "You are the phone assistant of the bank. Please speak with the customer and thank them for the time."
+    tr = "Bankanın telefon asistanısınız. Müşteriyle nazik ve kısa konuşun, bilgiyi yalnızca araçlardan alın."
+    msgs = [e["msg"] for e in lint.lint(_spoken(base_agent, en), kit_api, language="tr")["errors"]]
+    assert any("system prompt looks English" in m for m in msgs)
+    assert not [e for e in lint.lint(_spoken(base_agent, tr), kit_api, language="tr")["errors"] if "system prompt looks English" in e["msg"]]
+    assert not [e for e in lint.lint(_spoken(base_agent, en), kit_api, language="en")["errors"] if "looks English" in e["msg"]]
+    assert not [e for e in lint.lint(_spoken(base_agent, en), kit_api)["errors"] if "looks English" in e["msg"]]
+
+
+def test_language_check_reads_fixed_lines_and_code_sentences(base_agent, kit_api):
+    wf = copy.deepcopy(base_agent)
+    wf["nodes"]["greet"] = {"name": "greet", "node_type": "conversation", "on_enter": {"type": "tts", "text": "Hello, this is the assistant and you are welcome to the call."},
+                            "transitions": []}
+    msgs = [e["msg"] for e in lint.lint(wf, kit_api, language="tr")["errors"]]
+    assert any("fixed spoken line looks English" in m for m in msgs)
+    wf = with_prep(base_agent)
+    code = wf["nodes"]["prep"]["pre_actions"][0]["function"]["parameters"]["properties"]["code"]
+    code["default"] = "try:\n    vars['say'] = 'Could you please tell me the day that you would like to pay'\nexcept Exception:\n    vars['say'] = ''\n"
+    msgs = [e["msg"] for e in lint.lint(wf, kit_api, language="tr")["errors"]]
+    assert any("sentence in a code node looks English" in m for m in msgs)

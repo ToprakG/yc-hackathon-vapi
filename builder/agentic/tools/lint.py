@@ -680,7 +680,78 @@ def _check_collections(wf, api, r: Report, unused_tools):
             r.warn("$", f"tool {t!r} is not used anywhere; mark it unused in policy.json if the brief never needs it")
 
 
-def lint(wf, api_summary: dict, call_vars=None, unused_tools=()) -> dict:
+ENGLISH = frozenset("the and you your yours is are was were to of for with that this these those please can could would will shall have has "
+                    "had not we our us my it its be been am do does did if or but so what which who when where how why from at by "
+                    "thank thanks sorry hello goodbye yes no may might must should about into than then there their they them he she".split())
+SPOKEN_KEYS = ("task_message", "loop_prompt", "role_message", "routing_prompt")
+
+
+def english_share(text: str) -> tuple[int, float]:
+    """(word count, share of common English function words) of a text without {{placeholders}} and without code-like tokens."""
+    words = re.findall(r"[^\W\d_]+", re.sub(r"\{\{.*?\}\}", " ", str(text)))
+    if not words:
+        return 0, 0.0
+    return len(words), sum(w.lower() in ENGLISH for w in words) / len(words)
+
+
+def _code_sentences(code: str):
+    """String literals of a code node that read like sentences (4+ words): the agent may say them."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value.split()) >= 4 and "\n" not in node.value.strip():
+            yield node.value
+
+
+def _check_language(wf, r: Report, language):
+    """The workflow is in the documents' language: a spoken text (system prompt, fixed tts lines, sentences in code nodes) that is
+    mostly English function words is an error when the policy language is not English; a node prompt is a warning."""
+    lang = str(language or "").lower()[:2]
+    if not lang or lang == "en":
+        return
+
+    def judge(path, text, hard, what):
+        n, share = english_share(text)
+        if n >= 4 and share >= 0.3:
+            msg = f"{what} looks English but the policy language is {lang!r}: write it in that language"
+            (r.err if hard else r.warn)(path, msg + f" ({str(text)[:60]!r})")
+
+    judge("$.system_prompt", wf.get("system_prompt") or "", True, "the system prompt")
+
+    def walk(o, path):
+        if isinstance(o, dict):
+            if o.get("type") == "tts" and isinstance(o.get("text"), str):
+                judge(path + ".text", o["text"], True, "a fixed spoken line")
+            for k, v in o.items():
+                if k in SPOKEN_KEYS:
+                    for t in _strings(v):
+                        judge(f"{path}.{k}", t, False, "a node prompt")
+                elif k == "default" and isinstance(v, str) and "vars[" in v:
+                    for t in _code_sentences(v):
+                        judge(f"{path}.default", t, True, "a sentence in a code node")
+                else:
+                    walk(v, f"{path}.{k}")
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, f"{path}[{i}]")
+
+    walk({"nodes": wf.get("nodes") or {}, "global_nodes": wf.get("global_nodes") or {}, "tools": wf.get("tools") or []}, "$")
+
+
+def _strings(o):
+    if isinstance(o, str):
+        yield o
+    elif isinstance(o, dict):
+        for v in o.values():
+            yield from _strings(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _strings(v)
+
+
+def lint(wf, api_summary: dict, call_vars=None, unused_tools=(), language=None) -> dict:
     r = Report()
     if not isinstance(wf, dict):
         r.err("$", "workflow must be a JSON object")
@@ -701,6 +772,7 @@ def lint(wf, api_summary: dict, call_vars=None, unused_tools=()) -> dict:
     _check_platform_facts(wf, api_summary, r)
     _check_prompts(wf, r, names, prefixes)
     _check_collections(wf, api_summary, r, set(unused_tools or ()))
+    _check_language(wf, r, language)
     return r.as_dict()
 
 
@@ -727,7 +799,7 @@ def lint_file(workflow_path, api_summary: dict, policy_path=None, last_good_path
         except json.JSONDecodeError:
             policy = None
     call_vars, unused = policy_hints(policy)
-    report = lint(wf, api_summary, call_vars, unused)
+    report = lint(wf, api_summary, call_vars, unused, (policy or {}).get("language") if isinstance(policy, dict) else None)
     if not report["errors"] and last_good_path:
         shutil.copyfile(p, last_good_path)
         report["saved_last_good"] = True

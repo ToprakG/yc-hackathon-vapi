@@ -106,3 +106,28 @@ def test_resolve_explicit_day_wins_and_ordinal_words():
     assert cal.resolve_date_words("the 3rd", wed) == D("2031-04-03")  # day already past this month: next month
     assert cal.resolve_date_words("first of April", wed) == D("2031-04-01")
     assert cal.ordinals_to_digits("thirty-first") == "31th"
+
+
+def test_spoken_date_and_money_follow_the_language():
+    d = D("2026-10-22")
+    assert cal.spoken_date(d) == "Thursday 22 October"
+    assert cal.spoken_date_in(d, "tr") == "22 Ekim Perşembe"
+    assert cal.spoken_date_in(d, "xx") == "Thursday 22 October"  # unknown language: unchanged
+    assert cal.money_say(1234.5, "tr", "TL") == "1.234,50 TL"
+    assert cal.money_say(150, "tr") == "150"
+    assert cal.money_say(1234567.891, "de", "€") == "1.234.567,89 €"
+    assert cal.money_say(1234.5, "fr", "") == "1 234,50"
+    assert cal.money_say(1234.5, "en", "") == "1,234.50"
+
+
+def test_tr_speech_template_reads_turkish():
+    import re as _re
+    ns = {"re": _re}
+    exec((CAL_PATH.parent / "tr_speech.py").read_text(), ns)
+    tr = ns["tr_norm"]
+    assert tr("on dört Mart bin dokuz yüz seksen sekiz") == "14 march 1988"
+    assert tr("dört dört yedi bir") == "4 4 7 1"
+    assert tr("yüz elli buçuk lira") == "150.5 pounds"
+    assert tr("1.234,50 TL") == "1234.50 pounds"
+    assert tr("ayın on beşinde") == "15th"
+    assert "{{" not in (CAL_PATH.parent / "tr_speech.py").read_text()

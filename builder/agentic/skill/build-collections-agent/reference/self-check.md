@@ -35,7 +35,8 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
       `what_to_do_next` that quotes it).
 - [ ] The opening says only what the brief allows before verification; forbidden words are listed in
       `system_prompt` and avoided in every pre-verification line.
-- [ ] The agent speaks the brief's language everywhere, including fixed lines and spoken dates.
+- [ ] The agent speaks the brief's language everywhere (`reference/language.md`): system prompt, node prompts, fixed lines, sentences
+      built in code, hook texts, spoken dates and amounts. `lint_workflow` reports English left in a non-English workflow.
 - [ ] No `{{var}}` in a tts line or a `spoken_message` can be unset when it is spoken.
 
 ## Routes and endings

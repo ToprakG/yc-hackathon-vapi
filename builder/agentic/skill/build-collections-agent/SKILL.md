@@ -17,8 +17,8 @@ number the model had to work out by itself. So: read everything, extract everyth
 | `input/tools.openapi.json` | The bank's tool API. Field names, enums and URLs come only from here. |
 | `docs/` | The kit docs: `workflow-format.md`, `tools-and-code.md`, `api.md`. Read sections when a question comes up. |
 | `examples/pattern_demo.workflow.json` | A lint-clean example with **invented** values and its invented API `examples/pattern_demo.openapi.json`. Copy shapes, never values. |
-| `.claude/skills/build-collections-agent/reference/` | `platform-facts.md`, `call-architecture.md`, `freya-cookbook.md`, `policy-schema.md`, `unit-tests.md`, `self-check.md`. |
-| `.claude/skills/build-collections-agent/templates/` | `calendar.py` (business-day and money helpers) and `fragments/*.json`. |
+| `.claude/skills/build-collections-agent/reference/` | `platform-facts.md`, `call-architecture.md`, `freya-cookbook.md`, `policy-schema.md`, `unit-tests.md`, `self-check.md`, `language.md`. |
+| `.claude/skills/build-collections-agent/templates/` | `calendar.py` (business-day, language-aware date and money helpers), `tr_speech.py` (Turkish customer speech) and `fragments/*.json`. |
 | `out/` | The only place you may write. |
 
 Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`, `check_coverage`,
@@ -30,6 +30,8 @@ Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`,
 - Every value the agent sends or says (field names, enum values, sentences, numbers, dates, hours, holidays) comes
   from the brief or the tool API. Where the brief is silent, use the tool API's wording and record an `assumption`.
 - Every date rule starts from the call variable `now`, never the real clock.
+- The workflow is entirely in the brief's language (`policy.language`): system prompt, node prompts, fixed lines, sentences built in code, spoken dates and
+  amounts. Read `reference/language.md` in step 1. Sentences fixed by the brief are used verbatim.
 - Leave `agent_config` out. No `null` values.
 - Call `time_left` at every phase boundary. If time is short, a simpler lint-clean workflow beats a richer broken one.
 
@@ -42,7 +44,7 @@ Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`,
 2. Call `openapi_summary`. Note every renamed field, the amount unit (currency or integer cents), the callback field
    shape (date + time, or one datetime), the close shape (outcome + reason, or one code), enums, hints, counters and
    the 5xx wording.
-3. Read `reference/platform-facts.md` (what Freya really does, from practice runs), `reference/call-architecture.md`
+3. Decide `policy.language` from the brief text and read `reference/language.md`. Read `reference/platform-facts.md` (what Freya really does, from practice runs), `reference/call-architecture.md`
    and `reference/freya-cookbook.md`. Skim `examples/pattern_demo.workflow.json`.
 
 ### 2. Extract (at most 6 minutes)

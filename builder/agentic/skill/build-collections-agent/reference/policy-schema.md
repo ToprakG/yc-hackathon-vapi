@@ -23,7 +23,8 @@ take every value from the brief and the tool API.
 | Key | Type | Meaning |
 |---|---|---|
 | `bank` | string | The bank's name as the agent says it. |
-| `language` | string | ISO code of the language the agent speaks (`en`, `de`, ...). |
+| `language` | string | ISO code of the language the brief is written in and the agent speaks (`en`, `de`, `tr`, ...), detected from the brief text. See `language.md`. |
+| `currency` | string or null | The currency symbol or word exactly as the brief writes it next to amounts; `null` when the brief names none. Spoken amounts use it. |
 | `address` | string | How to address the customer, with `{field}` placeholders from the call variables, e.g. `"{title} {last_name}"`. |
 | `call_variables` | list[string] | Every call variable the brief says a call starts with, e.g. `["customer_id", "first_name", "now"]`. Lint uses it. |
 | `holidays` | list[ISO date] | Every non-business day the brief lists, as `YYYY-MM-DD`, sorted. Convert odd formats (`MON 03.03.31`). |
@@ -82,6 +83,7 @@ A brief may lack some situations: map them to `null`.
 {
   "bank": "Example Bank",
   "language": "en",
+  "currency": null,
   "address": "{title} {last_name}",
   "call_variables": ["customer_id", "first_name", "last_name", "title", "now"],
   "holidays": ["2031-03-14", "2031-04-02"],

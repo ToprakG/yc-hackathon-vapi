@@ -20,6 +20,8 @@ Stages: build only the stages the documents require. Do not add an identity chec
 
 Call variables: declare in the workflow (test_variables, policy.call_variables) every variable the documents say the agent receives at the start of the call, under the documents' own names, and never have the agent ask the caller for a value that is given as a call variable. Date decisions use the call's own date-time variable when the documents define one.
 
+Language: the workflow is entirely in the language of the brief documents (system prompt, node prompts, fixed lines, sentences built in code, spoken dates and amounts); sentences the brief fixes stay verbatim. Set policy.language from the brief text and read reference/language.md.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:
