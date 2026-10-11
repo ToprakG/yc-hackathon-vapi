@@ -63,8 +63,22 @@ def system_core(policy: dict) -> str:
             "tools. Amounts and dates come only from the facts you are given.")
 
 
-def system_forbidden(policy: dict) -> str:
-    words = ", ".join(f'"{w}"' for w in policy.get("forbidden_before_verify") or [])
+def forbidden_words(policy: dict, with_products: bool = False) -> list:
+    """The policy's words that must not be said before verification; F31 adds the product names (the labels of
+    product_types without their {placeholders}), which extraction lists in some runs and not in others."""
+    words = [str(w) for w in policy.get("forbidden_before_verify") or [] if str(w).strip()]
+    if with_products:
+        types = policy.get("product_types")
+        for t in (types.values() if isinstance(types, dict) else []):
+            label = " ".join(re.sub(r"\{[^}]*\}", " ", str(t.get("label") or "") if isinstance(t, dict) else "").split())
+            label = re.sub(r"\s+(ending|number|no\.?|with)$", "", label, flags=re.I)
+            if label and label.lower() not in {w.lower() for w in words}:
+                words.append(label)
+    return words
+
+
+def system_forbidden(policy: dict, with_products: bool = False) -> str:
+    words = ", ".join(f'"{w}"' for w in forbidden_words(policy, with_products))
     base = ("Until the identity checks have passed, do not say why you are calling and do not talk about money, "
             "products, amounts or the account, to anyone, including relatives.")
     return base + (f" Never say these words before that: {words}." if words else "")
