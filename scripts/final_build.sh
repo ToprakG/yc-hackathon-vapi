@@ -5,11 +5,27 @@
 #   CONFIG=...     optional testbed config.json: also prints the policy_critical misses (scoring only; the builder never reads it)
 # Nothing is sent to Freya (--save none; FREYA_API_KEY is removed from the build's environment).
 cd "$(dirname "$0")/.." || exit 2
-[ $# -ge 3 ] || { echo "usage: $0 <brief files...> <tool-api.json> <out-dir>"; exit 2; }
+# --disable f17_x,f18_y : switch flags off for THIS brief only (a misbehaving rule), without touching the compiler
+DISABLE=""; REST=()
+while [ $# -gt 0 ]; do case "$1" in --disable) DISABLE="$2"; shift 2;; --disable=*) DISABLE="${1#--disable=}"; shift;; *) REST+=("$1"); shift;; esac; done
+set -- "${REST[@]}"
+[ $# -ge 3 ] || { echo "usage: $0 [--disable flag,flag] <brief files...> <tool-api.json> <out-dir>"; exit 2; }
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
-FEATURES=${FEATURES:-$(python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
+FEATURES=${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
+if [ -n "$DISABLE" ]; then
+  FEATURES=$(python3 - "$FEATURES" "$DISABLE" <<'PY'
+import sys
+sys.path.insert(0, ".")
+from builder.template_cc import features as F
+on = F.parse(sys.argv[1]) - F.parse(",".join(f for f in sys.argv[2].split(",") if f))
+print(",".join(sorted(on)))
+PY
+)
+  echo "disabled for this brief: $DISABLE"
+fi
 mkdir -p "$OUT"; T0=$(date +%s)
 echo "features: $FEATURES"
+[ -n "${FINAL_BUILD_DRY:-}" ] && exit 0
 env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
   --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))
