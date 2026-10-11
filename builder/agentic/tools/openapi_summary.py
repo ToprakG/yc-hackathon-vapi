@@ -142,7 +142,7 @@ def render(summary: dict, max_chars: int = 14000) -> str:
     sec = summary.get("security") or {}
     for name, sch in (sec.get("schemes") or {}).items():
         out.append(f"AUTH scheme {name}: {sch}  (global requirement: {sec.get('global') or 'none declared'}) -> send it on every tool call (see reference/envelope-and-auth.md)")
-    if summary["missing_kit_tools"]:
+    if summary["missing_kit_tools"] and len(summary["missing_kit_tools"]) < len(KIT_TOOLS):   # only for a kit-shaped API; an API that has none of the kit tools is not missing them
         out.append("MISSING kit tools: " + ", ".join(summary["missing_kit_tools"]))
     for name, t in summary["tools"].items():
         out.append(f"\n{name}  {t['method']} {t['url']}")
