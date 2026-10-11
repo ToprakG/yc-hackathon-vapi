@@ -1,132 +1,103 @@
-# RUNBOOK_FINAL: the 20:00 run (Istanbul time)
+# RUNBOOK_FINAL: the 20:00 final (Istanbul time), zip case folder, Turkish, our own Cloudflare mock
 
-Hidden briefs open **20:00**, hard deadline **23:00**, our target: **submit by 21:30**.
+Facts (hackathon page, see `mock/REQUIREMENTS.md`): one case, "Freya Bank's credit card statement-debt line, in Turkish". Zip = a folder of the bank's documents (md, docx, pdf, xlsx), "Read BRIEF.md
+first; README.md says what each document is", plus "the bank's test customers, for your mock, and six example conversations" and the service contract. We "write your mock of the bank's services on
+Cloudflare Workers", deploy it, run `python3 builder/build.py {case_folder} {mock_url}`, commit the exported workflow + the trace, and send `submission.json` **before 23:00 Istanbul (20:00 UTC)**.
+The organizers load our workflow into their workspace; its tools call OUR mock: "If it is down, the conversations that reach it fail" - it must stay up until the results are out.
+Target: build started 20:25, submitted by 21:30. Hard stop 23:00.
 
-Two hidden briefs, run **one after the other** (one Freya simulation at a time per workspace). Budget per brief: 30 min, shipped by minute 26.
-Times below assume start at 20:00: brief 1 20:00 to 20:30, brief 2 20:30 to 21:00, packaging by 21:10, submit by 21:30 (23:00 is the hard limit, 90 min of slack for a re-run).
+## Who does what
+| who | job |
+|---|---|
+| **you (Ali)** | 20:00 download the zip (Submit tab / the e-mail), unzip into `case/`; have the Cloudflare login ready (`wrangler whoami` ok) and `ADMIN_TOKEN` chosen; at the end: team name + member names/emails, send `submission.json` to the address in the kit e-mail |
+| **S0** | owns `build.py`/flags/mode (frozen: `FINAL_FLAGS.txt`, `FINAL_MODE.txt`), runs the build, go/no-go calls, merges, the final commit/tag |
+| **S3** | `mock/convert.py`: the zip's test customers + service contract -> `mock/spec.<id>.json` (see `mock/SPEC.md`) |
+| **S2** | the Worker (`mock/`, Durable Object ledger): deploy, upload the spec, verify every endpoint, reset state, keep it up |
+| **S4 (me)** | checks (`check_turkish.py`, `dress_check_case.py`), packaging, `scripts/finish_submission.py`, the commit commands, submission validation |
+| S1 (suggested) | read `BRIEF.md`, `README.md` and the six example conversations; list for S0 every difference from the kit's contract (tool names, fields, enums, identity questions, outcomes) in the first 10 minutes |
 
-## FINAL FORMAT (read this first; it supersedes the "two briefs" wording further down)
-At **20:00 we get ONE hidden brief** (plus its tool spec and, for the evaluation, its cases). We run `final_run.sh` (at most 30 min), then the evaluation sims on Freya
-(`final_eval.sh`), then package and send. If the entry is in the top 10 the organizers re-run our builder 3 times on other briefs, so the submitted commit (`git describe final-submit`)
-must reproduce: nothing outside the repo, `README_RUN.md` setup, the Claude login, one Freya key.
-
-### Where the 20:00 files go (`<name>` = a short name you choose, e.g. `hidden1`)
-| file | goes to | used by |
+## Timeline
+| time | step | owner |
 |---|---|---|
-| the brief (one or more `.md`; a brief that builds on another is built together with it, list them in the same job) | `hidden/<name>.md` | `final_run.sh` |
-| the tool spec (OpenAPI json) | `hidden/<name>.openapi.json` and a copy `testbed/fake_briefs/<name>/tools.openapi.json` | `final_run.sh`; `final_eval.sh` (mock bank) |
-| the brief again | `testbed/fake_briefs/<name>/brief.md` (a copy; only documentation) | nobody reads it, keep it for the record |
-| cases / bank config (only if you run `final_eval.sh`, which the final does not) | `testbed/fake_briefs/<name>/cases.json` and `config.json` | `final_eval.sh` |
-**A hidden brief that builds on another one ("Brief B is Brief A with ..."), or a second hidden brief: at 20:00 save BOTH hidden briefs into `briefs/` first (file placement only, no code change), then run `build.py` once per brief.** The resolver finds the referenced brief in `briefs/` by its `# Brief X` title letter or the file name `brief-x.md`. Name the hidden files so they sort BEFORE our dev briefs, e.g. `briefs/00-hidden1.md`, `briefs/00-hidden2.md` (the first match in sorted order wins, and our dev `brief-a.md` / `brief-b.md` carry the titles Brief A / Brief B). Look for `brief refs: ... resolved ... found_in repo` in `<out>/final_run.log` (and `<out>/brief_resolution.json`) and check that `path` is the hidden file.
-`mkdir -p hidden testbed/fake_briefs/<name>` first. The builder (`final_run.sh`) reads only the brief(s) and the tool spec, never cases or config.
+| 19:45 | freeze (flags, code). Only the runbook steps below from now on | S0 |
+| 19:50 | `scripts/prefinal_tunnel.sh` (fresh tunnel check, the self-test uses a quick tunnel) | S0 |
+| **20:00** | zip opens. `mkdir case && unzip <zip> -d case/` (find the folder: `ls case`). Read `BRIEF.md`, `README.md`, the service contract, the test customers file, the six example conversations | you + S1 |
+| 20:00-20:10 | compare the contract with the kit's (`mock/REQUIREMENTS.md` section 5): same 7 tools? same fields/enums? identity questions? `FINAL_MODE`/self-test decision (Risk R2) | S1, S0 |
+| 20:05-20:20 | mock: S3 converts, S2 deploys + uploads the spec | S3, S2 |
+| 20:20-20:25 | verify the mock (below), reset its state, **GO/NO-GO** | S2, S4, S0 |
+| 20:25-20:55 | `python3 builder/build.py case/<folder> <mock_url> --members "..."` (30 min budget, ships at minute 26) | S0 |
+| 20:55-21:10 | checks (below), Turkish check, export present | S4 |
+| 21:10-21:25 | commit, `finish_submission.py`, final mock smoke + reset | S4, S2 |
+| **21:30** | send `submission.json` | you |
+| 21:30-22:45 | slack: re-run the build once if a check failed (keep the best run's workflow + its trace) | S0 |
+| 23:00 | closed | |
 
-### The commands, in order
-The OFFICIAL run command (what the organizers run again for the top-10 re-run) is `python3 builder/build.py <brief> [<more brief files>] <tool-api.json>`; it wraps `scripts/final_run.sh`
-(flags from `FINAL_FLAGS.txt`, patcher mode from `FINAL_MODE.txt`, 3 extractions voted, self-test on Freya, repair rounds, the last-green workflow saved to Freya and exported).
+## 1. Unzip and read (20:00)
 ```bash
-cd <repo>      # the checkout at the tag final-submit (git describe must say final-submit)
-# 1. build (at most 30 min; shipped by minute 26)
-python3 builder/build.py hidden/<name>.md hidden/<name>.openapi.json --out out/final/<name> 2>&1 | tee out/final/build.log
-# 2. package (workflow export from Freya, trace, build report, secret scan, the form fields)
-scripts/package_submission.sh out/final
+cd <repo>                       # the checkout at the frozen commit
+mkdir -p case && unzip -q ~/Downloads/<zip name>.zip -d case/ && find case -maxdepth 3 | head -50
 ```
-Results: `out/final/<name>/workflow.json` (last-green), the Freya export copied to `workflows/<slot>.workflow.json` (the committed path), the trace under `traces/tcc-final-*/` (trace.txt + events.jsonl), and the last line of
-the build prints `{"status": "ok", "slot": ..., "saved": "workflows/...", "trace": "traces/..."}`. A brief that builds on another is built with it automatically (the referenced brief comes from the call or from `briefs/`).
-**The evaluation sims are NOT part of the final**: the organizers score the exported agents, we do not submit sim results. `scripts/final_eval.sh` stays in the repo but is not run (the 19:20 rehearsal is cancelled).
-Check after 1: `build_report.json` has `"status": "ok"`, lint 0; the build.py line says ok. Do not re-run with changed code. Never edit the compiler or policy during the run.
+`{case_folder}` = the one folder inside (the page example: `FreyaBank-Ekstre-Borc/`). Do NOT write anything from the final case into the builder (rule). Fixing a crash on a file type is allowed.
 
-## 0. Before 20:00 (5 min)
-- `git status` clean on the commit that will be submitted (`git rev-parse HEAD`; S0 merges, so check this is the merged hash).
-- `.env` keys present (**names only**): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_WORKSPACE_ID`, `FREYA_API_URL` (default staging URL).
-  There is **no** Anthropic / OpenRouter key in the final setup: the only LLM path is the local `claude` login (`claude_cli`).
-  `FREYA_API_KEY_W2` is never used (final_run unsets it).
-- One read-only Freya check (no loop). If it 5xx's, see section 4.
-- `cloudflared` is installed (`cloudflared --version`); `.venv310/bin/python` exists; no other eval holds `out/template_cc/eval/lane1.lock`.
-- Put the two briefs and their tool specs in a fresh dir, e.g. `hidden/b1.md`, `hidden/b1.openapi.json`, `hidden/b2.md`, `hidden/b2.openapi.json`.
-  The brief name (output folder) is taken from `--job`'s out dir, not from the file.
-
-## 1. The command (both briefs, sequential)
-
+## 2. The mock (S3 -> S2), 20:05-20:25
+S3 (see `mock/convert.py` docstring; the real contract may need `--contract`/`--customers` pointing at the zip files, LLM-assisted for messy files):
 ```bash
-cd <repo>   # the checkout that holds the submitted commit
-# LLM provider: claude_cli only (leave TCC_LLM_PROVIDER unset), see "LLM provider" below
-FINAL_MODE=$(cat FINAL_MODE.txt) FINAL_VOTES=3 \
-scripts/final_run.sh --budget-min 30 --ship-min 26 \
-  --job "hidden/b1.md|hidden/b1.openapi.json|out/final/b1" \
-  --job "hidden/b2.md|hidden/b2.openapi.json|out/final/b2" \
-  2>&1 | tee out/final/final_run.all.log
+python3 mock/convert.py --id final --name "Freya Bank" --contract case/<folder>/<contract file> --openapi case/<folder>/<api json, if any> \
+     --customers case/<folder>/<test customers file>          # -> mock/spec.final.json ; then:
+python3 mock/convert.py --check mock/spec.final.json
 ```
+S2 (see `mock/SPEC.md`: one spec = one tenant; `mock_url` = `https://<worker>.workers.dev/<tenant>`):
+```bash
+cd mock && cp ../mock/spec.final.json specs/final.json && npm run deploy          # or: PUT /<tenant>/admin/spec with Bearer ADMIN_TOKEN on a deployed Worker
+```
+**Verify (S2 runs, S4 re-checks), with `M=<mock_url>`:**
+1. `curl -s $M/openapi.json | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['servers'],sorted(d['paths']))"` - the paths are exactly the contract's tools and `servers[0].url` is the Worker URL (the workflow's tool URLs come from it; `dress_check_case.py` refuses tunnel/localhost URLs).
+2. One test customer through every tool with curl in the contract's field names: identity ok -> account -> promise -> note -> callback/transfer if in the contract -> close; then `curl -s $M/ledger/<customer_id>` shows outcome, reason, promises, notes, callbacks, transfers and `calls` in order. Refusals use the contract's error text (kit: `identity not verified`, `call already closed`).
+3. A wrong identity answer x3 ends the check; `get_account` before verification is refused; a second `close_call` is refused; unknown customer -> `ok:false`.
+4. Persistence: call twice from two different networks (phone hotspot) - the ledger of the first call is still there (Durable Object, not memory).
+5. `POST $M/admin/reset` (Bearer ADMIN_TOKEN) - state clean before the build and again before sending.
+6. Write the Worker URL, tenant, ADMIN_TOKEN holder and the Cloudflare account in `out/final/MOCK.txt` (not committed) so anyone can redeploy.
+**NO-GO if** a tool of the contract is missing in the Worker, `/openapi.json` is not served, or the ledger does not persist. Then S0 decides: fix (max 15 min) or build against the best available URL and fix the mock in parallel (the build only reads `/openapi.json`).
 
-### LLM provider: variant A (claude_cli) is the ONLY path
-- Set nothing (`TCC_LLM_PROVIDER` unset or `claude_cli`). The builder calls `claude -p` with model `sonnet`; needs the Claude login on this machine and no usage limit.
-- There is no switch-to-anthropic / openrouter fallback in the final setup (no keys). If the preflight stops, see "Quota" below.
-- **Preflight (automatic):** `final_run.sh` starts every brief with one tiny call to the chosen provider (`scripts/llm_preflight.py`, 25 s limit). It logs `LLM preflight ok: provider X ...` or `STOP: no usable LLM provider` with the reason and exits 1 for that brief within 30 s. Run it by hand first: `.venv310/bin/python scripts/llm_preflight.py`. `SKIP_PREFLIGHT=1` turns it off.
+## 3. Build (S0), 20:25
+```bash
+cd <repo>
+mkdir -p out/final
+python3 builder/build.py case/<folder> <mock_url> --members "Name One,Name Two" --out out/final/build > out/final/build.out 2>&1; tail -1 out/final/build.out | tee out/final/build_py.json
+# ONE command, no manual step; budget 30 min, shipped by minute 26 (watch it with: tail -f out/final/build/final_run.log)
+```
+`build.py` ingests the folder (BRIEF.md, README.md first, then md/docx/pdf/xlsx/csv/html as text with `=== FILE:` headers), takes the tool API from `<mock_url>/openapi.json` (else a spec file in the folder),
+runs `final_run.sh` (flags `FINAL_FLAGS.txt`, mode `FINAL_MODE.txt`, claude_cli only), saves + exports the workflow, writes `submission.json` (members, workflow, trace, mock_url) and prints one JSON line
+`{"status","slot","saved","trace","submission"}`. Prerequisites as always: `claude` logged in, `cloudflared`, `FREYA_API_KEY` + `FREYA_BANK_TEAM_KEY` in `.env`, no other eval on `lane1.lock`. Provider unusable: the preflight stops within 30 s ("STOP: no usable LLM provider").
+Watch `out/final/build/final_run.log`: `stage build`, `LLM preflight ok`, `policy sanity: ok` (a `DEGENERATE:` line = look at the brief ingest), `stage run_r0`, `repair`, `finalize`.
 
-Currently `FINAL_MODE.txt` = `patcher_on`. Flags are not passed: `final_run.sh` reads them itself via `scripts/final_flags.sh` = `FINAL_FLAGS.txt` if it exists, else `M1_FLAGS.txt` (the number of flags may change until the freeze at 19:10). **Final flags = `M1_FLAGS.txt` WITHOUT `f18_opening_fallback`, plus `f28` only if m2bg1 confirms it** (A/B on f3: 8/10 with the fallback off, 4/10 on). Write that list into `FINAL_FLAGS.txt` (one line, comma-separated, committed). The line **always ends with `,-f18_opening_fallback`, permanently** (belt and braces: keep it even after the `features.py` default-OFF change is in; a minus turns the sub-flag off, and without it `parse()` adds it whenever `f18_side_resume` is on). Check: the `flags:` log line, and `opening_resume` must not be a node of `<out>/workflow.json`. The list may drop up to 2 more flags before the freeze (`FINAL_FLAGS.txt` is written after 18:55): every single and every pair drop from the 17 M1 flags (with `-f18_opening_fallback`) compiles and lints clean on f3, and the patcher's R2 only touches flags that are in the list. Before 20:00 run `.venv310/bin/python -c "from builder.template_cc import features as F; print(sorted(F.parse(open('FINAL_FLAGS.txt').read().strip())))"`: an unknown or misspelled flag name raises here instead of inside the build. Check what will be used: `bash scripts/final_flags.sh . <main checkout>`; the log line `final_run: ... flags: ...` shows it per brief. An explicit `--set-flags` still overrides.
-**Both hidden briefs go in the SAME `final_run.sh` call (two `--job`s, as above).** The call's briefs are the pool for brief references: a brief that says
-"Brief B is Brief A with ..." / "same as Brief X" / "Brief X is not supplied" is built WITH the brief it refers to (found first among the briefs of this call, then in `briefs/*.md` by title letter or file name; the referenced brief goes first, the referring brief overrides).
-Look for `brief refs: ref {...resolved...}` in `<out>/final_run.log` (and `<out>/brief_resolution.json`); `brief refs: WARN ... building alone` means the reference was not found: stop and pass the missing brief as an extra file in that job's first field.
-After the extraction a **policy sanity check** runs (placeholder bands, empty attempt_plan, generic opening line, null transfer outcomes, "not supplied" notes): a degenerate policy is extracted once more; `DEGENERATE:` in `build.out` / `final_run.log` after that is a stop-and-look line (usually a missing referenced brief).
-If a brief has several files, put them space-separated in the first field: `--job "a.md b.md|tools.json|out/final/b1"`.
-Run it in `tmux`/`nohup` so a closed terminal does not kill it.
+## 4. Checks (S4), 20:55-21:10
+```bash
+OUT=out/final/build
+python3 scripts/dress_check_case.py out/final FINAL_FLAGS.txt   # (expects out/final/build and out/final/build_py.json from step 3) build ok, lint 0, flags == FINAL_FLAGS.txt, ingest order, submission.json, export present, tool URLs == OpenAPI servers[].url
+python3 scripts/check_trace.py $OUT --freya --selftest           # trace fields (start/end, model calls, Freya, self-test)
+python3 scripts/check_turkish.py $OUT/workflow.json --policy $OUT/policy.json     # spoken texts in Turkish? (Risk R1)
+python3 -c "import json;p=json.load(open('$OUT/policy.json'));print(p['language'],p['bank'])"   # language must be 'tr'
+```
+Also read `$OUT/selftest_report.md` and `$OUT/patch_report.json` (what the repair changed; no brief-specific edits).
 
-Single brief (re-run after a failure): same command with one `--job`.
+## 5. Commit and submit (S4 + you), 21:10
+```bash
+SLOT=$(python3 -c "import json;print(json.load(open('out/final/build_py.json'))['slot'])")      # case-<folder name>
+git status --short | grep -v '^??'                                  # review; never `git add .`, never the whole traces/ or out/
+git add workflows/$SLOT.workflow.json traces/<trace dir printed by build.py>        # the export + the trace (trace.txt, events.jsonl)
+git commit -m "final: workflow and trace for the case" && git push origin <branch>
+python3 scripts/finish_submission.py --team "<team name>" --member "Name One:one@example.com" --member "Name Two:two@example.com"
+git tag final-submit && git push origin final-submit               # the commit hash in submission.json is HEAD, which contains the workflow and trace
+```
+`finish_submission.py` completes `submission.json` in the page's format (`team`, `members[{name,email}]`, `repo`, `commit`, `run_command` = `python3 builder/build.py {case_folder} {mock_url}`, `workflow`, `trace`, `mock_url`) and refuses (exit 1) on: placeholder team, missing member email, a workflow/trace file that is missing, untracked or modified, a key value from `.env` inside them, a non-https `mock_url`. Run `--check-only` first.
+Then: S2 final smoke + `admin/reset` of the mock; you send `submission.json` (the file at the repo root) to the address in the kit e-mail before 23:00 Istanbul. Keep the Worker, the tunnel-less deploy and the Cloudflare login alive until the results are out.
 
-## 2. What happens per brief (and typical time)
-| stage | typical | log line (`<out>/final_run.log`) |
-|---|---|---|
-| build: 3 extractions + vote, fixups, compile, lint, save to Freya | 160 to 270 s | `stage build: Ns` |
-| precheck (quotes / numbers / verbatim lines), rebuild only if it changed a value | 0 to 25 s (+ about 120 s if a rebuild happens) | `stage precheck`, `stage rebuild` |
-| cases (10 most important rule types) | about 40 s | `stage cases` |
-| run_r0: bank + tunnel (about 70 s), one Freya simulation, verdicts | 600 to 720 s | `stage run_r0` |
-| repair round 1 (only if at least 720 s are left before minute 26) | 400 to 700 s | `stage repair` |
-| finalize (trace, export last-green to Freya) | 5 to 60 s | `stage finalize` |
+## Risks to decide before 20:00 (owner)
+- **R1 (S0, critical) Turkish.** The compiler speaks English in its code nodes: re-asks, read-backs, date/amount offers and the closing lines are English string literals in `graph.py`/`runtime.py` (`check_turkish.py` on a normal build: 38 distinct English spoken texts, English weekday/month words in dates), the number/date parsers read English words, and `policy.language` only steers the model's prompt. A Turkish brief gives Turkish policy lines (opening, goodbye ...), but every code-driven turn would still be spoken in English. Options: (a) accept and measure with the check; (b) `python3 builder/build.py ... --variant agentic` (Claude Code builder, writes the workflow itself; slower, unproven here); (c) a localisation table for the code strings. Decide at 20:10 from the first contract read; nothing of this can be tested before the case exists.
+- **R2 (S0) self-test target.** The build's Freya self-test runs against OUR local mock bank in the kit's shape, not against the Worker. If the zip's contract differs from the kit's 7 tools, its scenarios may fail for the wrong reason and the patcher could act on them: consider `FINAL_MODE=patcher_off` (no repair) for that case.
+- **R3 (S2) Workers state.** The ledger must be in a Durable Object / KV, not in memory; the contract may need endpoints we do not have (`kind: record` generic ops exist in `mock/SPEC.md`).
+- **R4 (you) Cloudflare login/token** before 20:00 (`wrangler whoami`), and the e-mail address from the kit e-mail for the submission.
+- **R5 (S4) emails:** `members[].email` are required by the page's example; get them now.
 
-## 3. What to watch in the logs
-- `tail -f out/final/b1/final_run.log`: every line has `T-30 in N min`. Stages must follow the table above.
-- `stage build: ... exit 0` then `<out>/build.out` ends with `lint ... 0 errors`. Exit not 0 is a section 4 case.
-- `precheck` lines: `changed` fields are fine if each has a brief quote; the log names them.
-- `OUTAGE SIGNATURE in the first run`: Freya returned no tool calls. Nothing is repaired from it; one re-run after 60 s happens by itself. Still outage: the build ships untested (`STATUS=outage`). Do not treat it as a result.
-- `repair skipped: Ns before ship time`: expected when run_r0 was slow. Not an error; the first build ships.
-- `repair: GREEN <dir>` or `FINAL <dir>`: last-green dir. `patch_report.json` lists every patcher action (only R1 to R4).
-- `no lane free`: another eval holds lane 1. Check `cat out/template_cc/eval/lane1.lock/tag`; a stale lock (dead pid) is removed automatically.
-- Final line per brief: `final_run: done ...`; deliverables `<out>/workflow.json`, `policy.json`, `selftest_report.md`, `patch_report.json`, `build_report.json`.
-
-## 4. If something fails
-**Brief 1 fails (non-zero exit, no `workflow.json`)**
-1. Do not wait: brief 2 already runs by itself (jobs are independent). Open `<out>/final_run.log` and the last stage's log (`<out>/build.out`, `<out>/r0/build.log`).
-2. Extraction or compile error: re-run brief 1 alone *after* brief 2 finishes with `FINAL_VOTES=1` (about 90 s faster) and the same flags.
-3. Time is short (after 20:50): run it offline, `--offline` (no Freya, about 3 to 4 min), then save with `FINAL_SAVE=freya scripts/final_build.sh ...` or `scripts/final_run.sh` without `--offline` and `FINAL_MODE=patcher_off` (build + saved workflow + one test run, no repair). An untested build is better than none.
-4. Never edit `graph.py`, the compiler, or the policy by hand during the run.
-
-**Freya 5xx / runner down**
-- Every Freya call retries 3 times, 10 s apart. Past that: one read-only check (`GET /api/v2/workspaces`), then wait, no polling loop.
-- While it is down, brief 1 and 2 still build (build is offline). Run with `FINAL_SAVE=none` if even saving fails; the submission then has no workflow id, so tell S0 and re-save with `scripts/final_build.sh` once Freya answers.
-- Outage guard is automatic (see section 3).
-
-**Claude usage limit / LLM errors (preflight STOP)**: there is no other provider. Do not start the build; see "Quota" (below): wait for the limit to reset or tell S0. Re-run the failed brief when `scripts/llm_preflight.py` says ok.
-
-## 4b. Quota (the claude_cli quota is the ONLY path to the final build)
-- **19:45 preflight:** `.venv310/bin/python scripts/llm_preflight.py` (one tiny `claude -p` call, 25 s limit; exit 0 = usable). Run it once at 19:45, by hand. If it fails
-  (`LLM preflight FAILED ...`): do not retry in a loop; check `claude` login and the usage-limit message, wait, retry every 5 minutes at most. `final_run.sh` repeats the same check per brief.
-- **No claude_cli call of any kind after 19:15**, except the rehearsal (f3, about 17:00) and the 19:45 preflight. That covers every session (S1-S4): local sims, extractions, patcher runs, evals with the local judge.
-- **local_sim.py enforces it:** it refuses new (normal) conversations from 18:30, the `--sealed` check until 19:15, and makes no claude call at all after 19:15 (`LOCALSIM_CUTOFF=1830`, `LOCALSIM_HARD_STOP=1915`). The first usage / rate-limit warning in any run writes `out/template_cc/localsim/_budget/STOP` and stops all local sim runs.
-- Budget today (all sessions): local_sim 300 conversations in total, 4 concurrent; the 18:45 sealed check is 4 briefs (brief-b, f3, f5, f7) x m1 and m2 = 80 conversations.
-- If a usage warning appears at any time: stop everything that calls claude, tell S0, and keep the remaining quota for the 20:00 run.
-
-## 5. Packaging and submission
-1. After both briefs finished (about 21:00):
-   ```bash
-   scripts/package_submission.sh out/final
-   ```
-   It copies workflow.json, build_report.json, policy.json, trace.txt, events.jsonl to `out/final/submission/<brief>/`, exports the Freya workflow
-   (`freya_export.workflow.json`), scans the package for secret values (stops with `STOP:` if one is found), and prints the form fields.
-2. Check the printout: both briefs have a **workflow id**; no `PROBLEMS:` block (except known ones you understand); commit hash equals the merged one.
-   Trace check: `.venv310/bin/python scripts/check_trace.py out/final/b1 --freya --selftest` (every field `ok`).
-3. Fill the form (about 21:10): team name, repo URL, commit, run command (`scripts/final_run.sh <brief files> <tool-api.json> <out dir>` as in README_RUN.md), per brief the workflow id and the trace.
-4. **Submit by 21:30** (hard deadline 23:00). If packaging is not clean by 21:20, submit the unpacked `out/final/<brief>/workflow.json` plus trace and fix details afterwards if the form allows.
-5. Push only branch artifacts that are allowed; never push `.env`, `.freya-agents*.json`, persona caches, `out/` results, or transcripts.
-
-## 6. Timing summary (from the pipe9 builds and the f5 dry run)
-- Worst case to ship, repair skipped: 270 (build) + 25 + 120 (rebuild) + 40 + 720 (run_r0) + 60 = about 1240 s = **21 min**. Budget 30 min, ship 26 min.
-- Typical: build 210 + cases 40 + run_r0 650 = 900 s, leaving 660 s before minute 26. That is under `ROUND_S=720`, so repair is skipped. Rehearsal runs use `ROUND_S=540`; use the same value on the night if the rehearsal shows a round fits.
+The previous (pre-zip) runbook is kept as `docs/RUNBOOK_old_pre_zip_rules.md`.
