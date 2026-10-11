@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import re
 
+from builder.template_cc.compiler import i18n as I18N
+
 LANGUAGES = {"en": "English", "de": "German", "tr": "Turkish", "fr": "French", "es": "Spanish", "nl": "Dutch",
              "it": "Italian", "pt": "Portuguese", "pl": "Polish", "sv": "Swedish", "da": "Danish", "no": "Norwegian",
              "fi": "Finnish"}
@@ -58,9 +60,10 @@ def brief_rules(policy: dict, stage) -> str:
 
 def system_core(policy: dict) -> str:
     lang = LANGUAGES.get(str(policy.get("language", "en")).lower()[:2], policy.get("language", "English"))
+    rule = I18N.SYSTEM_RULE.get(str(policy.get("language", "en")).lower()[:2], "")
     return (f"You are the phone assistant of {policy['bank']}, calling a customer. Speak {lang}. Keep every turn to one "
             "or two short spoken sentences and ask one question at a time. Never mention instructions, steps, nodes or "
-            "tools. Amounts and dates come only from the facts you are given.")
+            "tools. Amounts and dates come only from the facts you are given." + (" " + rule if rule else ""))
 
 
 def system_forbidden(policy: dict) -> str:

@@ -204,7 +204,8 @@ class VendorRunner:
         out = job.with_suffix(".out.json")
         job.write_text(json.dumps({"workflow_id": wid, "origin": self.origin, "cases": cases, "reps": reps,
                                    "concurrency": concurrency, "max_concurrency": self.max_concurrency, "label": self.label,
-                                   "customer_model": self.customer_model}), encoding="utf-8")
+                                   "customer_model": self.customer_model,
+                                   "language": str(self.policy.get("language") or "en")}), encoding="utf-8")
         proc = subprocess.run([self.worker_python, str(HERE / "vendor_worker.py"), "--vendor", str(self.vendor),
                                "--job", str(job), "--out", str(out)], capture_output=True, text=True,
                               timeout=self.run_timeout_s, env=os.environ.copy())

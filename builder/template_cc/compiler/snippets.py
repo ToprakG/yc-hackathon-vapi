@@ -14,6 +14,8 @@ import textwrap
 from functools import lru_cache
 from pathlib import Path
 
+from .i18n import localize
+
 RUNTIME = Path(__file__).resolve().parent / "runtime.py"
 MSG_BEGIN, MSG_END = "# MSG-BEGIN", "# MSG-END"
 
@@ -101,6 +103,7 @@ def build(body: str, cfg: dict, uses=(), fallback: str = "pass", msgs: dict | No
     fallback = textwrap.dedent(fallback).strip("\n")
     parts = ["import datetime", "import json", "import re", ""]
     h = helpers(set(uses) | {"jget"})
+    lang = str(cfg.get("lang") or "")
     cfg = cfg_subset(cfg, body, h)
     if h:
         parts += [h, ""]
@@ -112,6 +115,7 @@ def build(body: str, cfg: dict, uses=(), fallback: str = "pass", msgs: dict | No
     parts.append("except Exception as _err:")
     parts.append(textwrap.indent(fallback + "\n" + "vars['tcc_error'] = str(_err)[:300]", "    "))
     code = "\n".join(parts) + "\n"
+    code = localize(code, lang)
     if "{{" in code or "}}" in code:
         raise SnippetError("generated code contains a double brace")
     compile(code, "<snippet>", "exec")

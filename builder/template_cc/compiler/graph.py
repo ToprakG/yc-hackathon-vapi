@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import textwrap
 
+from builder.template_cc.compiler import i18n as I18N
 from builder.template_cc.compiler import prompts as P
 from builder.template_cc.compiler import runtime as RT
 from builder.template_cc.compiler import snippets as S
@@ -122,6 +123,9 @@ class Graph:
         self.p, self.api, self.close_form = policy, api, close_form
         self.f = frozenset(features)
         self.cfg = runtime_cfg(policy, api)
+        self.lang = str(policy.get("language") or "en").lower()[:2]
+        if self.lang in I18N.SUPPORTED:
+            self.cfg["lang"] = self.lang
         if "f1_id_complete" in self.f:
             ident = self.cfg["identity"]
             ans = policy["tools"]["verify_identity"]["answer"]
@@ -596,8 +600,8 @@ SCAM_SAY
         ask = (lines.get("third_party_ask") or {}).get("text") if isinstance(lines.get("third_party_ask"), dict) else lines.get("third_party_ask")
         self.cfg["tp"] = {"reask": int((self.p.get("ask_limits") or {}).get("callback_reask", 1)),
                           "banned": list(self.p.get("forbidden_before_verify") or []) if f22 else [],
-                          "ask": ask or "Could you tell me when {first_name} {last_name} can be reached?",
-                          "fallback": "Could you tell me when they can be reached?"}
+                          "ask": ask or I18N.localize("Could you tell me when {first_name} {last_name} can be reached?", self.lang),
+                          "fallback": I18N.localize("Could you tell me when they can be reached?", self.lang)}
         if f["mode"] == "datetime":
             body = {f["datetime"]: T.baked(self.api, "schedule_callback", f["datetime"], "{{cb_date}}T{{cb_time}}")}
         else:
@@ -1661,7 +1665,7 @@ SCAM_SAY
             self._promise_nodes(cents, fields, f4, side_descs, side_budget)
         if f4:
             nd = P.line(self.p, "no_discount") if f8 else ""
-            nd = nd if nd and "{" not in nd else P.NO_DISCOUNT
+            nd = nd if nd and "{" not in nd else (I18N.TR_NO_DISCOUNT if self.lang == "tr" else P.NO_DISCOUNT)
             self.code("discount_reply", reset + "vars['say_line'] = " + repr(nd) + "\n", [always("negotiate_resume")],
                       fallback=reset)
         back = [eq("wrap", "every product is resolved", "neg_state", "done"), always("negotiate_resume")]
@@ -1717,7 +1721,7 @@ SCAM_SAY
                    eq("promise_check" if terms else "resume", "names a date or amount", "hs_choice", "names_terms")]
         said = P.line(self.p, "hardship_sympathy") if f8 else ""
         if said and has_support and "?" not in said:  # the fixed line must also make the offer the model would have made
-            said = said.rstrip() + " Would you like me to connect you with the support team?"
+            said = said.rstrip() + " " + (I18N.TR_HARDSHIP_OFFER if self.lang == "tr" else "Would you like me to connect you with the support team?")
         self.conv("hardship", on_enter=self.tts("hardship", said) if said else {"type": "llm"}, first_only=bool(said),
                   extraction=self.extraction("hardship", "hardship", [("hs_choice", ["accepts", "declines", "names_terms", "none"])]
                                              + (offer_fields if terms else [])),
@@ -1800,7 +1804,7 @@ SCAM_SAY
         L = self.cfg["lines"]
         prefix = {k: L.get(v, "") for k, v in CLOSING_PREFIX.items()}
         for k, v in GENERIC_PREFIX.items():
-            prefix.setdefault(k, v)
+            prefix.setdefault(k, I18N.localize(v, self.lang))
         self.cfg["closing_prefix"] = prefix
         body = """
         queue = []

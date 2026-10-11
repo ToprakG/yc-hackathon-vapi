@@ -70,6 +70,8 @@ def main():
 
     job = json.loads(Path(a.job).read_text())
     wid, origin = job["workflow_id"], job["origin"].rstrip("/")
+    language = str(job.get("language") or "en").lower()[:2]
+    names = {"tr": "Turkish", "de": "German", "fr": "French", "es": "Spanish", "nl": "Dutch", "it": "Italian"}
     customer_model = job.get("customer_model")  # e.g. deepseek/deepseek-v4.1-flash on OpenRouter; None = vendor default
 
     def customer(prompt, agent_lines, customer_lines):
@@ -108,7 +110,9 @@ def main():
             prompt = persona_for(case, {"identity": case["identity"]}, case.get("style") or None)["prompt"]
             prompt += ("\n\nWHEN YOU NAME A TIME: say the hour and the minutes, like 11:00. Do not say morning, "
                        "afternoon, or around in place of that time.")
-            call_id, agent, _ = chat_turn(wid, "Hello?", variables)
+            if language != "en":  # the call is in the brief's language: the persona speaks it too (numbers, dates, names as people say them)
+                prompt += f"\n\nThe whole call is in {names.get(language, language)}. Speak only {names.get(language, language)}."
+            call_id, agent, _ = chat_turn(wid, "Alo?" if language == "tr" else "Hello?", variables)
             agent_lines, customer_lines = ([agent] if agent else []), []
             for _ in range(MAX_TURNS):
                 if not agent_lines:

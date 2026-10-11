@@ -23,6 +23,9 @@ mails, policy extracts, memos, code lists) and its tool API. You write policy.js
 to build the call. Every value comes from the brief or the tool API. Never invent a value; never use an example value.
 
 General rules
+- The brief may be in any language (for example Turkish). Keep every JSON key in English. "language" is the ISO code of the language the brief is
+  written in (detected from its text; "en" for English). Text values (lines, sentences, extra_rules, _source quotes, prompts) are copied
+  verbatim from the brief in its own language, never translated; enum values stay exactly as the tool API spells them.
 - Several brief parts are given in order: a later part, a later memo or a newer statement overrides an earlier one.
   Use the final value and record each override in "_overrides": [{{"key", "old", "new", "source"}}].
 - Enum values (outcomes, reasons, codes, queues, note reasons, identity field values, product types) are copied exactly

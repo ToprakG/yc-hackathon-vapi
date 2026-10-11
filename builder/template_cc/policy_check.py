@@ -201,6 +201,7 @@ def _sentence(s: str) -> str:
 
 def default_lines(policy: dict) -> dict:
     """Speakable fallbacks built from the canonical `sentences` and the address. Generic wording only."""
+    from builder.template_cc.compiler import i18n as I18N  # lazy: the compiler package imports this module
     s = policy.get("sentences") or {}
     addr = policy.get("address") or ""
     out = {
@@ -223,11 +224,20 @@ def default_lines(policy: dict) -> dict:
         "hint_retry": _line("Could you repeat that, please, one part at a time?"),
         "goodbye": _line("Thank you for your time. Goodbye."),
     }
+    if str(policy.get("language") or "en").lower()[:2] == "tr":
+        T = I18N.TR_LINES_ADDR
+        out.update({k: _line(v) for k, v in I18N.TR_LINES.items() if k != "promise_confirmation"})
+        out["opening"] = _line(T["opening"].format(opening=_sentence(s["opening"])) if s.get("opening") else T["opening_none"])
+        out["right_party_question"] = _line(T["right_party_question"].format(addr=addr) if addr else T["right_party_question_none"])
+        for k in ("ai", "scam", "failed_id"):
+            if s.get(k):
+                out[k] = _line(_sentence(s[k]))
     out["ask_again"] = copy.deepcopy(out["right_party_question"])
     if s.get("promise_confirmation"):
         out["promise_confirmation"] = _line(s["promise_confirmation"], True)
     else:
-        out["promise_confirmation"] = _line("Your promise is recorded.")
+        out["promise_confirmation"] = _line(I18N.TR_LINES["promise_confirmation"] if str(policy.get("language") or "en").lower()[:2] == "tr"
+                                            else "Your promise is recorded.")
     return out
 
 
