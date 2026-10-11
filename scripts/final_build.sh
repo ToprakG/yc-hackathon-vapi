@@ -43,6 +43,11 @@ if [ "$VOTES" -gt 1 ]; then
     POLICY_ARG=(--policy "$OUT/policy.voted.json")
   else echo "final vote: fewer than 2 extractions finished or the vote failed; extracting again in the final build"; fi
 fi
+# deterministic fixups from explicit brief phrases (id_decline, cap_at_deadline); the single-extraction path applies them inside extract.py
+if [ -f "$OUT/policy.voted.json" ]; then
+  BARGS2=(); for b in "${BRIEFS[@]}"; do BARGS2+=(--brief "$b"); done
+  .venv310/bin/python -m builder.template_cc.policy_fixups "$OUT/policy.voted.json" "${BARGS2[@]}" | tee -a "$OUT/final_vote.log"
+fi
 env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" "${POLICY_ARG[@]}" \
   --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))

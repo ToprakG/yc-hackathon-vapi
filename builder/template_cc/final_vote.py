@@ -10,70 +10,17 @@ No brief value in code: only phrasing patterns.
 from __future__ import annotations
 
 import json
-import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-from builder.template_cc import policy_check
+from builder.template_cc import policy_check, policy_fixups
 
-NUMWORDS = {"once": 1, "one time": 1, "a single time": 1, "twice": 2, "two times": 2, "three times": 3, "thrice": 3}
-_COUNT = re.compile(r"\b(once|twice|thrice|one time|a single time|two times|three times|(\d+) times?)\b", re.I)
-_DECLINE = re.compile(r"\b(declin\w*|refus\w*|(does not|doesn't|do not|don't|won't|will not|would rather not) (want to )?(answer|say|give|verify|reply)|unwilling)\b", re.I)
-_EXPLAIN = re.compile(r"\bexplain\w*\b", re.I)
-_CTX = re.compile(r"\b(identity|verif\w*|security|questions?|answer\w*|protect\w*)\b", re.I)
-
-
-def sentences(text: str) -> list[str]:
-    flat = re.sub(r"[*`|]", " ", text or "")
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", flat) if s.strip()]
-
-
-def _count(s: str):
-    m = _COUNT.search(s)
-    if not m:
-        return None
-    return int(m.group(2)) if m.group(2) else NUMWORDS[m.group(1).lower()]
-
-
-def rule_id_decline(brief: str):
-    """The number of times the agent explains why it asks, when a sentence about declining the identity questions
-    says "explain once / twice / N times", or puts a count next to decline/refuse. None when the brief is not explicit
-    (or its sentences disagree)."""
-    found = set()
-    for s in sentences(brief):
-        if not (_DECLINE.search(s) and _CTX.search(s)):
-            continue
-        n = _count(s)
-        if n is not None and (_EXPLAIN.search(s) or _DECLINE.search(s)):
-            found.add(n)
-    return found.pop() if len(found) == 1 else None
-
-
-_CAP_TRUE = re.compile(r"\b(no later than|not later than|not after|never after|never later than|at most|up to|capped at|"
-                       r"(is|falls|would be|lands) after the deadline[,;]? (then )?(propose|offer|use|take|name)\w* the deadline|"
-                       r"must not be after|may not be after)\b[^.]{0,30}\bdeadline\b|"
-                       r"\bafter the deadline[,;]? (then )?(propose|offer|use|take|name)\w* the deadline\b", re.I)
-_CAP_FALSE = re.compile(r"\b(even if|regardless of|ignoring|without regard to|whether or not)\b[^.]{0,30}\bdeadline\b", re.I)
-
-
-def rule_cap_at_deadline(brief: str, k: int):
-    """cap_at_deadline of attempt k (1-based): True/False when the attempt's own sentence, else a general sentence about
-    the promise date, says the date is capped / not capped at the deadline. None when the brief is silent."""
-    for line in (brief or "").splitlines():
-        if re.search(rf"\battempt\s*{k}\b", line, re.I) and not re.search(rf"\battempt\s*{k}\d", line, re.I):
-            body = re.sub(r"[*`|]", " ", line)
-            if _CAP_FALSE.search(body):
-                return False
-            if _CAP_TRUE.search(body):
-                return True
-    general = [s for s in sentences(brief) if re.search(r"\b(promise|payment|proposed|offered)?\s*dates?\b", s, re.I)
-               and not re.search(r"\battempt\s*\d", s, re.I)]
-    if any(_CAP_FALSE.search(s) for s in general):
-        return False
-    if any(_CAP_TRUE.search(s) and re.search(r"\bdates?\b", s, re.I) for s in general):
-        return True
-    return None
+# ask_limits.id_decline = the number of times the agent re-asks after the FIRST refusal (explanation said once on the first
+# refusal); the call closes on refusal number id_decline + 1. "Explain once, close after the second refusal" -> 1.
+# Defined in builder/template_cc/policy_fixups.py, which also holds the brief-text rules used here.
+rule_id_decline = lambda brief: (policy_fixups.id_decline(brief) or (None,))[0]  # noqa: E731
+rule_cap_at_deadline = lambda brief, k: (policy_fixups.cap_at_deadline(brief, k) or (None,))[0]  # noqa: E731
 
 
 def _get(p: dict, ptr: str):

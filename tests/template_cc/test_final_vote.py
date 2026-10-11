@@ -2,6 +2,8 @@
 
 from builder.template_cc.final_vote import majority, rule_cap_at_deadline, rule_id_decline, vote
 
+from builder.template_cc.final_vote import rule_cap_at_deadline as rule_cap  # noqa: E402,F401
+
 BRIEF = """1. If the customer does not want to answer the security questions, explain once that they protect the account.
 A second refusal closes the call.
 2. A promise date must be today or later and not after the deadline.
@@ -16,11 +18,10 @@ def pol(cap=(True, True), decline=1):
 
 
 def test_id_decline_rule():
-    assert rule_id_decline(BRIEF) == 1
-    assert rule_id_decline("If the caller refuses the security question twice, close the call.") == 2
-    assert rule_id_decline("When they decline to answer, explain 3 times why we ask.") == 3
+    assert rule_id_decline(BRIEF) == 1                                    # the second refusal closes -> one re-ask
+    assert rule_id_decline("The first refusal of a security question ends the call.") == 0
+    assert rule_id_decline("The caller may decline the identity question twice; the third refusal ends the call.") == 2
     assert rule_id_decline("Greet the customer. Ask the identity question.") is None
-    assert rule_id_decline("Explain once if they refuse the security questions. If they decline the security question again, explain twice.") is None  # sentences disagree
 
 
 def test_cap_rule_attempt_sentence_and_general_sentence():
@@ -41,7 +42,7 @@ def test_majority():
 
 def test_rule_beats_majority_and_deadline_attempt_is_fixed():
     out, log = vote([pol((False, False), 2), pol((False, False), 2), pol((True, False), 2)], BRIEF)
-    assert out["ask_limits"]["id_decline"] == 1                                    # the brief says "explain once"
+    assert out["ask_limits"]["id_decline"] == 1                                    # the second refusal closes -> 1
     assert [s["cap_at_deadline"] for s in out["attempt_plan"]] == [True, True]     # rule for 1; attempt 2 is on the deadline
     assert any("rule" in l for l in log)
 

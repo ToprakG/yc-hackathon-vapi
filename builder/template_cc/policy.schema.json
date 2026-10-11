@@ -139,7 +139,7 @@
    }
   },
   "retries": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
-  "ask_limits": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+  "ask_limits": {"type": "object", "description": "Counts. id_decline = the number of times the agent re-asks after the FIRST refusal of an identity question (the explanation is said once, on the first refusal); the call closes on refusal number id_decline + 1. 'Explain once, close after the second refusal' -> id_decline = 1.", "additionalProperties": {"type": "integer", "minimum": 0}},
   "precedence": {"type": "array", "items": {"type": "string", "enum": ["wants_human", "asks_scam", "asks_robot", "finished", "goodbye"]}},
   "vague_date_offer": {"type": "string", "enum": ["deadline", "attempt1", "other"]},
   "routes": {"type": "object", "properties": {"human_before_verify": {"type": "boolean"}}, "additionalProperties": {"type": "object"}},

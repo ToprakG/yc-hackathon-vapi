@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 
-from builder.template_cc import brief_prep, extract_vote, policy_check
+from builder.template_cc import brief_prep, extract_vote, policy_check, policy_fixups
 from builder.template_cc.policy_check import (ATTEMPT_AMOUNTS, ATTEMPT_DATES, CANONICAL_NOTES, CANONICAL_OUTCOMES,
                                               CANONICAL_QUEUES, LINE_KEYS, SCHEMA)
 
@@ -70,6 +70,8 @@ Keys
 - multi_product (bool), max_products (int).
 - retries: {{tool name: extra attempts after a failure}} as the brief or the API allows.
 - ask_limits: {{"right_party", "id_decline", "callback_reask", "vague_date", "stop_talking", "human_offer"}} counts.
+  id_decline = how many times the agent re-asks after the FIRST refusal of an identity question (the explanation is said once
+  on the first refusal); the call closes on refusal number id_decline + 1 ("a second refusal closes" -> 1).
 - routes: {{"human_before_verify": false}} only when the brief says a request for a person must not be honoured before identity is verified (quote it in extra_rules).
 - vague_date_offer: "deadline" | "attempt1" | "other": which date to offer when the customer gives no exact day (null if the brief is silent).
 - unused_tools: tools the brief never uses.
@@ -203,6 +205,8 @@ def apply_rules(policy: dict, brief: str, pins: dict, trace) -> None:
     note = policy_check.apply_multi_product_rule(policy, brief)
     if note:
         trace.line("extract rule: " + note)
+    for c in policy_fixups.apply(policy, brief):  # id_decline / cap_at_deadline from explicit brief phrases (value + quote)
+        trace.line(f"extract fixup {c['field']}: {c['before']!r} -> {c['after']!r} ({c['quote'][:80]})")
 
 
 def extract(brief: str, api, call_llm, model: str, trace, deadline: float | None = None, out_dir=None) -> dict:
