@@ -6,6 +6,14 @@ Cloudflare Workers", deploy it, run `python3 builder/build.py {case_folder} {moc
 The organizers load our workflow into their workspace; its tools call OUR mock: "If it is down, the conversations that reach it fail" - it must stay up until the results are out.
 Target: build started 20:25, submitted by 21:30. Hard stop 23:00.
 
+## 20:00 mock commands (in this order; the spec name is `spec.freyabank.json` everywhere)
+```
+mock/convert_case.sh case/<folder> freyabank                              # -> mock/spec.freyabank.json (+ --check)
+scripts/mock_load_case.sh mock/spec.freyabank.json freyabank              # PUT /admin/spec -> reset -> e2e -> reset; prints mock_url
+# mock_url = https://bank-mock.tccbank2026-yc.workers.dev/freyabank
+python3 builder/build.py case/<folder> https://bank-mock.tccbank2026-yc.workers.dev/freyabank --members "..."
+```
+
 ## Who does what
 | who | job |
 |---|---|
@@ -40,18 +48,20 @@ mkdir -p case && unzip -q ~/Downloads/<zip name>.zip -d case/ && find case -maxd
 `{case_folder}` = the one folder inside (the page example: `FreyaBank-Ekstre-Borc/`). Do NOT write anything from the final case into the builder (rule). Fixing a crash on a file type is allowed.
 
 ## 2. The mock (S3 -> S2), 20:05-20:25
-S3 (see `mock/convert.py` docstring; the real contract may need `--contract`/`--customers` pointing at the zip files, LLM-assisted for messy files):
+S3 (one command; dry-run tested on `mock/rehearsal-tr/FreyaBank-Test`: 10 customers, `--check` OK; contract files = BRIEF.md, README.md, then every other md/docx/pdf in the folder except the example conversations; customers = the only xlsx/csv; openapi = a `*openapi*.json|yaml` in the folder, else derived from the contract by the LLM):
 ```bash
-python3 mock/convert.py --id final --name "Freya Bank" --contract case/<folder>/<contract file> --openapi case/<folder>/<api json, if any> \
-     --customers case/<folder>/<test customers file>          # -> mock/spec.final.json ; then:
-python3 mock/convert.py --check mock/spec.final.json
+mock/convert_case.sh case/<folder> freyabank        # -> mock/spec.freyabank.json, then runs --check (prints OK or the problems)
+# several customer files / a specific api file:  CUSTOMERS=case/<folder>/<file>.xlsx OPENAPI=case/<folder>/<api>.json mock/convert_case.sh case/<folder> freyabank
+# same thing spelled out: python3 mock/convert.py --id freyabank --name "Freya Bank" --contract case/<folder>/BRIEF.md case/<folder>/README.md <contract> <announcements> <Q&A> \
+#      [--openapi <file>] --customers <test customers file> && python3 mock/convert.py --check mock/spec.freyabank.json
 ```
+Read the output lines `contract:` / `customers:` / `openapi:` (the files it picked), and the `--check` result; any `FAILED:` (a required customer column not found even after the LLM mapping) stops the run - tell S2/S0, do not load a partial spec.
 S2 (see `mock/SPEC.md`: one spec = one tenant; `mock_url` = `https://bank-mock.tccbank2026-yc.workers.dev/<tenant>`). The Worker is ALREADY deployed; a new bank is one command, no redeploy:
 ```bash
-scripts/mock_load_case.sh mock/spec.final.json freyabank     # PUT /admin/spec -> reset -> test/e2e.sh (21 checks) -> final reset -> prints mock_url=...
+scripts/mock_load_case.sh mock/spec.freyabank.json freyabank     # PUT /admin/spec -> reset -> test/e2e.sh (21 checks) -> final reset -> prints mock_url=...
 ```
 It reads `MOCK_ADMIN_TOKEN` from the repo `.env` (gitignored; never commit it). Exit code 0 = all checks passed. The e2e uses the spec's first customer through every tool. Only redeploy (`cd mock && npm run deploy`, needs `wrangler login`; the account has the `tccbank2026-yc` workers.dev subdomain) if the Worker code itself must change.
-Admin by hand: `H="Authorization: Bearer $MOCK_ADMIN_TOKEN"; M=<mock_url>`; `curl -s -X PUT -H "$H" --data-binary @mock/spec.final.json $M/admin/spec`; `curl -s -X POST -H "$H" $M/admin/reset` (all) or `$M/admin/reset?customer_id=<id>`; `curl -s -X PUT -H "$H" -d '[{"customer_id":...}]' $M/admin/customers` (merge more test customers); fault injection: spec `faults:[{op,customer_id|null,times}]` or header `x-mock-fail: 1`.
+Admin by hand: `H="Authorization: Bearer $MOCK_ADMIN_TOKEN"; M=<mock_url>`; `curl -s -X PUT -H "$H" --data-binary @mock/spec.freyabank.json $M/admin/spec`; `curl -s -X POST -H "$H" $M/admin/reset` (all) or `$M/admin/reset?customer_id=<id>`; `curl -s -X PUT -H "$H" -d '[{"customer_id":...}]' $M/admin/customers` (merge more test customers); fault injection: spec `faults:[{op,customer_id|null,times}]` or header `x-mock-fail: 1`.
 Read side (no token, for organisers and the scorer): `$M/v1/practice/ledger/<customer_id>`, `$M/ledger/<id>`, `$M/records[?customer_id=&limit=]`, `$M/state`.
 **Verify (S2 runs, S4 re-checks), with `M=<mock_url>`:**
 1. `curl -s $M/openapi.json | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['servers'],sorted(d['paths']))"` - the paths are exactly the contract's tools and `servers[0].url` is the Worker URL (the workflow's tool URLs come from it; `dress_check_case.py` refuses tunnel/localhost URLs).
