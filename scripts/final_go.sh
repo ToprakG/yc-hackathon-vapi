@@ -9,6 +9,7 @@
 #            restored from git, so the committed submission stays; if ALL OK run `commit` again)
 # MOCK_URL defaults to https://bank-mock.tccbank2026-yc.workers.dev/freyabank
 cd "$(dirname "$0")/.." || exit 1
+set -a; [ -f .env ] && . ./.env; set +a   # FREYA_API_KEY etc. for build.py (a build started without it fails at the Freya save)
 CASE=${CASE:?CASE=case/<folder>}; MOCK_URL=${MOCK_URL:-https://bank-mock.tccbank2026-yc.workers.dev/freyabank}; SPEC=${SPEC:-freyabank}
 MEMBERS_ARGS=(); IFS=';' read -ra MM <<< "${MEMBERS:-}"; for m in "${MM[@]}"; do MEMBERS_ARGS+=(--member "$m"); done
 names() { echo "${MEMBERS:-}" | tr ';' '\n' | sed 's/:.*//' | paste -sd, -; }

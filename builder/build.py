@@ -44,6 +44,19 @@ def _commit_export(report: dict, slot: str) -> None:
         report["saved"] = str(target)
 
 
+def _load_dotenv() -> None:
+    """Variables of the repo's .env fill the environment where it has none (a key in the environment wins)."""
+    f = REPO / ".env"
+    if not f.exists():
+        return
+    for line in f.read_text(errors="ignore").splitlines():
+        line = line.strip().removeprefix("export ")
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            if v.strip() and not os.environ.get(k.strip()):
+                os.environ[k.strip()] = v.strip().strip("\"'")
+
+
 def default_builder_model() -> str:
     """The agentic builder runs on Claude Code (claude_cli): $BUILDER_MODEL counts only when it names a Claude model; an openai:/openrouter-style value in the environment is ignored."""
     m = os.environ.get("BUILDER_MODEL", "").strip()
@@ -154,6 +167,10 @@ def main(argv=None) -> int:
     if argv is None:
         _reexec_in_venv()
     args = parse(argv)
+    _load_dotenv()
+    if args.save == "freya" and not os.environ.get("FREYA_API_KEY"):
+        print("error: FREYA_API_KEY is not set (environment or .env); --save freya cannot work. Use --save none for an offline build.", file=sys.stderr)
+        return 2
     mock_url = ""
     if Path(args.inputs[0]).is_dir():   # final format: <case_folder> <mock_url>
         from builder.ingest import ingest  # noqa: PLC0415

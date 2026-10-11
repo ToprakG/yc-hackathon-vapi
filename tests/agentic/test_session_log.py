@@ -72,3 +72,17 @@ def test_sim_gate_waits_while_a_simulation_runs_and_never_cancels(monkeypatch):
     assert G.wait_until_idle(object(), max_wait_s=0, sleep=lambda s: None, say=lambda m: None) is False
     monkeypatch.setattr(G, "running_simulations", lambda f: (_ for _ in ()).throw(RuntimeError("api down")))
     assert G.wait_until_idle(object(), sleep=lambda s: None, say=lambda m: None) is True   # a failing list never stops a build
+
+
+def test_build_stops_early_without_a_freya_key_and_dotenv_fills_missing_vars(tmp_path, monkeypatch, capsys):
+    import builder.build as B
+    monkeypatch.setattr(B, "REPO", tmp_path)
+    (tmp_path / ".env").write_text("export SOME_TEST_VAR_X=abc\nFREYA_API_KEY=\n# c\n")
+    monkeypatch.delenv("SOME_TEST_VAR_X", raising=False)
+    monkeypatch.delenv("FREYA_API_KEY", raising=False)
+    B._load_dotenv()
+    assert B.os.environ.get("SOME_TEST_VAR_X") == "abc" and not B.os.environ.get("FREYA_API_KEY")
+    (tmp_path / "b.md").write_text("x")
+    (tmp_path / "api.json").write_text('{"openapi": "3.0.0", "paths": {"/a": {}}}')
+    assert B.main([str(tmp_path / "b.md"), str(tmp_path / "api.json"), "--variant", "agentic", "--save", "freya"]) == 2
+    assert "FREYA_API_KEY is not set" in capsys.readouterr().err
