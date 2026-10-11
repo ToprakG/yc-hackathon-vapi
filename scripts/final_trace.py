@@ -72,6 +72,19 @@ def main():
     if tot["model_calls"]:
         ev("totals_extraction", **tot)
         lines.append("totals of the final-vote extractions: " + " ".join(f"{k}={v}" for k, v in tot.items()))
+    br = out / "brief_resolution.json"   # brief references resolved by final_run.sh (scripts/brief_refs.py)
+    if br.exists():
+        r = json.loads(br.read_text())
+        ev("brief_resolution", input=r.get("input"), resolved=r.get("resolved"), log=r.get("log"))
+        for e in r.get("log") or []:
+            lines.append(f"brief reference: {e.get('file')} refers to Brief {e.get('ref')}: {e.get('status')} {e.get('found_in') or ''} {e.get('path') or e.get('msg') or ''}".strip())
+        lines.append("briefs built together: " + ", ".join(r.get("resolved") or []))
+    for nm, label in (("sanity.first.json", "first extraction"), ("sanity.json", "compiled policy")):
+        sf = base / nm
+        if sf.exists():
+            r = json.loads(sf.read_text())
+            ev("policy_sanity", which=label, degenerate=r.get("degenerate"), reasons=r.get("reasons"))
+            lines.append(f"policy sanity ({label}): " + ("DEGENERATE: " + "; ".join(r.get("reasons") or []) if r.get("degenerate") else "ok"))
     if a.stages:
         st = dict(x.split("=", 1) for x in a.stages.split() if "=" in x)
         ev("final_stages", seconds=st)

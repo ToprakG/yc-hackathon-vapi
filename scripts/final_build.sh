@@ -35,6 +35,7 @@ echo "features: $FEATURES"
 VOTES=${FINAL_VOTES:-3}; POLICY_ARG=()
 #   POLICY=file: skip extraction and the vote, compile this policy.json (self-test repairs; same flags, checked by policy_check)
 [ -n "${POLICY:-}" ] && { VOTES=1; POLICY_ARG=(--policy "$POLICY"); }
+do_vote() {
 if [ "$VOTES" -gt 1 ]; then
   echo "final vote: $VOTES independent extractions"
   PIDS=(); for i in $(seq 1 "$VOTES"); do
@@ -54,11 +55,28 @@ if [ -f "$OUT/policy.voted.json" ]; then
   BARGS2=(); for b in "${BRIEFS[@]}"; do BARGS2+=(--brief "$b"); done
   .venv310/bin/python -m builder.template_cc.policy_fixups "$OUT/policy.voted.json" "${BARGS2[@]}" | tee -a "$OUT/final_vote.log"
 fi
+}
+do_vote
+# policy sanity (generic): a degenerate extraction (placeholder bands, empty attempt_plan, generic lines, "not supplied" notes) is extracted once more
+if [ -z "${POLICY:-}" ] && [ -f "$OUT/policy.voted.json" ]; then
+  if ! .venv310/bin/python scripts/policy_sanity.py "$OUT/policy.voted.json" --out "$OUT/sanity.json" > "$OUT/sanity.txt" 2>&1; then
+    echo "policy sanity: DEGENERATE policy, extracting once more:"; sed 's/^/  - /' "$OUT/sanity.txt"
+    cp "$OUT/sanity.json" "$OUT/sanity.first.json"; rm -rf "$OUT"/ext[0-9]* "$OUT/policy.voted.json"; do_vote
+    if [ -f "$OUT/policy.voted.json" ] && ! .venv310/bin/python scripts/policy_sanity.py "$OUT/policy.voted.json" --out "$OUT/sanity.json" > "$OUT/sanity.txt" 2>&1; then
+      echo "DEGENERATE: the policy is still degenerate after the second extraction (the build goes on):"; sed 's/^/  - /' "$OUT/sanity.txt"
+    else echo "policy sanity: the second extraction is sane"; fi
+  fi
+fi
 #   FINAL_SAVE=freya: keep FREYA_API_KEY and save to Freya (slot $FINAL_SLOT, default final-<out dir>): the workflow id and agent id go into the trace
 if [ "${FINAL_SAVE:-none}" = freya ]; then SAVE_ARGS=(--save freya); UNSET=(); else SAVE_ARGS=(--save none); UNSET=(-u FREYA_API_KEY); fi
 env "${UNSET[@]}" .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" "${SAVE_ARGS[@]}" --audit off --features "$FEATURES" "${POLICY_ARG[@]}" \
   --slot "${FINAL_SLOT:-final-$(basename "$OUT")}" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))
+# the policy that was compiled: the loud line for a degenerate one (also when there was no vote / no second extraction)
+if [ -f "$OUT/policy.json" ]; then
+  if .venv310/bin/python scripts/policy_sanity.py "$OUT/policy.json" --out "$OUT/sanity.json" > "$OUT/sanity.txt" 2>&1; then echo "policy sanity: ok"
+  else echo "DEGENERATE: the compiled policy looks degenerate:"; sed 's/^/  - /' "$OUT/sanity.txt"; fi
+fi
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}") python3 - "$OUT" "$RC" "$WALL" "$API" "${CONFIG:-}" <<'PY'
 import json, re, subprocess, sys
 from pathlib import Path
