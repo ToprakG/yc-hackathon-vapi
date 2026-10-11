@@ -51,3 +51,62 @@ def test_default_lines_follow_the_language():
     assert lines["goodbye"]["text"].endswith("İyi günler.")
     en = policy_check.default_lines({"language": "en", "address": "Mr Reyes", "sentences": {}})
     assert en["goodbye"]["text"].endswith("Goodbye.")
+
+
+def _spoken_amount_code(currency):
+    pol = json.loads((GOLD / "brief-a.policy.json").read_text())
+    pol["language"] = "tr"
+    if currency:
+        pol["currency"] = currency
+    wf, _ = compiler.compile(pol, ApiModel.load(REPO / "tools" / "openapi.json"), features=FEATS)
+    code = wf["nodes"]["promise_check"]["config"]["code"] if "config" in wf["nodes"]["promise_check"] else None
+    return wf, code
+
+
+def test_tr_amounts_comma_dot_and_currency():
+    from builder.template_cc.compiler import snippets as S
+    for cur, tail in (("TL", " TL"), ("₺", " ₺"), (None, "")):
+        src = S.build("vars['x'] = msay(1234.5) + '|' + msay(162) + '|' + msay(1234567.891)", {"lang": "tr", "currency": cur})
+        v = {}
+        exec(src, {"vars": v})
+        assert v["x"] == f"1.234,50{tail}|162,00{tail}|1.234.567,89{tail}", v["x"]
+
+
+def test_english_keeps_plain_amounts():
+    wf, _ = build("en")
+    assert "msay(" not in codes(wf)
+    wf, pol = build("tr")
+    assert "msay(" in codes(wf)
+    assert "currency" not in pol
+
+
+def _run(body, uses, lang="tr"):
+    from builder.template_cc.compiler import snippets as S
+    v = {}
+    exec(S.build(body, {"lang": lang}, uses), {"vars": v})
+    return v
+
+
+def test_turkish_speech_is_read_by_the_parsers():
+    v = _run("vars['d'] = answer_from_spoken('date', 'on dört Mart bin dokuz yüz seksen sekiz')\n"
+             "vars['y'] = answer_from_speech('year', 'bin dokuz yüz seksen sekiz')\n"
+             "vars['n'] = digit_string('dört dört yedi bir')\n"
+             "vars['a'] = amount_from_speech('yüz elli lira')\n"
+             "vars['b'] = amount_from_speech('1.234,50 TL')\n"
+             "vars['f'] = amount_from_speech('hepsini')\n"
+             "vars['t'] = answer_from_speech('text', 'Bir İstanbul')\n"
+             "vars['dd'] = date_from_speech('22 Ekim', '2026-10-11T10:00')\n"
+             "vars['wd'] = date_from_speech('perşembe', '2026-10-11T10:00')",
+             ("answer_from_spoken", "answer_from_speech", "digit_string", "amount_from_speech", "date_from_speech"))
+    assert v["d"][1] and "1988-03-14" in str(v["d"][0]), v["d"]
+    assert v["y"][0] == "1988", v["y"]
+    assert v["n"] == "4471", v["n"]
+    assert v["a"][0] == 150 and v["b"][0] == 1234.5, (v["a"], v["b"])
+    assert v["f"][1] == "full"
+    assert "1" not in v["t"][0] and v["t"][0].startswith("bir"), v["t"]  # text answers are never rewritten (no number words)
+    assert v["dd"][0] == "2026-10-22" and v["wd"][0] == "2026-10-15", (v["dd"], v["wd"])
+
+
+def test_english_parsers_are_untouched():
+    from builder.template_cc.compiler import snippets as S
+    assert "tr_norm" not in S.build("vars['a'] = amount_from_speech('fifty')", {}, ("amount_from_speech",))

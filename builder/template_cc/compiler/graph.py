@@ -126,6 +126,7 @@ class Graph:
         self.lang = str(policy.get("language") or "en").lower()[:2]
         if self.lang in I18N.SUPPORTED:
             self.cfg["lang"] = self.lang
+            self.cfg["currency"] = str(policy.get("currency") or "").strip()
         if "f1_id_complete" in self.f:
             ident = self.cfg["identity"]
             ans = policy["tools"]["verify_identity"]["answer"]

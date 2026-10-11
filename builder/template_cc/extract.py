@@ -35,6 +35,7 @@ General rules
 - If the brief is silent, use null / [] / {{}} and say so in "extra_rules" with stage "global" only when it matters.
 
 Keys
+- currency: the currency symbol or word exactly as the brief writes it next to amounts (for example the symbol or the short word), null when the brief names none.
 - bank, language (ISO code), address (how to address the customer with {{field}} placeholders from the call variables).
 - call_variables: every call variable the brief lists.
 - holidays: every listed non-business day as YYYY-MM-DD, sorted (convert odd formats).

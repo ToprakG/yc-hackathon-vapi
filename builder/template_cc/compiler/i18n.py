@@ -71,7 +71,7 @@ def localize(code: str, lang: str) -> str:
     if lang not in SUPPORTED:
         return code
     for en, tr in sorted(TR, key=lambda p: -len(p[0])):
-        code = code.replace(en, tr)
+        code = code.replace(en, tr.replace("money(", "msay("))
     code = code.replace("WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']",
                         "WEEKDAYS = " + TR_WEEKDAYS)
     a = code.find("MONTHS = ['January'")
@@ -109,3 +109,75 @@ TR_LINES_ADDR = {"right_party_question": "{addr} ile mi görüşüyorum?", "righ
                  "opening": "Merhaba, {opening}", "opening_none": "Merhaba."}
 TR_NO_DISCOUNT = "Tutarı düşüremem."
 TR_HARDSHIP_OFFER = "Sizi destek ekibine bağlamamı ister misiniz?"
+
+# Spoken amounts: decimal comma, thousands dot, the policy's own currency word after it (none when the brief names none).
+# The facts the model reads and sends keep plain digits with a dot, so no tool argument is ever written in this form.
+MSAY_SRC = """def msay(x):
+    s = '%.2f' % float(x)
+    whole, frac = s.split('.')
+    groups = []
+    while len(whole) > 3:
+        groups.insert(0, whole[-3:])
+        whole = whole[:-3]
+    groups.insert(0, whole)
+    cur = str(CFG.get('currency') or '').strip()
+    return '.'.join(groups) + ',' + frac + (' ' + cur if cur else '')
+"""
+
+
+# Customer speech in Turkish -> the words and digits the (English) spoken-answer parsers read. Applied only for language tr, at the entry of
+# digit_string / answer_from_speech / answer_from_spoken / amount_from_speech / date_from_speech. Text answers are never changed.
+TRNORM_SRC = '''def tr_norm(text):
+    t = str(text or '').replace('\\u0130', 'i').replace('I', '\\u0131').lower()
+    t = re.sub(r"(?<=\\d)\\.(?=\\d{3}(?!\\d))", '', t)
+    t = re.sub(r"(?<=\\d),(?=\\d{1,2}(?!\\d))", '.', t)
+    t = re.sub(r"(?<=\\w)['\\u2019][^\\W\\d_]+", '', t)
+    units = {'s\\u0131f\\u0131r': 0, 'bir': 1, 'iki': 2, '\\u00fc\\u00e7': 3, 'd\\u00f6rt': 4, 'be\\u015f': 5, 'alt\\u0131': 6, 'yedi': 7, 'sekiz': 8, 'dokuz': 9}
+    tens = {'on': 10, 'yirmi': 20, 'otuz': 30, 'k\\u0131rk': 40, 'elli': 50, 'altm\\u0131\\u015f': 60, 'yetmi\\u015f': 70, 'seksen': 80, 'doksan': 90}
+    words = {'ocak': 'january', '\\u015fubat': 'february', 'subat': 'february', 'mart': 'march', 'nisan': 'april', 'may\\u0131s': 'may',
+             'mayis': 'may', 'haziran': 'june', 'temmuz': 'july', 'a\\u011fustos': 'august', 'agustos': 'august', 'eyl\\u00fcl': 'september',
+             'eylul': 'september', 'ekim': 'october', 'kas\\u0131m': 'november', 'kasim': 'november', 'aral\\u0131k': 'december',
+             'aralik': 'december', 'pazartesi': 'monday', 'sal\\u0131': 'tuesday', '\\u00e7ar\\u015famba': 'wednesday',
+             'per\\u015fembe': 'thursday', 'cuma': 'friday', 'cumartesi': 'saturday', 'pazar': 'sunday', 'bug\\u00fcn': 'today',
+             'yar\\u0131n': 'tomorrow', 'lira': 'pounds', 'tl': 'pounds', '\\u20ba': '\\u00a3', 'kuru\\u015f': 'pence',
+             'tamam\\u0131': 'the full amount', 'tamam\\u0131n\\u0131': 'the full amount', 'hepsini': 'the full amount',
+             'haftaya': 'next week'}
+    out, total, grp, last, have = [], 0, 0, '', False
+    for w in re.findall(r"\\d+(?:\\.\\d+)?|[^\\W\\d_]+|[^\\w\\s]", t):
+        kind = 'u' if w in units else 't' if w in tens else 'h' if w == 'y\\u00fcz' else 'b' if w in ('bin', 'milyon') else ''
+        if kind:
+            if have and ((kind == 'u' and last == 'u') or (kind == 't' and last in ('u', 't'))):
+                out.append(str(total + grp))
+                total, grp = 0, 0
+            if kind in ('u', 't'):
+                grp += units.get(w, tens.get(w, 0))
+            elif kind == 'h':
+                grp = (grp or 1) * 100
+            else:
+                total += (grp or 1) * (1000 if w == 'bin' else 1000000)
+                grp = 0
+            have, last = True, kind
+            continue
+        if have:
+            out.append(str(total + grp))
+            total, grp, have, last = 0, 0, False, ''
+        out.append(words.get(w, w))
+    if have:
+        out.append(str(total + grp))
+    return ' '.join(out)
+'''
+_ENTRY = [("def digit_string(text):\n", "text"), ("def amount_from_speech(text):\n", "text"),
+          ("def date_from_speech(text, now_iso):\n", "text")]
+_ENTRY_KIND = ["def answer_from_speech(kind, text):\n", "def answer_from_spoken(kind, text):\n"]
+
+
+def inject_parsers(h: str) -> str:
+    """tr: the parser entries read Turkish through tr_norm; the helper itself is added once."""
+    used = False
+    for head, _ in _ENTRY:
+        if head in h:
+            h, used = h.replace(head, head + "    text = tr_norm(text)\n"), True
+    for head in _ENTRY_KIND:
+        if head in h:
+            h, used = h.replace(head, head + "    text = tr_norm(text) if kind != 'text' else text\n"), True
+    return (h + "\n\n\n" + TRNORM_SRC) if used else h

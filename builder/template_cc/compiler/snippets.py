@@ -14,7 +14,7 @@ import textwrap
 from functools import lru_cache
 from pathlib import Path
 
-from .i18n import localize
+from .i18n import MSAY_SRC, inject_parsers, localize
 
 RUNTIME = Path(__file__).resolve().parent / "runtime.py"
 MSG_BEGIN, MSG_END = "# MSG-BEGIN", "# MSG-END"
@@ -104,6 +104,11 @@ def build(body: str, cfg: dict, uses=(), fallback: str = "pass", msgs: dict | No
     parts = ["import datetime", "import json", "import re", ""]
     h = helpers(set(uses) | {"jget"})
     lang = str(cfg.get("lang") or "")
+    body, h = localize(body, lang), localize(h, lang)
+    if lang == "tr":
+        h = inject_parsers(h)
+    if "msay(" in body and lang == "tr":
+        h = (h + "\n\n\n" if h else "") + MSAY_SRC
     cfg = cfg_subset(cfg, body, h)
     if h:
         parts += [h, ""]
@@ -114,8 +119,7 @@ def build(body: str, cfg: dict, uses=(), fallback: str = "pass", msgs: dict | No
     parts.append(textwrap.indent(body, "    "))
     parts.append("except Exception as _err:")
     parts.append(textwrap.indent(fallback + "\n" + "vars['tcc_error'] = str(_err)[:300]", "    "))
-    code = "\n".join(parts) + "\n"
-    code = localize(code, lang)
+    code = localize("\n".join(parts) + "\n", lang)  # also the fallback block
     if "{{" in code or "}}" in code:
         raise SnippetError("generated code contains a double brace")
     compile(code, "<snippet>", "exec")

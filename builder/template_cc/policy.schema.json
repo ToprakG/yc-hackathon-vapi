@@ -9,6 +9,7 @@
  "properties": {
   "bank": {"type": "string", "minLength": 1},
   "language": {"type": "string", "minLength": 2},
+  "currency": {"type": ["string", "null"]},
   "address": {"type": "string"},
   "identity": {
    "type": "object",
