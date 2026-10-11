@@ -86,7 +86,8 @@ export class BankDO extends DurableObject {
     const query = Object.fromEntries(url.searchParams);
     if (req.method !== "GET") {
       const raw = await req.text();
-      if (raw.trim() || !table) { try { body = JSON.parse(raw); } catch { return J({ ok: false, error: "invalid JSON body" }, 400); } }
+      if ((req.headers.get("content-type") || "").includes("application/x-www-form-urlencoded")) body = Object.fromEntries(new URLSearchParams(raw));   // e.g. an OAuth token request
+      else if (raw.trim() || !table) { try { body = JSON.parse(raw); } catch { if (!table) return J({ ok: false, error: "invalid JSON body" }, 400); } }   // table mode: an unreadable body is treated as empty (required-field checks answer)
     } else body = table ? {} : query;
     const headers = Object.fromEntries([...req.headers.entries()]);
     const r = await bank.call(req.method, rest, body, headers, query);

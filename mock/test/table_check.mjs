@@ -12,7 +12,7 @@ let bad = 0;
 const say = (ok, name, extra = "") => { if (!ok) bad++; { if (!ok || process.env.VERBOSE) console.log(`${ok ? "ok  " : "FAIL"} ${name}${extra}`); }; };
 const runCheck = async (c) => {
   const r = c.request, q = r.query ? "?" + new URLSearchParams(r.query) : "";
-  const res = await fetch(url + base + r.path + q, { method: r.method || "GET", headers: { ...(r.body ? { "content-type": "application/json" } : {}), ...(r.headers || {}) }, body: r.body ? JSON.stringify(r.body) : undefined });
+  const res = await fetch(url + (r.absolute ? "" : base) + r.path + q, { method: r.method || "GET", headers: { ...(r.body ? { "content-type": "application/json" } : {}), ...(r.headers || {}) }, body: r.body ? JSON.stringify(r.body) : undefined });
   const txt = await res.text(); let body; try { body = JSON.parse(txt); } catch { body = txt; }
   const ok = res.status === (c.expect.status ?? 200) && (c.expect.body === undefined || subset(c.expect.body, body));
   say(ok, c.name || r.path, ok ? "" : `: got ${res.status} ${txt.slice(0, 200)}`);

@@ -78,3 +78,28 @@ test("alias condition keys and per-rule ledger key", async () => {
   assert.equal((await b.call("POST", "/e", { other: "42" }, {}, {})).status, 404);
   const l = await b.scorerLedger("K1"); assert.equal(l.calls.length, 2); assert.equal(l.writes.length, 2);
 });
+
+test("envelope {data, call}, absolute endpoint, required fields, guid, mock_url in openapi", async () => {
+  const sp = { mode: "table", id: "env", base_path: "/svc/v1", ledger_key: ["customerNo"], endpoints: [
+    { name: "tok", method: "POST", path: "/oauth2/token", absolute: true, rules: [{ status: 200, body: { access_token: "t", token_type: "Bearer", expires_in: 1800 } }] },
+    { name: "svc.get", method: "POST", path: "/svc.get", required: [{ any: ["customerNo"], out: { status: 400, body: { result: { code: "INVALID", guid: "{{guid}}" } } } }],
+      rules: [{ when: { customerNo: "7" }, status: 200, body: { data: { n: "{{customerNo}}" } }, record: { kind: "k" } }] }] };
+  const b = new TableBank(sp, mem());
+  assert.equal((await b.call("POST", "/oauth2/token", {}, {}, {})).json.expires_in, 1800);
+  assert.equal(await b.call("POST", "/svc/v1/oauth2/token", {}, {}, {}) , null);
+  const ok = await b.call("POST", "/svc/v1/svc.get", { data: { customerNo: 7 }, call: { ani: "1" } }, {}, {});
+  assert.deepEqual([ok.status, ok.json], [200, { data: { n: 7 } }]);
+  const bad = await b.call("POST", "/svc/v1/svc.get", { data: {}, call: {} }, {}, {});
+  assert.equal(bad.status, 400); assert.match(bad.json.result.guid, /^[0-9a-f]{32}$/);
+  const l = await b.scorerLedger("7"); assert.equal(l.writes[0].data.customerNo, 7); assert.equal(l.writes[0].data.call, undefined);
+  const o = tableOpenapi({ tenant: "t", base_path: "/svc/v1", openapi: { servers: [{ url: "x" }], c: "{{mock_url}}/oauth2/token" } }, "https://w");
+  assert.equal(o.c, "https://w/t/oauth2/token");
+});
+
+test("template-variable placeholders answer as the sample record", async () => {
+  const sp = { mode: "table", id: "p", placeholders: { id: "A1" }, endpoints: [{ name: "e", method: "POST", path: "/e", rules: [{ when: { id: "A1" }, status: 200, body: { id: "{{id}}" } }] }] };
+  const b = new TableBank(sp, mem());
+  for (const v of ["{{customerNumber}}", "%7B%7BcustomerNumber%7D%7D"]) assert.equal((await b.call("POST", "/e", { id: v }, {}, {})).status, 200);
+  assert.equal((await b.call("POST", "/e", { id: "zz" }, {}, {})).status, 404);
+  assert.equal((await new TableBank({ ...sp, placeholders: undefined }, mem()).call("POST", "/e", { id: "{{x}}" }, {}, {})).status, 404);   // no placeholders: unchanged
+});

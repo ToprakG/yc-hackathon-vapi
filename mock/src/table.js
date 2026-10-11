@@ -56,11 +56,10 @@ export class TableBank {
 
   find(method, path) {
     const b = this.base();
-    if (b && !path.startsWith(b)) return null;
-    const rest = path.slice(b.length) || "/";
     for (const e of this.eps) {
       if ((e.method || "GET").toUpperCase() !== method) continue;
-      const m = rest.match(e._p.re);
+      if (!e.absolute && b && !path.startsWith(b)) continue;   // absolute endpoints (e.g. a token endpoint) ignore base_path
+      const m = (e.absolute ? path : path.slice(b.length) || "/").match(e._p.re);
       if (m) return { ep: e, params: Object.fromEntries(e._p.names.map((n, i) => [n, decodeURIComponent(m[i + 1])])) };
     }
     return null;
@@ -80,16 +79,29 @@ export class TableBank {
     const hit = this.find(method, path);
     if (!hit) return null;
     const { ep, params } = hit;
-    const inputs = { ...query, ...(body && typeof body === "object" && !Array.isArray(body) ? body : {}), ...params };
+    const flat = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+    const env = flat.data !== null && typeof flat.data === "object" && !Array.isArray(flat.data);   // {data:{...fields}, call:{...metadata}} envelope: the fields live in data
+    const inputs = { ...query, ...(env ? flat.data : flat), ...params };
+    // the panel's "Test API Request" can send the literal "{{variable}}" (or url-encoded): answer as the spec's sample record instead of an error
+    for (const [k, v] of Object.entries(inputs)) if (typeof v === "string" && /^(\{\{|%7B%7B)/i.test(v.trim()) && this.spec.placeholders?.[k] !== undefined) inputs[k] = this.spec.placeholders[k];
     const name = ep.name || `${method} ${ep.path}`;
     const state = await this.state();
     const header = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
-    const ctx = { ...inputs, in: inputs, path: params, query, body, header, state, now: this.now().toISOString() };
+    const guid = [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, "0")).join("");
+    const ctx = { ...inputs, in: inputs, path: params, query, body, call: env ? flat.call : undefined, header, state, guid, now: this.now().toISOString() };
 
     if (headers["x-mock-fail"] === "1") {
       const r = { status: 500, body: { error: "service error" } };
       await this.log({ tool: name, key: this.key(ctx), args: inputs, result: r, fault: true });
       return { status: 500, json: r.body };
+    }
+    for (const r of ep.required || []) {   // [{any: [names], out: {status, body}}]: a missing/empty field is answered before any rule
+      const v = pick(ctx, [].concat(r.any).join("|"));
+      if (v === undefined || v === null || v === "") {
+        const o = r.out ?? { status: 400, body: {} }, rb = fill(o.body, ctx);
+        await this.log({ tool: name, key: this.key(ctx), args: inputs, result: { status: o.status ?? 400, body: rb }, matched: "required" });
+        return { status: o.status ?? 400, json: rb };
+      }
     }
     let rule = null, ri = -1;
     for (const [i, r] of (ep.rules || []).entries()) {
@@ -142,7 +154,10 @@ export class TableBank {
 
 export function tableOpenapi(spec, origin) {
   const server = { url: `${origin}/${spec.tenant}${spec.base_path || ""}` };
-  if (spec.openapi) return { ...spec.openapi, servers: [server] };   // the bank's own document, only the server is ours
+  if (spec.openapi) {   // "{{mock_url}}" anywhere in the document (e.g. a token URL) becomes this tenant's base
+    const doc = JSON.parse(JSON.stringify(spec.openapi).replaceAll("{{mock_url}}", `${origin}/${spec.tenant}`));
+    return { ...doc, servers: [server] };
+  }   // the bank's own document, only the server is ours
   const paths = {};
   for (const e of spec.endpoints || []) (paths[e.path] ||= {})[(e.method || "GET").toLowerCase()] = { summary: e.summary || e.name || e.path, responses: { 200: { description: "ok" } } };
   return { openapi: "3.0.3", info: spec.info || { title: spec.tenant, version: "1.0" }, servers: [server], paths };

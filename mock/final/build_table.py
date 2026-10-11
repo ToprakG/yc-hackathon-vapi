@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
-"""test-customers.json + endpoints.json (+ optional bank OpenAPI) -> table-mode spec for the Worker.
+"""test-customers.json + endpoints.json (+ bank OpenAPI) -> table-mode spec for the Worker.
 
     python3 mock/final/build_table.py <test-customers.json> [-e mock/final/endpoints.json] [-o mock/final/table.freyabank.json] [--openapi bank.openapi.json]
 
-One rule per customer / card / week from the pack, answered with exactly the listed status and body ('response' or 'yanit', 'http', 'gecikmeSaniye' / 'delaySeconds' = delay_seconds).
-Section 6 changes only endpoints.json (method, path, aliases, which fields select the answer).
+One rule per customer / card / week from the pack, answered with exactly the listed status and body ('response'/'yanit', 'http', 'delaySeconds' etc. = delay_seconds).
+Not in the file -> the contract's 404/400 for that service (section 6). Missing required field -> 400 INVALID_ARGUMENTS_ERROR. Token endpoint per section 2.
 """
-import argparse, json, pathlib, re
+import argparse, json, pathlib
 
-ROLE_VALUE = {"customer": lambda c, card, week: c["customerNo"], "card": lambda c, card, week: card, "week": lambda c, card, week: week}
+HERE = pathlib.Path(__file__).resolve().parent
 
 
 def leaf(x):
     return isinstance(x, dict) and "http" in x
 
 
-def walk(svc_value, levels):
-    """Yield (key tuple, leaf) for the nested {card: {week: leaf}} structure."""
-    if leaf(svc_value):
-        yield (), svc_value
+def walk(v):
+    if leaf(v):
+        yield (), v
     else:
-        for k, v in svc_value.items():
-            for rest, lf in walk(v, levels):
+        for k, sub in v.items():
+            for rest, lf in walk(sub):
                 yield (k,) + rest, lf
 
 
@@ -33,21 +32,21 @@ def out_of(lf):
     return o
 
 
-def build(data, ep):
+def err(status, code, typ, msg):
+    return {"status": status, "body": {"result": {"guid": "{{guid}}", "returnCode": code, "messageText": msg, "code": code, "message": msg, "type": typ,
+                                                  "details": {"guid": "{{guid}}", "rootCause": "TechnicalError" if status == 500 else "NotFoundException" if status == 404 else "IllegalArgumentException", "errorOrigin": "ivr-gateway-test:ivr-channel-v0"}}}}
+
+
+def build(data, ep, openapi=None):
     al = ep["aliases"]
-    cond_key = lambda role: "|".join(al[role])
+    key = lambda role: al[role][0]
     eps, checks, writes = [], [], []
-    unknown = None
-    for c in data["customers"]:
-        for name, v in c["services"].items():
-            if leaf(v) and v["http"] == 404 and unknown is None and name == "cards.list":
-                unknown = {"status": 404, "body": {**v["response"], "result": {**v["response"]["result"]}}}
     by_ep = {}
     for name, cfg in ep["services"].items():
-        e = {"name": name, "method": cfg["method"], "path": cfg["path"], "rules": [],
-             "default": cfg.get("default") or {"status": 404, "body": {"result": {"returnCode": "NOT_FOUND", "messageText": "No such record in the test environment.", "code": "NOT_FOUND", "message": "No such record in the test environment.", "type": "WARNING"}}}}
-        by_ep[name] = (e, cfg)
-        eps.append(e)
+        un = cfg["unknown"]
+        e = {"name": name, "method": "POST", "path": cfg["path"], "rules": [], "default": err(*un),
+             "required": [{"any": f, "out": err(400, "INVALID_ARGUMENTS_ERROR", "ERROR", msg)} for f, msg in cfg.get("required", [])]}
+        by_ep[name] = (e, cfg); eps.append(e)
     for c in data["customers"]:
         cno = c["customerNo"]
         for name, v in c["services"].items():
@@ -55,50 +54,53 @@ def build(data, ep):
                 continue
             e, cfg = by_ep[name]
             roles = cfg["by"]
-            for keys, lf in walk(v, len(roles)):
-                vals = {}
-                ki = iter(keys)
-                for r in roles:
-                    vals[r] = cno if r == "customer" else next(ki)
-                when = {cond_key(r): vals[r] for r in roles}
+            for keys, lf in walk(v):
+                it = iter(keys)
+                vals = {r: (cno if r == "customer" else next(it)) for r in roles}
                 out = out_of(lf)
-                rule = {"key": cno, "when": when, **out}
+                rule = {"key": cno, "when": {key(r): vals[r] for r in roles}, **out}
                 if cfg.get("record") and out["status"] < 400:
-                    rule["record"] = {"kind": cfg["record"], "data": {"customerNo": cno, **{r: vals[r] for r in roles if r != "customer"}}}
+                    tmpl = json.loads(json.dumps(cfg["record_data"]).replace('"@customer"', json.dumps(cno)))
+                    rule["record"] = {"kind": cfg["record"], "data": tmpl}
                 e["rules"].append(rule)
-                req = {al[r][0]: vals[r] for r in roles if not al[r][0].startswith("header.")}
-                check = {"name": f"{cno} {name} {'/'.join(map(str, keys))}".strip(), "request": {"method": cfg["method"], "path": cfg["path"]}, "expect": {"status": out["status"], "body": out["body"]}}
-                hdr = {al[r][0][7:]: vals[r] for r in roles if al[r][0].startswith("header.")}
-                check["request"]["body" if cfg["method"] != "GET" else "query"] = req
-                if hdr:
-                    check["request"]["headers"] = hdr
-                if "{" in cfg["path"]:   # path params: fill {name} from the matching role
-                    p = cfg["path"]
-                    for m in re.findall(r"\{(\w+)\}", p):
-                        role = next((r for r in roles if m in al[r]), None)
-                        if role:
-                            p = p.replace("{" + m + "}", str(vals[role]))
-                            check["request"].get("body", check["request"].get("query", {})).pop(m, None)
-                    check["request"]["path"] = p
-                checks.append(check)
+                reqdata = {key(r): vals[r] for r in roles}
+                reqdata.update({k: x for k, x in cfg.get("extra", {}).items() if k not in reqdata})
+                checks.append({"name": f"{cno} {name} {'/'.join(map(str, keys))}".strip(),
+                               "request": {"method": "POST", "path": cfg["path"], "body": {"data": reqdata, "call": {"ani": "+905550000000", "lang": "tr"}}},
+                               "expect": {"status": out["status"], "body": out["body"]}})
                 if rule.get("record"):
-                    writes.append({"kind": cfg["record"], "data": rule["record"]["data"]})
-    # a card is also found by its last four digits when those are unique among all cards
-    return {"mode": "table", "id": ep.get("tenant", "freyabank"), "info": {"title": "Freya Bank statement services (test environment)", "version": "1"},
-            "base_path": ep.get("base_path", ""), "ledger_key": al["customer"], "max_delay": 25, "endpoints": eps, "checks": checks, "checks_parallel": 8,
-            "expect_writes": writes[:3]}
+                    w = json.loads(json.dumps(rule["record"]["data"]))
+                    for k, x in list(w.items()):
+                        if isinstance(x, str) and x.startswith("{{"):
+                            w[k] = reqdata.get(x[2:-2])
+                    writes.append({"kind": cfg["record"], "data": w})
+    tok = ep["token"]
+    eps.append({"name": "oauth2.token", "method": "POST", "path": tok["path"], "absolute": True,
+                "rules": [{"status": 200, "body": {"access_token": tok["access_token"], "token_type": "Bearer", "expires_in": tok["expires_in"]}}]})
+    checks.append({"name": "token", "request": {"method": "POST", "path": tok["path"], "absolute": True, "body": {}}, "expect": {"status": 200, "body": {"token_type": "Bearer", "expires_in": tok["expires_in"]}}})
+    # section 6 / 4: unknown customer, unknown card, empty field
+    checks += [
+        {"name": "template variable -> sample record", "request": {"method": "POST", "path": "/cards.list", "body": {"data": {"customerNo": "{{customerNumber}}"}}}, "expect": {"status": 200, "body": {"data": {"exitState": "1_CARD"}}}},
+        {"name": "unknown customer -> 404 102", "request": {"method": "POST", "path": "/cards.list", "body": {"data": {"customerNo": "00000000", "aiFlow": "CardOps"}}}, "expect": {"status": 404, "body": {"result": {"code": "FB_IVR_CHANNEL_102", "type": "WARNING"}}}},
+        {"name": "unknown card -> 404 120", "request": {"method": "POST", "path": "/cards.balance", "body": {"data": {"cardNumber": "999999******9999"}}}, "expect": {"status": 404, "body": {"result": {"code": "FB_IVR_CHANNEL_120"}}}},
+        {"name": "empty card -> 400", "request": {"method": "POST", "path": "/cards.balance", "body": {"data": {"cardNumber": ""}}}, "expect": {"status": 400, "body": {"result": {"code": "INVALID_ARGUMENTS_ERROR", "message": "card number cannot be empty"}}}},
+        {"name": "no data -> 400", "request": {"method": "POST", "path": "/cards.list", "body": {}}, "expect": {"status": 400}},
+    ]
+    spec = {"mode": "table", "id": ep.get("tenant", "freyabank"), "info": {"title": "Freya Bank voice statement services", "version": "1"},
+            "base_path": ep["base_path"], "ledger_key": [key("customer")], "max_delay": 25, "endpoints": eps, "checks": checks, "checks_parallel": 8, "placeholders": ep.get("placeholders", {}), "expect_writes": writes[:3]}
+    if openapi:
+        spec["openapi"] = openapi
+    return spec
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("customers"); ap.add_argument("-e", default=str(pathlib.Path(__file__).with_name("endpoints.json")))
-    ap.add_argument("-o", default=str(pathlib.Path(__file__).with_name("table.freyabank.json"))); ap.add_argument("--openapi")
+    ap.add_argument("customers"); ap.add_argument("-e", default=str(HERE / "endpoints.json"))
+    ap.add_argument("-o", default=str(HERE / "table.freyabank.json")); ap.add_argument("--openapi")
     a = ap.parse_args()
     ep = json.load(open(a.e))
-    spec = build(json.load(open(a.customers)), ep)
     oa = a.openapi or ep.get("openapi_file")
-    if oa:
-        spec["openapi"] = json.load(open(oa))
+    oa = json.load(open(oa if pathlib.Path(oa).exists() else HERE.parent.parent / oa)) if oa else None
+    spec = build(json.load(open(a.customers)), ep, oa)
     json.dump(spec, open(a.o, "w"), ensure_ascii=False)
-    n = sum(len(e["rules"]) for e in spec["endpoints"])
-    print(f"{a.o}: {len(spec['endpoints'])} endpoints, {n} rules, {len(spec['checks'])} checks, {len(spec['expect_writes'])} write checks")
+    print(f"{a.o}: {len(spec['endpoints'])} endpoints, {sum(len(e['rules']) for e in spec['endpoints'])} rules, {len(spec['checks'])} checks, openapi={'yes' if oa else 'no'}")
