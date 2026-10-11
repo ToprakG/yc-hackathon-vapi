@@ -2,6 +2,8 @@
 # One command for the final night: fresh extraction (claude_cli:sonnet) -> compile with the kept flags -> lint -> report.
 # Usage: scripts/final_build.sh <brief files...> <tool-api.json> <out-dir>
 #   FEATURES=...   kept flag string (default: the features of out/template_cc/p4/brief-a/build_report.json)
+#   FINAL_VOTES=3  number of independent extractions; id_decline and attempt_plan[*].cap_at_deadline are settled over them by
+#                  builder.template_cc.final_vote (brief-text rule, else majority, else a verifier quote). 1 = a single extraction.
 #   CONFIG=...     optional testbed config.json: also prints the policy_critical misses (scoring only; the builder never reads it)
 # Nothing is sent to Freya (--save none; FREYA_API_KEY is removed from the build's environment).
 cd "$(dirname "$0")/.." || exit 2
@@ -26,7 +28,22 @@ PY
 mkdir -p "$OUT"; T0=$(date +%s)
 echo "features: $FEATURES"
 [ -n "${FINAL_BUILD_DRY:-}" ] && exit 0
-env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
+VOTES=${FINAL_VOTES:-3}; POLICY_ARG=()
+if [ "$VOTES" -gt 1 ]; then
+  echo "final vote: $VOTES independent extractions"
+  PIDS=(); for i in $(seq 1 "$VOTES"); do
+    env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
+      --slot "final-$(basename "$OUT")-e$i" --out "$OUT/ext$i" > "$OUT/ext$i.log" 2>&1 & PIDS+=($!)
+  done; for p in "${PIDS[@]}"; do wait "$p"; done
+  POLS=(); for i in $(seq 1 "$VOTES"); do [ -f "$OUT/ext$i/policy.json" ] && POLS+=("$OUT/ext$i/policy.json"); done
+  BARGS=(); for b in "${BRIEFS[@]}"; do BARGS+=(--brief "$b"); done
+  rm -f "$OUT/policy.voted.json"
+  [ ${#POLS[@]} -ge 2 ] && .venv310/bin/python -m builder.template_cc.final_vote "${POLS[@]}" "${BARGS[@]}" -o "$OUT/policy.voted.json" 2>&1 | tee "$OUT/final_vote.log"
+  if [ -f "$OUT/policy.voted.json" ]; then
+    POLICY_ARG=(--policy "$OUT/policy.voted.json")
+  else echo "final vote: fewer than 2 extractions finished or the vote failed; extracting again in the final build"; fi
+fi
+env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" "${POLICY_ARG[@]}" \
   --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}") python3 - "$OUT" "$RC" "$WALL" "$API" "${CONFIG:-}" <<'PY'
