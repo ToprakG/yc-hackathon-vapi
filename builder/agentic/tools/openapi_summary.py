@@ -33,20 +33,27 @@ def _resolve(spec: dict, node, depth: int = 0):
     return node if isinstance(node, dict) else {}
 
 
+def _type_of(t) -> str:
+    """OpenAPI 3.1 allows `type: ["string", "null"]`: take the first non-null type."""
+    if isinstance(t, list):
+        t = next((x for x in t if x != "null"), "string")
+    return str(t or "string")
+
+
 def _field(spec: dict, prop: dict, required: bool) -> dict:
     prop = _resolve(spec, prop)
-    out = {"type": prop.get("type", "string"), "required": required}
+    out = {"type": _type_of(prop.get("type", "string")), "required": required}
     for key in ("enum", "description", "format", "pattern", "minimum", "maximum"):
         if key in prop:
             out[key] = prop[key]
-    if prop.get("type") == "array":
+    if _type_of(prop.get("type")) == "array":
         items = _resolve(spec, prop.get("items", {}))
-        if items.get("type") == "object" or "properties" in items:
+        if _type_of(items.get("type")) == "object" or "properties" in items:
             req = set(items.get("required", []))
             out["items"] = {k: _field(spec, v, k in req) for k, v in items.get("properties", {}).items()}
         else:
-            out["items"] = {"type": items.get("type", "string")}
-    elif prop.get("type") == "object" and "properties" in prop:
+            out["items"] = {"type": _type_of(items.get("type", "string"))}
+    elif _type_of(prop.get("type")) == "object" and "properties" in prop:
         req = set(prop.get("required", []))
         out["properties"] = {k: _field(spec, v, k in req) for k, v in prop["properties"].items()}
     return out
@@ -157,7 +164,7 @@ def _fmt_field(name: str, f: dict, indent: str = "    ") -> list[str]:
     return lines
 
 
-def render(summary: dict, max_chars: int = 14000) -> str:
+def render(summary: dict, max_chars: int = 30000) -> str:
     """Compact text for the agent: one block per tool."""
     out = [f"base URL: {summary['base_url']}"]
     sec = summary.get("security") or {}

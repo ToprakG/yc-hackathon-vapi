@@ -43,3 +43,14 @@ def test_a_huge_data_file_keeps_its_shape_and_first_records_only():
     out = I.shrink("test-environment/test-customers.json", big)
     assert len(out) < 20000 and "LARGE DATA FILE" in out and "5000 items" in out and "omitted" in out
     assert I.shrink("a.md", "short") == "short"
+
+
+def test_a_converted_document_is_cached_by_content_hash(tmp_path, monkeypatch):
+    import docx
+    from builder import ingest as I
+    monkeypatch.setattr(I, "_CACHE", tmp_path / "cache")
+    f = tmp_path / "d.docx"
+    d = docx.Document(); d.add_paragraph("merhaba dünya"); d.save(str(f))
+    assert "merhaba" in I._cached_text(f)
+    monkeypatch.setattr(I, "read_docx", lambda p: (_ for _ in ()).throw(AssertionError("converted again")))
+    assert "merhaba" in I._cached_text(f)

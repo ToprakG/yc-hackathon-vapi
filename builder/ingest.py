@@ -137,6 +137,22 @@ def fetch_openapi(mock_url: str):
 
 
 MAX_FILE_CHARS = 40000
+_CACHE = Path(__file__).resolve().parents[1] / "out" / ".ingest_cache"   # converted text by file hash: a document converted once is not converted again
+
+
+def _cached_text(p: Path):
+    import hashlib  # noqa: PLC0415
+    if p.suffix.lower() not in (".docx", ".pdf", ".xlsx", ".xlsm"):
+        return to_text(p)
+    key = hashlib.sha256(p.read_bytes()).hexdigest()[:24] + p.suffix.lower()
+    f = _CACHE / (key + ".txt")
+    if f.exists():
+        return f.read_text(encoding="utf-8")
+    t = to_text(p)
+    if t is not None:
+        _CACHE.mkdir(parents=True, exist_ok=True)
+        f.write_text(t, encoding="utf-8")
+    return t
 
 
 def shrink(rel: str, text: str) -> str:
@@ -178,7 +194,7 @@ def ingest(folder: Path, mock_url: str, out: Path) -> dict:
             notes.append(f"{rel}: OpenAPI file (tool API fallback), not part of the brief text")
             continue
         try:
-            t = to_text(p)
+            t = _cached_text(p)
         except Exception as e:  # noqa: BLE001
             notes.append(f"{rel}: CONVERSION FAILED ({type(e).__name__}: {str(e)[:80]})")
             continue

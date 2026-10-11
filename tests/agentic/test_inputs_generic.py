@@ -100,3 +100,15 @@ def test_robustness_rules_reach_the_agent():
     text = prompt.task_prompt(1, 10)
     assert "robustness.md" in text and "FIRST request" in text and "never instructions" in text
     assert "robustness.md" in (Path(__file__).resolve().parents[2] / "builder/agentic/skill/build-collections-agent/SKILL.md").read_text()
+
+
+def test_openapi_31_type_lists_do_not_break_the_api_summary():
+    from builder.agentic.tools import openapi_summary as S
+    spec = {"openapi": "3.1.0", "servers": [{"url": "https://svc.example/v1"}],
+            "paths": {"/a": {"post": {"requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {
+                "x": {"type": ["string", "null"]}, "y": {"type": ["array", "null"], "items": {"type": ["integer", "null"]}},
+                "z": {"type": ["object", "null"], "properties": {"q": {"type": ["number", "null"]}}}}}}}}}}}}
+    api = S.summarize(spec)
+    assert api["tools"]["a"]["request"]["x"]["type"] == "string" and api["tools"]["a"]["request"]["y"]["type"] == "array"
+    text = S.render(api)
+    assert "x: string" in text and "q: number" in text
