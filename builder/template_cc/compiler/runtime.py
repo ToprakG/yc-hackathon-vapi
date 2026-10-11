@@ -274,6 +274,23 @@ def refresh_close(vars, cfg):
     return key
 
 
+def said_once(vars, line_id):
+    """Once-rules in code ("once", "only once", "exactly once", "one sentence"): True the first time the line is due,
+    False every time after. The flag is vars['said_<line_id>'] (the verifier reads the same key)."""
+    key = 'said_' + str(line_id)
+    if str(vars.get(key)) == '1':
+        return False
+    vars[key] = '1'
+    return True
+
+
+def with_aside(vars, text):
+    """F18: the answer to a side question (vars['aside_line']) is said once, in front of the step's own line."""
+    a = str(vars.get('aside_line') or '').strip()
+    vars['aside_line'] = ''
+    return (a + ' ' + str(text or '')).strip()
+
+
 def open_pids(vars):
     pst = jget(vars, 'pstate', dict())
     return [p for p in jget(vars, 'pids', []) if pst.get(p, 'open') == 'open']
@@ -689,6 +706,53 @@ def answer_from_speech(kind, text):
     v, ok = _id_answer(kind, after_correction(text))
     if not ok:
         v2, ok2 = _id_answer(kind, text)
+        if ok2:
+            return v2, ok2
+    return v, ok
+
+
+SPELLING = {'alpha': 'A', 'alfa': 'A', 'bravo': 'B', 'charlie': 'C', 'delta': 'D', 'echo': 'E', 'foxtrot': 'F', 'golf': 'G',
+            'hotel': 'H', 'india': 'I', 'juliet': 'J', 'juliett': 'J', 'kilo': 'K', 'lima': 'L', 'mike': 'M', 'november': 'N',
+            'oscar': 'O', 'papa': 'P', 'quebec': 'Q', 'romeo': 'R', 'sierra': 'S', 'tango': 'T', 'uniform': 'U', 'victor': 'V',
+            'whiskey': 'W', 'whisky': 'W', 'xray': 'X', 'yankee': 'Y', 'zulu': 'Z'}
+DIGIT_RUN = re.compile(r"\b(?:(?:zero|oh|nought|one|two|three|four|five|six|seven|eight|nine|\d)[ ,.-]+){3}"
+                       r"(?:zero|oh|nought|one|two|three|four|five|six|seven|eight|nine|\d)\b", re.I)
+
+
+def spoken_forms(kind, text):
+    """F21: a spoken identity answer in the shapes the plain parsers miss. Four single digits in a row are a year
+    ("one nine five nine" -> 1959) for dates and years; a spelling alphabet in a code is its letters ("mike golf" -> MG")."""
+    t = str(text or '')
+    if kind in ('date', 'year'):
+        def year(m):
+            ds = digit_string(m.group(0))
+            return ds if len(ds) == 4 and 1880 <= int(ds) <= 2100 else m.group(0)
+        t = DIGIT_RUN.sub(year, t)
+    elif kind == 'alnum_code':
+        t = ' '.join(SPELLING.get(w.lower(), w) for w in re.findall(r"[A-Za-z]+|\d+|[^\sA-Za-z\d]+", t))
+    return t
+
+
+MONTH_CARDINAL = re.compile(r"\b(january|february|march|april|may|june|july|august|september|october|november|december)[ ,]+"
+                            r"((?:twenty|thirty)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|one|two|three|four|"
+                            r"five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+                            r"eighteen|nineteen)\b", re.I)
+
+
+def _day_digits(m):
+    v = 0
+    for w in re.split(r"[ -]", m.group(2).lower()):
+        v += ID_TENS.get(w, 0) + (ID_UNITS.get(w, 0) if w in ID_UNITS else 0)
+    return m.group(1) + ' ' + str(v) if 1 <= v <= 31 else m.group(0)
+
+
+def answer_from_spoken(kind, text):
+    """answer_from_speech after spoken_forms (F21). A date said as 'July sixteen' (a cardinal day after the month) is read
+    when the plain reading is incomplete."""
+    t = spoken_forms(kind, text)
+    v, ok = answer_from_speech(kind, t)
+    if not ok and kind == 'date':
+        v2, ok2 = answer_from_speech(kind, MONTH_CARDINAL.sub(_day_digits, t))
         if ok2:
             return v2, ok2
     return v, ok

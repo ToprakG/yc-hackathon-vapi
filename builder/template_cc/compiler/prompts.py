@@ -70,7 +70,7 @@ def system_forbidden(policy: dict) -> str:
     return base + (f" Never say these words before that: {words}." if words else "")
 
 
-def system_honesty(policy: dict, routed: bool = False) -> str:
+def system_honesty(policy: dict, routed: bool = False, once: bool = False) -> str:
     end = ("When the conversation is finished, say goodbye once; never keep repeating goodbye." if routed else
            "When the conversation is finished, CALL transition_to_wrap if you have it; never keep repeating goodbye.")
     return ("Tell the truth. Say that something was recorded, booked or transferred only after the tool result says "
@@ -78,7 +78,9 @@ def system_honesty(policy: dict, routed: bool = False) -> str:
             f"your facts, {quoted(policy, 'no_info') or 'say you do not have that information'}. After every tool "
             "result, speak to the customer or call the next tool; never end a turn with nothing. Call one tool per "
             "message. Follow what_to_do_next in a tool result. Never offer or advertise any product, account, service, plan "
-            "or discount that is not in your facts. " + end)
+            "or discount that is not in your facts. " + end
+            + (" Never say sorry for the customer's situation yourself: sympathy is said by its own fixed step, once."
+               if once and line(policy, "hardship_sympathy") else ""))
 
 
 # --- nodes -----------------------------------------------------------------------------------------------------------
@@ -227,7 +229,11 @@ def hardship_task(policy: dict, has_support: bool, said: str = "") -> str:
             "still names a date or an amount themselves, say you can record it. No tool call is allowed in this turn.")
 
 
-def human_task(policy: dict) -> str:
+def human_task(policy: dict, asked: bool = False) -> str:
+    if asked:  # F20: the offer is made once, when this step starts; later turns never repeat it
+        return ("The customer asked to speak to a person. In your first turn here ask once whether you can help them "
+                "yourself first. Never ask it a second time: if the customer says something else, answer it in one short "
+                "sentence and wait. If they insist, say you will connect them. No tool call is allowed in this turn.")
     return ("The customer asked to speak to a person. Ask once whether you can help them yourself first. If they "
             "insist, say you will connect them. No tool call is allowed in this turn.")
 

@@ -283,6 +283,21 @@ class Graph:
         self._finish_routes()
         if "f7_router" in self.f:
             self._router()
+            if "id_resume" in self.nodes:
+                for nid in ("identity", "identity_explain"):
+                    if nid in self.nodes:
+                        # a turn with nothing to act on resumes the step (F19: the second in a row after the explanation is a refusal)
+                        self.nodes[nid]["transitions"].append(always("id_resume"))
+        if "f20_once_flags" in self.f and "human_gate" in self.nodes:  # every way into the help offer goes through the gate
+            for coll in (self.nodes, self.globals):
+                for nid, node in coll.items():
+                    if nid == "human_gate":
+                        continue
+                    for t in node.get("transitions") or []:
+                        if t.get("target_node") == "human_offer":
+                            t["target_node"] = "human_gate"
+            if "human_offer" in self.nodes and "human_gate" in self.non_conv:
+                pass
         wf = {"initial_node": "start", "system_prompt": "", "nodes": self.nodes, "global_nodes": self.globals,
               "test_variables": self._test_variables()}
         if self.close_form == "lifecycle":
@@ -300,7 +315,7 @@ class Graph:
         b = self.book
         parts = [{"zone": b.add("system/core", P.system_core(self.p), True, purpose="identity, language, tone")},
                  {"zone": b.add("system/forbidden", P.system_forbidden(self.p), True, purpose="words forbidden before verification")},
-                 {"zone": b.add("system/honesty", P.system_honesty(self.p, "f7_router" in self.f), True, purpose="honesty and tool discipline")},
+                 {"zone": b.add("system/honesty", P.system_honesty(self.p, "f7_router" in self.f, "f20_once_flags" in self.f), True, purpose="honesty and tool discipline")},
                  {"zone": b.add("system/brief_rules", P.brief_rules(self.p, "global"), True, purpose="global brief rules"),
                   "title": "Brief rules"},
                  {"zone": b.add("system/global_rules", "", False, P.BUDGET["global_rules"], "extra global rules"),
@@ -394,6 +409,9 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['id_inc'] = '0'
         vars['id_declines'] = '0'
         vars['id_q_pending'] = '0'
+        vars['aside_line'] = ''
+        vars['aside_open'] = ''
+        vars['resume_step'] = 'identity'
 """)
         elif "f2_question_not_refusal" in self.f:
             body = body.replace("ID_INIT", """        vars['id_intent'] = 'other'
@@ -439,15 +457,22 @@ ID_INIT        vars['cb_state'] = 'none'
         hf = self.human_first
         # F1: the identity questions are spoken by the system, so a robot question in the first reply is answered with the brief's line
         ai_ask = "f1_id_complete" in self.f and bool(P.line(self.p, "ai"))
+        # F18: a first reply that gets no decision (extraction did not fire: a death, a robot question, chatter) is not left to a
+        # free model turn: the robot answer is kept as the side line and the second ask is the policy's fixed line
+        f18_open = ("f18_side_resume" in self.f and "f1_id_complete" in self.f and second and bool(P.line(self.p, "ask_again")))
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
                   extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])
                                              + ([("ai_asked", ["yes", "no"])] if ai_ask else [])),
                   transitions=([eq("human_offer", "asks for a person", "who_wants_human", "yes")] if hf else [])
-                  + [any_of("setup", "the person answered", [leaf("who1", "is_set")])],
+                  + [any_of("setup", "the person answered", [leaf("who1", "is_set")])]
+                  + ([always("opening_resume")] if f18_open else []),
                   max_turns=4, turn_target="setup")
+        if f18_open:
+            self.code("opening_resume", "vars['aside_open'] = str(CFG['lines'].get('ai') or '') if str(vars.get('ai_asked')) == 'yes' else ''\n"
+                      "vars['ai_asked'] = 'no'\n", [always("opening_ask2")], fallback="vars['aside_open'] = ''")
         self.task_zones("opening", "opening", P.opening_task(self.p))
         if second:
-            self.conv("opening_ask2", on_enter={"type": "llm"},
+            self.conv("opening_ask2", on_enter=self.tts("opening_ask2", "{{aside_open}} " + P.line(self.p, "ask_again")) if f18_open else {"type": "llm"},
                       extraction=[{"name": "who2", "type": "string", "enum_values": who, "description": P.EXTRACT["who1"],
                                    "min_confidence": MIN_CONF}]
                       + ([{"name": "who_wants_human", "type": "string", "enum_values": ["yes", "no"],
@@ -609,16 +634,21 @@ ID_INIT        vars['cb_state'] = 'none'
         result['data'] = d
         refresh_close(vars, CFG)
         """
+        aside_say = ("        if str(vars.get('id_state')) in ('next', 'retry'):\n"
+                     "            vars['id_say'] = with_aside(vars, vars.get('id_say'))\n") \
+            if "f18_side_resume" in self.f and "f7_router" in self.f else ""
         if "f1_id_complete" in self.f:  # the next line to say and the next question go to variables (no model-facing tool)
             post_body = post_body.replace("                vars['id_state'] = 'next'\n",
                                           "                vars['id_state'] = 'next'\n                vars['id_q'] = nxt\n")
             post_body = post_body.replace("        result['data'] = d\n",
-                                          SPOKEN_ID_SAY
+                                          SPOKEN_ID_SAY + aside_say
                                           + ("        vars['slot_summary'] = slot_summary(vars, CFG)\n" if "f12_slot_summary" in self.f else "")
                                           + "        result['data'] = d\n")
         post_uses = ("truthy", "num", "jget", "jput", "refresh_close")
         if "f1_id_complete" in self.f and "f12_slot_summary" in self.f:
             post_uses += ("slot_summary",)
+        if aside_say:
+            post_uses += ("with_aside",)
         post = self.hook(post_body, uses=post_uses, msgs=msgs)
         if "f1_id_complete" in self.f:  # run by the engine from id_verify with the complete answer id_check hands over
             body = {**T.customer_leaf(self.api, "verify_identity"),
@@ -653,7 +683,10 @@ ID_INIT        vars['cb_state'] = 'none'
         # spoken text, said as it is by the identity step (tts): the brief's reason line, then the question again
         say_ask = "vars['id_say'] = (str(CFG['lines'].get('id_reason') or '') + ' ' + prompt).strip()\n" if f1 else ""
         say_explain = "vars['id_say'] = (str(CFG['lines'].get('id_reason') or '') + ' ' + prompt).strip()\n" if f1 else ""
-        pend = "intent == 'asks_question' and not pending and int(num(vars.get('id_declines'))) == 0" if f2 else "False"
+        f18 = f1 and "f18_side_resume" in self.f
+        uses_extra = ()
+        f19 = "f19_refusal_rule" in self.f  # F19: a question back is a refusal like any other; the counter counts every one
+        pend = "intent == 'asks_question' and not pending and int(num(vars.get('id_declines'))) == 0" if f2 and not f19 else "False"
         body = """
         intent = str(vars.get('id_intent') or '')
         pending = str(vars.get('id_q_pending')) == '1'
@@ -673,12 +706,35 @@ ID_INIT        vars['cb_state'] = 'none'
                 SAY_EXPLAIN
             else:
                 vars['id_route'] = 'decline'
-        """.replace("PEND", pend).replace("EXPLAIN_N", str(min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
+        """
+        if f19:
+            # id_decline = the number of re-asks after the FIRST refusal; the explanation is said once, on refusal 1; the call
+            # closes (the outcome of the refusal path) on refusal number id_decline + 1 ("explain once, close after the second refusal" -> id_decline = 1)
+            body = body.replace("""            if n <= EXPLAIN_N:
+                vars['id_route'] = 'explain'
+                SAY_EXPLAIN
+            else:""", """            if n <= EXPLAIN_N:
+                if n == 1 and said_once(vars, 'id_reason'):
+                    vars['id_route'] = 'explain'
+                    SAY_EXPLAIN
+                else:
+                    vars['id_say'] = prompt
+            else:""")
+            uses_extra = ("said_once",)
+        body = body.replace("PEND", pend).replace("EXPLAIN_N", str(limit if f19 else min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
            .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
         body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
+        uses = ("num",) + (uses_extra if f19 else ())
+        if f19:
+            body = body.rstrip() + "\n        vars['id_fill'] = '0'\n"
+        if f18:  # F18: a side answer that is waiting is said first; the step to resume is remembered
+            body = body.rstrip() + ("\n        vars['resume_step'] = 'identity_explain' if vars['id_route'] == 'explain' else 'identity'\n"
+                                    "        if vars['id_route'] in ('ask', 'explain'):\n"
+                                    "            vars['id_say'] = with_aside(vars, vars.get('id_say'))\n")
+            uses += ("with_aside",)
         trs = ([eq("identity_explain", "explain once", "id_route", "explain")] if limit >= 1 else []) + [
             eq("mark_nv_declined", "the customer keeps declining", "id_route", "decline"), always("identity")]
-        self.code("id_refusal_count", body, trs, uses=("num",), fallback="vars['id_route'] = 'decline'")
+        self.code("id_refusal_count", body, trs, uses=uses, fallback="vars['id_route'] = 'decline'")
 
     def _identity_f1_f2(self, tool, msgs):
         """The identity step when F1 (complete answers verified by the engine) and/or F2 (a question is not a refusal) is on."""
@@ -692,7 +748,11 @@ ID_INIT        vars['cb_state'] = 'none'
         trs = ([any_of("id_check", "the customer gave an answer", [leaf("id_intent", "equals", "answer"),
                                                                     leaf("id_answer_text", "not_equals", "")])] if f1
                else self._id_state_transitions())
-        trs = ([eq("human_offer", "asks for a person", "id_intent", "wants_human")] if f3 else []) + trs \
+        f18 = f1 and "f18_side_resume" in self.f and "f7_router" in self.f
+        asides = [leaf("turn_intent", "equals", v) for v, k in (("asks_robot", "ai"), ("asks_scam", "scam")) if P.line(self.p, k)]
+        f18 = f18 and bool(asides)  # no ai / scam line in the policy: nothing to say, nothing changes
+        trs = ([eq("human_offer", "asks for a person", "id_intent", "wants_human")] if f3 else []) \
+            + ([any_of("id_aside", "a robot or scam question: answer it, then go on with the step", asides)] if f18 else []) + trs \
             + [eq("id_refusal_count", "the customer declines or does not answer", "id_intent", *refusal)]
         tools = [] if f1 else [tool]
         self.conv("identity", on_enter=self.tts("identity", "{{id_say}}") if f1 else {"type": "llm"}, tools=tools,
@@ -719,6 +779,8 @@ ID_INIT        vars['cb_state'] = 'none'
         self._id_refusal_count()
         if f1:
             self._id_check_and_verify(tool, msgs)
+        if f18:
+            self._id_side_nodes(refusal)
 
     def _id_check_and_verify(self, tool, msgs):
         body = """
@@ -728,7 +790,7 @@ ID_INIT        vars['cb_state'] = 'none'
         alone = str(vars.get('id_answer_text') or '').strip()
         partial = str(vars.get('id_partial') or '').strip()
         today = parse_now(vars.get('now')).date()
-        vars['id_intent'] = 'other'
+        INTENT0vars['id_intent'] = 'other'
         vars['id_answer_text'] = ''
         vars['id_q_pending'] = '0'
 
@@ -751,19 +813,19 @@ ID_INIT        vars['cb_state'] = 'none'
             if year.isdigit():
                 value, complete = attempt(alone + ' ' + year)
         n = int(num(vars.get('id_inc')))
-        if not complete and alone:
+        REFUSE_ALONEif not complete and alone:
             n += 1
             if n >= 3:
                 value = (digit_string(alone) or alone) if kind.startswith('digits') else norm_answer(kind, alone, today)
                 complete = True
         if complete:
-            vars['id_send_field'] = field
+            RESET_STREAKvars['id_send_field'] = field
             vars['id_send_value'] = str(value)
             vars['id_last_field'] = field
             vars['id_partial'] = ''
             vars['id_inc'] = '0'
             vars['id_route'] = 'send'
-        else:
+        REFUSE_ROUTEelse:
             vars['id_route'] = 'ask'
             if not alone:
                 vars['id_say'] = 'Sorry, I did not catch that. ' + prompt
@@ -776,9 +838,27 @@ ID_INIT        vars['cb_state'] = 'none'
                 vars['id_partial'] = ''
                 vars['id_say'] = 'Let us try that once more. ' + prompt
         """
-        self.code("id_check", body, [eq("id_verify", "a complete answer to send", "id_route", "send"), always("identity")],
-                  uses=("parse_now", "digit_string", "answer_from_speech", "norm_answer", "num"),
-                  fallback="vars['id_route'] = 'ask'")
+        uses = ("parse_now", "digit_string", "answer_from_speech", "norm_answer", "num")
+        if "f21_spoken_answers" in self.f:  # F21: digit-by-digit years, spelling alphabets in codes
+            body = body.replace("v, ok = answer_from_speech(kind, text)", "v, ok = answer_from_spoken(kind, text)")
+            uses += ("answer_from_spoken",)
+        if "f18_side_resume" in self.f and "f7_router" in self.f:
+            uses += ("with_aside",)
+        f19 = "f19_refusal_rule" in self.f
+        f18 = "f18_side_resume" in self.f and "f7_router" in self.f
+        refusing = "intent0 in ('refuses', 'asks_question', 'declines', 'asks_purpose')" if f19 else "False"
+        body = body.replace("RESET_STREAK", "vars['id_declines'] = '0'\n            vars['id_fill'] = '0'\n            " if f19 else "")
+        body = body.replace("INTENT0", "intent0 = str(vars.get('id_intent') or '')\n        " if f19 else "")
+        body = body.replace("REFUSE_ALONE", ("if not complete and " + refusing + ":\n            alone = ''\n        ") if f19 else "")
+        body = body.replace("REFUSE_ROUTE", ("elif " + refusing + ":\n            vars['id_route'] = 'refuse'\n        ") if f19 else "")
+        trs = [eq("id_verify", "a complete answer to send", "id_route", "send")] \
+            + ([eq("id_refusal_count", "a refusal, not an answer", "id_route", "refuse")] if f19 else []) + [always("identity")]
+        if f18:
+            body = body.rstrip() + ("\n        vars['resume_step'] = 'identity'\n"
+                                    "        if vars['id_route'] == 'ask':\n"
+                                    "            vars['id_say'] = with_aside(vars, vars.get('id_say'))\n")
+        self.code("id_check", body, trs,
+                  uses=uses, fallback="vars['id_route'] = 'ask'")
         self.api_node("id_verify", tool, self._id_state_transitions() + [always("identity")],
                       response_mapping=[{"path": "data.ok", "variable": "id_ok"}])
         parts = [{"zone": self.book.add(f"hook:verify_identity/msg/{k}", v, False, P.BUDGET["hook"], "what_to_do_next text"),
@@ -865,7 +945,7 @@ ID_INIT        vars['cb_state'] = 'none'
             out.append('Weekday words:')
             out.append(weekday_words(CFG, today))
             vars['facts_text'] = '\\n'.join(out)
-            vars['debt_statement'] = (L.get('debt_intro', '') + ' ' + ' '.join(say)).strip()
+            vars['debt_statement'] = (L.get('debt_intro', '') + ' ' + ' '.join(say)).strip()ASIDE_DEBT
             vars['first_ask_line'] = L.get('first_ask_multi', '') if len(rows) > 1 and L.get('first_ask_multi') else L.get('first_ask', '')
             LABELS
             neg_flag(vars)
@@ -876,11 +956,53 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['facts_state'] = 'error'
         vars['end_key'] = 'np_service_error_hard'
         """
+        aside_f = "f18_side_resume" in self.f and "f7_router" in self.f
+        body = body.replace("ASIDE_DEBT", "\n            vars['debt_statement'] = with_aside(vars, vars['debt_statement'])" if aside_f else "")
         body = body.replace("ATT1", ", att1=(r['proposals'][0]['date'] if r['proposals'] else r['deadline'])" if "f11_promise_typed" in self.f else "")
         self.code("facts", body, [eq("mark_np_service_error_hard", "no products could be read", "facts_state", "error"),
                                   always("negotiate")],
                   uses=("product_rows", "parse_now", "jput", "spoken_full", "money", "date_table", "weekday_words",
-                        "neg_flag", "refresh_close"), fallback=fallback)
+                        "neg_flag", "refresh_close") + (("with_aside",) if aside_f else ()), fallback=fallback)
+
+    def _id_side_nodes(self, refusal):
+        """F18: a robot / scam question inside the identity step. The policy's line is stored as the side answer, the turn's
+        own content (an answer, a refusal) is still processed, and the step resumes with its pending question."""
+        body = """
+        t = str(vars.get('turn_intent') or '')
+        line = str(CFG['lines'].get('ai' if t == 'asks_robot' else 'scam') or '')
+        vars['turn_intent'] = 'none'
+        if line:
+            vars['aside_line'] = (str(vars.get('aside_line') or '') + ' ' + line).strip()
+        intent = str(vars.get('id_intent') or '')
+        if intent == 'answer' or str(vars.get('id_answer_text') or '').strip():
+            vars['id_route'] = 'answer'
+        elif intent in REFUSALS or (QUESTION_BACK and t == 'asks_scam'):
+            vars['id_route'] = 'refuse'
+        else:
+            vars['id_route'] = 'resume'
+        """.replace("REFUSALS", repr(tuple(refusal))).replace("QUESTION_BACK", "True" if "f19_refusal_rule" in self.f else "False")
+        self.code("id_aside", body, [eq("id_check", "the turn holds an answer", "id_route", "answer"),
+                                     eq("id_refusal_count", "the turn holds a refusal", "id_route", "refuse"), always("id_resume")],
+                  fallback="vars['id_route'] = 'resume'")
+        f19 = "f19_refusal_rule" in self.f
+        self.code("id_resume", """
+        field = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
+        prompt = str(CFG['identity']['prompts'].get(field, field))
+        vars['id_intent'] = 'other'
+        vars['id_answer_text'] = ''
+        vars['id_route'] = 'resume'
+        FILL
+        if str(vars.get('aside_line') or '').strip():
+            vars['id_say'] = with_aside(vars, prompt)
+        else:
+            vars['id_say'] = 'Sorry, I did not catch that. ' + prompt
+        """.replace("FILL", """if str(vars.get('resume_step')) == 'identity_explain':
+            vars['id_fill'] = str(int(num(vars.get('id_fill'))) + 1)
+            if int(num(vars.get('id_fill'))) >= 2:
+                vars['id_route'] = 'refuse'""" if f19 else "pass"),
+                  [eq("id_refusal_count", "told why and still no answer", "id_route", "refuse"),
+                   eq("identity_explain", "the step was the explanation", "resume_step", "identity_explain"), always("identity")],
+                  uses=("with_aside", "num"), fallback="pass")
 
     # negotiation ------------------------------------------------------------------------------------------------------
     def _promise_tool(self):
@@ -1324,10 +1446,10 @@ ID_INIT        vars['cb_state'] = 'none'
         self.code("hardship_mark", """
         for pid in open_pids(vars):
             set_status(vars, pid, 'hardship')
-        """ + ("vars['said_hardship_sympathy'] = '1'\n        " if said_hs else "") + reset + """
+        """ + (("said_once(vars, 'hardship_sympathy')\n        " if "f20_once_flags" in self.f else "vars['said_hardship_sympathy'] = '1'\n        ") if said_hs else "") + reset + """
         neg_flag(vars)
         refresh_close(vars, CFG)
-        """, back, uses=("open_pids", "set_status", "neg_flag", "refresh_close"), fallback=reset)
+        """, back, uses=("open_pids", "set_status", "neg_flag", "refresh_close") + (("said_once",) if said_hs and "f20_once_flags" in self.f else ()), fallback=reset)
         self.code("stop_count", """
         n = int(num(vars.get('stop_n'))) + 1
         vars['stop_n'] = str(n)
@@ -1398,7 +1520,14 @@ ID_INIT        vars['cb_state'] = 'none'
                              "proposes", "accepts_offer")] if ho_terms else [])
                       + [eq("human_back" if self.human_first else "resume", "accepts help", "human_choice", "continues")],
                       max_turns=3, turn_target="transfer_human")
-            self.task_zones("human", "human_offer", P.human_task(self.p), brief_stage="global")
+            self.task_zones("human", "human_offer", P.human_task(self.p, "f20_once_flags" in self.f), brief_stage="global")
+            if "f20_once_flags" in self.f:  # F20: the help offer is made once; a later request for a person is an insistence
+                limit = int(self.limits.get("human_offer", 1))
+                self.code("human_gate", ("vars['gate'] = 'offer' if said_once(vars, 'human_offer') else 'transfer'\n" if limit >= 1
+                                         else "vars['gate'] = 'transfer'\n")
+                          + ("vars['turn_intent'] = 'none'\n" if "f7_router" in self.f else ""),
+                          [eq("transfer_human", "the offer was made already", "gate", "transfer"), always("human_offer")],
+                          uses=("said_once",), fallback="vars['gate'] = 'offer'")
 
     # transfers --------------------------------------------------------------------------------------------------------
     def _transfers(self):
@@ -1594,4 +1723,4 @@ ID_INIT        vars['cb_state'] = 'none'
             self.book.target("/global_nodes/g_human/extraction_schema/0/description", "text",
                              [{"zone": "extract:human/human_choice/description"}])
             self.intent("global:g_human/intent", ["/global_nodes/g_human/condition/description", "/global_nodes/g_human/description"], intent)
-            self.task_zones("human", "g_human", P.human_task(self.p), is_global=True, brief_stage="global")
+            self.task_zones("human", "g_human", P.human_task(self.p, "f20_once_flags" in self.f), is_global=True, brief_stage="global")
