@@ -12,7 +12,7 @@ ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discou
 # f18_opening_fallback is a sub-switch of f18_side_resume: ON whenever f18 is on (parse() adds it) unless it is named with a minus
 # ("...,-f18_opening_fallback"): then an empty who1 after the first reply stays in `opening` as without f18.
 # opt-in: never part of "all"; a flag with no verified policy parameter changes nothing for that brief
-OPT_IN = ["f22_forbidden_disclosure", "f27_vague_signal"]  # f27_vague_signal also needs f24_day_once (GATE: not shipped)
+OPT_IN = ["f22_forbidden_disclosure", "f27_vague_signal", "f28_tool_failure"]  # f27_vague_signal also needs f24_day_once (GATE: not shipped)
 _SHORT: dict = {}
 for _n in ALL + OPT_IN:
     _SHORT.setdefault(_n.split("_", 1)[0], _n)  # a short id names the first flag that has it (f16 = f16_intents)
