@@ -6,6 +6,8 @@ one datetime field instead of date + time, a `close_call` that takes a single `c
 
 from __future__ import annotations
 
+import re
+
 import json
 from pathlib import Path
 
@@ -99,7 +101,7 @@ def summarize(spec: dict) -> dict:
         for method, op in item.items():
             if method.lower() not in ("get", "post", "put", "patch", "delete") or not isinstance(op, dict):
                 continue
-            name = op.get("operationId") or path.strip("/").split("/")[-1]
+            name = re.sub(r"[^A-Za-z0-9_]", "_", op.get("operationId") or path.strip("/").split("/")[-1])   # a function name for the model: dots and dashes in an operation name become "_" (the URL keeps the path)
             body = _resolve(spec, op.get("requestBody", {}))
             schema = _resolve(spec, (body.get("content", {}).get("application/json", {}) or {}).get("schema", {}))
             responses, errors, response_fields = op.get("responses", {}) or {}, {}, {}

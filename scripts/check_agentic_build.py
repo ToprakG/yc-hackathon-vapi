@@ -40,7 +40,8 @@ try:
 except Exception as e:  # noqa: BLE001
     api = {}
     line(False, f"GET {mock}/openapi.json failed: {e}")
-ops = {p.strip("/").split("/")[-1] for p in api.get("paths", {})} | {(o.get("operationId") or "") for it in api.get("paths", {}).values() for o in it.values() if isinstance(o, dict)}
+ops = {re.sub(r"[^A-Za-z0-9_]", "_", p.strip("/").split("/")[-1]) for p in api.get("paths", {})} | {re.sub(r"[^A-Za-z0-9_]", "_", o.get("operationId") or "") for it in api.get("paths", {}).values() for o in it.values() if isinstance(o, dict) and o.get("operationId")}
+ops.add("oauth_token")   # the token request of an OAuth2 clientCredentials flow
 server = (api.get("servers") or [{}])[0].get("url", "").rstrip("/")
 names, urls = set(), []
 

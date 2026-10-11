@@ -34,10 +34,10 @@ def _spec():
 def test_a_request_envelope_is_unwrapped_and_flagged_and_a_plain_nested_object_is_not():
     from builder.agentic.tools import openapi_summary as S
     t = S.summarize(_spec())["tools"]
-    assert t["a.get"]["envelope"] == {"wrap": "data", "other_keys": ["meta"]}
-    assert list(t["a.get"]["request"]) == ["item", "n"] and t["a.get"]["required"] == ["item"]
-    assert t["b.flat"]["envelope"] is None and set(t["b.flat"]["request"]) == {"address", "name"}
-    assert [h["name"] for h in t["a.get"]["headers"]] == ["Accept"]
+    assert t["a_get"]["envelope"] == {"wrap": "data", "other_keys": ["meta"]}
+    assert list(t["a_get"]["request"]) == ["item", "n"] and t["a_get"]["required"] == ["item"]
+    assert t["b_flat"]["envelope"] is None and set(t["b_flat"]["request"]) == {"address", "name"}
+    assert [h["name"] for h in t["a_get"]["headers"]] == ["Accept"]
 
 
 def test_auth_scheme_and_envelope_reach_the_agent_text():
@@ -65,3 +65,10 @@ def test_an_oauth2_client_credentials_flow_becomes_a_token_tool_and_the_fragment
           "nodes": {"fetch_token": frag, "done": {"name": "done", "node_type": "end_call", "on_enter": {"type": "silent"}, "transitions": [], "terminal": {"type": "function", "function": {"name": "end_call", "handler": "__function__:end_call", "parameters": {"type": "object", "properties": {"message_mode": {"type": "string", "default": "none"}}}}}}}}
     errs = [e for e in lint(wf, api)["errors"] if "fetch_token" in e["path"] and "pre_actions" in e["path"]]
     assert errs == [], errs
+
+
+def test_dotted_operation_names_become_valid_function_names_and_keep_their_url():
+    from builder.agentic.tools import openapi_summary as S
+    t = S.summarize({"openapi": "3.0.0", "servers": [{"url": "https://svc.example/v1"}],
+                     "paths": {"/cards.list": {"post": {"requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"a": {"type": "string"}}}}}}}}}})["tools"]
+    assert list(t) == ["cards_list"] and t["cards_list"]["url"] == "https://svc.example/v1/cards.list" and t["cards_list"]["path"] == "/cards.list"
