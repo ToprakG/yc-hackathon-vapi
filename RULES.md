@@ -94,3 +94,6 @@ the flag does nothing and the p6 prompt sentence stays (one test per rule).
   (extraction description) and a trailing correction marker clears the amount.
 - Parameter: verified /product_types (floor), needs f9 and f11. Missing -> p6 workflow (tested).
 - B-015 (p6r2) failed on the robot question, not on the amount; F5-018 is the cut-off correction (1200 then 1245).
+
+## f19 extension: chatter is a non-answer
+An identity turn that is neither an answer, a refusal nor a side question (`id_intent` other) is a non-answer. It is re-asked once; the second non-answer in a row is a refusal and goes through the same counter (explain once, close on refusal `id_decline` + 1). This no longer depends on the policy having robot/scam lines (the `id_resume` node is built for f19 alone).
