@@ -41,6 +41,9 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
 
 ## Routes and endings
 
+- [ ] Every node that asks the customer to choose among options has an exit for "none/never mind", a counter that
+      ends the loop before `max_node_turns`, a spoken line for each invalid kind of answer, and a graceful
+      `max_turn_transition` (`call-architecture.md`, Choice nodes).
 - [ ] Every route where the brief makes the agent say or offer something first (sympathy + offer, explanation,
       question) enters a stage node that says it on entry; the ending depends only on the customer's answer there.
 - [ ] The brief's own proposal sequence (per product) runs in an offer loop: code picks each proposal, the agent

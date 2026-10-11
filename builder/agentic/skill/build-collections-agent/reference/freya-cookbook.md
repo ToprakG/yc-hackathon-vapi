@@ -172,7 +172,9 @@ whose `on_enter` speaks first; its own enum (`stay` / `accepted` / `declined`) d
 - `on_enter: {"type": "tts", "text": ...}` for a sentence the brief fixes word for word. `{{var}}` works, but an
   unset variable is **spoken aloud**. `on_enter_first_entry_only: true` on nodes that can be re-entered.
 - `loop_prompt` replaces `task_message` from the second turn; make it stand alone.
-- `max_node_turns` caps user turns in a node; give it a `max_turn_transition`.
+- `max_node_turns` caps user turns in a node; give it a `max_turn_transition`. A re-entered node keeps counting: a
+  loop back to the same node through a code node eats the cap, so count the tries in a variable and end the loop
+  earlier (`call-architecture.md`, Choice nodes).
 
 ## Known pitfalls (all from the kit docs)
 

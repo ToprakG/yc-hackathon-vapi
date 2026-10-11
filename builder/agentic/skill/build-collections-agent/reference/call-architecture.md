@@ -186,3 +186,23 @@ Map each to the brief's handling, its sentence and its close row:
 
 Only conversation: wording, empathy, answering questions from the facts, choosing among routed options. Never
 arithmetic, calendar logic, enum spelling or the close outcome.
+
+## Choice nodes (pick one of N options)
+
+Any node that asks the customer to choose among options the brief or the API allows (a card, a period, a plan, a day):
+
+- **Three exits, not one.** The extraction enum is `<option values>` + `none` (declines, changes their mind, "never mind")
+  + `stay` (unclear or off-list). `none` goes to the brief's polite close or the main flow; only `stay` loops.
+- **A valid pick is checked in code** (a code node comparing it with the offered list). The invalid branch speaks the
+  reason and the options again and counts in a variable. Give the **counter, not the node cap**, the last word:
+  `max_node_turns` is at least counter limit + 2, and the counter's limit ends the node through the brief's "unclear"
+  ending. The node cap's `max_turn_transition` is only a backstop and must be a graceful ending, never a failure line.
+- **The reply to a loop-back is a spoken line**, set in a variable before the node is re-entered (a node that is
+  re-entered without a new `on_enter` text asks nothing and the customer repeats themselves until the cap).
+- **Every kind of answer has a place:** an option that is not allowed (say why, list the allowed ones), a value of
+  another kind (a date instead of a week, a name instead of a number: say what is accepted, list again), a refusal, a
+  question about something else (answer or route as the brief says), a request for a person (global node).
+- **No dead end on a failed read.** If the data the options come from is missing or the read failed, go to the
+  brief's service-error ending before asking, not after the customer has answered.
+- A choice that the customer already made earlier in the call (for example by saying it in their first message) is
+  taken from there; do not ask again.
