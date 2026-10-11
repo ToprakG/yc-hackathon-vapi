@@ -67,7 +67,7 @@ def faults(p):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("set"); ap.add_argument("brief"); ap.add_argument("--n", type=int, default=0); ap.add_argument("--only", default="")
+    ap.add_argument("set"); ap.add_argument("brief"); ap.add_argument("--n", type=int, default=0); ap.add_argument("--only", default=""); ap.add_argument("--combo", default="", help="id,id,...: ONE build with all these faults at once (fewer simulations); fault_id = combo")
     a = ap.parse_args()
     src = MAIN / "out" / "template_cc" / a.set / a.brief
     clean = json.loads((src / "policy.json").read_text())
@@ -77,6 +77,33 @@ def main():
         briefs, api = [f"briefs/{a.brief}.md"], "tools/openapi.json"
     else:
         briefs, api = [f"testbed/fake_briefs/{a.brief}/brief.md"], f"testbed/fake_briefs/{a.brief}/tools.openapi.json"
+    if a.combo:
+        sel = [x for x in faults(clean) if x["fault_id"] in a.combo.split(",")]
+        comb, cl, sub = copy.deepcopy(clean), copy.deepcopy(clean), []
+        from builder.template_cc import extract as _ex
+        for x in sel:
+            for ptr in x["pointers"]:
+                v = _ex._get(x["policy"], ptr)
+                _ex._set(comb, ptr, v)
+            for ptr, v in (x.get("clean_override") or {}).items():
+                k = [y for y in ptr.split("/") if y]; t = cl
+                for y in k[:-1]:
+                    t = t[y]
+                t[k[-1]] = v
+            sub.append({k: v for k, v in x.items() if k != "policy"} | {"clean_value": _ex._get(cl, x["pointers"][0]), "faulty_value": _ex._get(x["policy"], x["pointers"][0])})
+        d = REPO / "out" / "template_cc" / "faults" / a.brief / "combo"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "policy.in.json").write_text(json.dumps(comb, indent=1, ensure_ascii=False))
+        (d / "policy.clean.json").write_text(json.dumps(cl, indent=1, ensure_ascii=False))
+        r = subprocess.run(["bash", "scripts/final_build.sh", *briefs, api, str(d)], cwd=REPO, capture_output=True, text=True,
+                           env={**os.environ, "FEATURES": flags, "POLICY": str(d / "policy.in.json")})
+        built = json.loads((d / "policy.json").read_text()) if (d / "workflow.json").exists() else None
+        for x in sub:   # a fault whose value policy_check put back is not usable
+            x["built_value"] = _ex._get(built, x["pointers"][0]) if built else None
+            x["usable"] = bool(built) and (x["expected_action"] == "R4" or x["built_value"] != x["clean_value"])
+        (d / "fault.json").write_text(json.dumps({"fault_id": "combo", "brief": a.brief, "set": a.set, "built": built is not None, "faults": sub}, indent=1, ensure_ascii=False))
+        print(f"{a.brief}/combo: built={built is not None}", [(x["fault_id"], x["expected_action"], x["usable"]) for x in sub])
+        return
     for f in [x for x in faults(clean) if not a.only or x["fault_id"] in a.only.split(",")][: a.n or None]:
         d = REPO / "out" / "template_cc" / "faults" / a.brief / f["fault_id"]
         d.mkdir(parents=True, exist_ok=True)

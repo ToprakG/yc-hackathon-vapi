@@ -57,13 +57,25 @@ FLAG_DOC = {
     "f15_hardship_terms": "a hardship customer's own terms are taken into account",
     "f16_intents": "intent definitions with examples and near misses from the brief decide side intents",
 }
+# R2 may only switch off PARAMETRIC rules (their parameters come from the brief). Core flags f1-f15 and f18/f20/f21 are never disabled.
+R2_ALLOW = ("f17", "f19_refusal_rule", "f22_forbidden_disclosure", "f24_day_once", "f25_dispute_wins")
+FLAG_DOC.update({"f19_refusal_rule": "the brief's refusal rule (what counts as a refusal, how often to ask again)",
+                 "f22_forbidden_disclosure": "the brief's list of things never to disclose before identity",
+                 "f24_day_once": "a weekday word is taken once as the brief defines it",
+                 "f25_dispute_wins": "a dispute wins over other side intents as the brief orders them"})
+
+
+def r2_ok(flag):
+    return any(flag.startswith(a) for a in R2_ALLOW)
+
+
 LOCKED = ("/_source", "/_overrides", "/tools", "/account_fields", "/product_id_format", "/call_variables", "/unused_tools")
 PROPOSE = """You repair a phone agent built from a BRIEF. A self-test scenario failed and the deterministic checks found no cause. You may choose
 exactly ONE action:
  1. "policy_field": a value of policy.json contradicts the brief (JSON pointer from ALLOWED_POINTERS, never one in PROTECTED).
  2. "disable_flag": ONLY when the brief defines the parameters of a code rule differently from what the transcript shows (the rule's
     behaviour contradicts a brief sentence you can quote). A mere bug of the agent in following a rule the brief does state is NOT this: choose "none".
-    Give "brief_quote" = the exact brief sentence the rule's behaviour contradicts. Name the flag from ACTIVE_FLAGS (FLAG_HINTS_FOR_THIS_RULE lists likely ones) and say which behaviour contradicts which brief sentence.
+    Give "brief_quote" = the exact brief sentence the rule's behaviour contradicts. Name the flag from ACTIVE_FLAGS (only parametric rules are listed; if ACTIVE_FLAGS is empty or none fits, choose "none") (FLAG_HINTS_FOR_THIS_RULE lists likely ones) and say which behaviour contradicts which brief sentence.
  3. "line_fix": a spoken line of policy.json (a key of LINES) differs from a sentence the brief fixes; give "line_key" and "brief_quote" =
     the brief's own sentence, copied exactly.
  4. "prompt_patch": ONLY when UNKNOWN_RULE is true. Pick the unlocked zone of the stage where the behaviour happens from ZONES; "after" must
@@ -279,7 +291,7 @@ def diagnose(row, case, policy, brief, flags, base, protected):
         "result": {"failed": row["failed"], "ledger": row["ledger"], "tools_called": row["tools"]},
         "transcript_tail": transcript_text(Path(base) / "selftest" / "transcripts" / f"{row['case']}.json"),
         "ALLOWED_POINTERS": ptrs, "PROTECTED": sorted(protected), "LINES": {k: v.get("text") for k, v in (policy.get("lines") or {}).items()},
-        "ACTIVE_FLAGS": {f: FLAG_DOC.get(f, "") for f in flags}, "FLAG_HINTS_FOR_THIS_RULE": [f for f in RULE_FLAGS.get(case.get("rule"), []) if f in flags], "UNKNOWN_RULE": is_unknown(case),
+        "ACTIVE_FLAGS": {f: FLAG_DOC.get(f, "") for f in flags if r2_ok(f)}, "FLAG_HINTS_FOR_THIS_RULE": [f for f in RULE_FLAGS.get(case.get("rule"), []) if f in flags and r2_ok(f)], "UNKNOWN_RULE": is_unknown(case),
         "ZONES": unlocked_zones(base) if is_unknown(case) else {}}, ensure_ascii=False)
     try:
         prop = llm.call_llm(PROPOSE, f"# BRIEF\n\n{brief}\n\n# CASE\n\n{user}", MODEL, json_schema=PROPOSE_SCHEMA, purpose="selftest diagnosis", attempts=2)
@@ -291,7 +303,7 @@ def diagnose(row, case, policy, brief, flags, base, protected):
         if new is not None:
             return {**act, "action": "policy_field", "pointer": prop["pointer"], "policy": new, "quote": why, "how": "diagnosis -> R1"}
         return {**act, "action": "none", "why": why}
-    if kind == "disable_flag" and prop.get("flag") in flags and policy_check.quote_in(str(prop.get("brief_quote") or ""), brief):
+    if kind == "disable_flag" and prop.get("flag") in flags and r2_ok(prop.get("flag") or "") and policy_check.quote_in(str(prop.get("brief_quote") or ""), brief):
         return {**act, "action": "disable_flag", "flag": prop["flag"], "how": "diagnosis -> R2"}
     if kind == "line_fix" and prop.get("line_key") in (policy.get("lines") or {}) and policy_check.quote_in(str(prop.get("brief_quote") or ""), brief):
         new = copy.deepcopy(policy)

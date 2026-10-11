@@ -9,8 +9,20 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 F = REPO / "out" / "template_cc" / "faults"
-USE = {"f5-halden-email": ["right_party_real", "deadline_shift", "wrong_queue", "wrong_outcome", "ask_limit", "corrupt_line", "unknown_rule_removed"],
-       "brief-a": ["deadline_shift", "max_wrong", "callback_window", "corrupt_line", "unknown_rule_removed", "multi_flip"]}
+USE = {"f5-halden-email": ["combo"], "brief-a": ["combo"]}   # 6 faults in 2 builds = 2 simulations (see inject_faults.py --combo)
+LOCKS = Path(subprocess.run(["git", "-C", str(REPO), "rev-parse", "--git-common-dir"], capture_output=True, text=True).stdout.strip()).resolve().parent / "out/template_cc/eval"
+
+
+def after_tag(tag, give_up_s=5400):
+    """Start right after the run with this lane tag (S1's s1c) has finished: wait until the tag was seen on a lane and is gone again."""
+    import time
+    seen, t0 = False, time.time()
+    while time.time() - t0 < give_up_s:
+        now = any((l / "tag").exists() and (l / "tag").read_text().strip() == tag for l in LOCKS.glob("lane*.lock"))
+        seen = seen or now
+        if seen and not now:
+            return
+        time.sleep(10)
 
 
 def paths(brief):
@@ -22,11 +34,15 @@ def paths(brief):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--faults", default="")
+    ap.add_argument("--after-tag", default="", help="wait for this lane tag to run and finish first")
     ap.add_argument("--reuse", action="store_true", help="skip faults that already have a recording")
     a = ap.parse_args()
     todo = [f"{b}/{x}" for b, xs in USE.items() for x in xs]
     if a.faults:
         todo = a.faults.split(",")
+    if a.after_tag:
+        print(f"waiting for lane tag {a.after_tag} ...", flush=True)
+        after_tag(a.after_tag)
     for fid in todo:
         brief = fid.split("/")[0]
         d, rec = F / fid, F / "recordings" / fid
@@ -37,13 +53,15 @@ def main():
             print(fid, "not built, skipped"); continue
         bf, api = paths(brief)
         cmd = [".venv310/bin/python", "scripts/selftest_cases.py", *bf, str(d / "policy.json"), "--out", str(d / "selftest" / "all_cases.json"), "--max", "12"]
-        if fault.get("extra_rules"):
-            er = d / "extra_rules.json"; er.write_text(json.dumps(fault["extra_rules"])); cmd += ["--extra-rules", str(er)]
+        extra = fault.get("extra_rules") or [e for x in fault.get("faults", []) for e in x.get("extra_rules", [])]
+        if extra:
+            er = d / "extra_rules.json"; er.write_text(json.dumps(extra)); cmd += ["--extra-rules", str(er)]
         subprocess.run(cmd, cwd=REPO, check=True, capture_output=True)
         cases = json.loads((d / "selftest" / "all_cases.json").read_text())
-        rel = [c for c in cases if c["rule"] in fault["rules"]]
-        oth = [c for c in cases if c["rule"] not in fault["rules"] and c["rule"] != "unknown_rule"][:2]
-        sub = (rel + oth)[:5]
+        rules = set(fault.get("rules") or []) | {r for x in fault.get("faults", []) for r in x["rules"]}
+        rel = [c for c in cases if c["rule"] in rules]
+        oth = [c for c in cases if c["rule"] not in rules and c["rule"] != "unknown_rule"][:2]
+        sub = (rel + oth)[:10]
         (d / "selftest" / "cases.json").write_text(json.dumps(sub, indent=1, ensure_ascii=False))
         print(f"{fid}: {len(sub)} scenarios ({','.join(c['rule'] for c in sub)})", flush=True)
         r = subprocess.run(["bash", "scripts/selftest_run.sh", str(d), "--cases", str(d / "selftest" / "cases.json"), "--api", api],

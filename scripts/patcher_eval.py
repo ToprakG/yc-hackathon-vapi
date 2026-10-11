@@ -32,48 +32,46 @@ def under(ptr, q):
 
 
 def eval_fault(d):
-    f = json.loads((d / "fault.json").read_text())
-    brief = tio.brief_text(tio.read_briefs([REPO / x for x in brief_files(f["brief"])]))
+    """One recording = one build with 1..n faults; every fault is scored on its own against the shared failures."""
+    F = json.loads((d / "fault.json").read_text())
+    faults = F.get("faults") or [F]
+    brief_name = F["brief"] if "brief" in F else faults[0]["brief"]
+    brief = tio.brief_text(tio.read_briefs([REPO / x for x in brief_files(brief_name)]))
     policy = json.loads((d / "policy.json").read_text())
     rep = json.loads((d / "results.json").read_text())
     cases = {c["id"]: c for c in json.loads((d / "cases.json").read_text())}
     flags = R.active_flags(d)
-    fixed_clean = json.loads((d.parent.parent.parent / f["brief"] / f["fault_id"] / "policy.clean.json").read_text())
-    ptr0, exp = f["pointers"][0], f["expected_action"]
-    row = {"fault": f"{f['brief']}/{f['fault_id']}", "expected": exp, "failed": [], "static": [], "actions": []}
-    row["static"] = [p for p in R.precheck(policy, brief)]
+    static = R.precheck(policy, brief)
     fails = [r for r in rep["rows"] if not r["pass"] and r["case"] not in (rep.get("missing") or [])]
-    row["failed"] = [r["case"] for r in fails]
     ok_rules = {cases[r["case"]]["rule"] for r in rep["rows"] if r["pass"]} - {cases[r["case"]]["rule"] for r in fails}
     protected = {p for rule in ok_rules for p in R.SOURCES.get(rule, [])} - {p for r in fails for p in R.SOURCES.get(cases[r["case"]]["rule"], [])}
-    for r in fails:
-        a = R.diagnose(r, cases[r["case"]], policy, brief, flags, d, protected)
-        row["actions"].append(a)
-    pre = None
-    if any(under(ptr0, p) for p in row["static"]):  # static pre-check routes straight to R1
-        new, why = R.verify_field(policy, ptr0, "static mismatch with the _source quote", brief)
-        pre = {"action": "policy_field", "pointer": ptr0, "policy": new, "quote": why, "how": "static pre-check -> R1"} if new is not None else None
-    cands = ([pre] if pre else []) + row["actions"]
-    hit = None
-    for a in cands:
-        lab = LABEL[a["action"]]
-        if exp in ("R1", "R3") and a["action"] in ("policy_field", "line_fix") and under(ptr0, a.get("pointer") or ""):
-            hit = a; break
-        if exp == "R4" and a["action"] == "prompt_patch":
-            hit = a; break
-    chosen = hit or next((a for a in cands if a["action"] != "none"), None)
-    row["detected"] = hit is not None
-    row["chosen"] = LABEL[chosen["action"]] + (" " + (chosen.get("pointer") or chosen.get("flag") or chosen.get("patch", {}).get("zone", "")) if chosen else "") if chosen else "-"
-    row["correct"] = hit is not None
-    fix = None
-    if hit and exp in ("R1", "R3"):
-        fix = R.get_ptr(hit["policy"], ptr0) == f["clean_value"]
-    elif hit and exp == "R4":
-        q = f["extra_rules"][0]["brief_quote"]
-        fix = policy_check.norm_text(q) in policy_check.norm_text(hit["patch"]["after"])
-    row["fixes"] = fix
-    row["why"] = [a.get("why") or a.get("diagnosis") or "" for a in row["actions"]][:2]
-    return row
+    acts = [R.diagnose(r, cases[r["case"]], policy, brief, flags, d, protected) for r in fails]
+    rows = []
+    for f in faults:
+        ptr0, exp = f["pointers"][0], f["expected_action"]
+        pre = None
+        if any(under(ptr0, p) for p in static):
+            new, why = R.verify_field(policy, ptr0, "static mismatch with the _source quote", brief)
+            pre = {"action": "policy_field", "pointer": ptr0, "policy": new, "quote": why} if new is not None else None
+        hit = None
+        for a in ([pre] if pre else []) + acts:
+            if a is None:
+                continue
+            if exp in ("R1", "R3") and a["action"] in ("policy_field", "line_fix") and under(ptr0, a.get("pointer") or ""):
+                hit = a; break
+            if exp == "R4" and a["action"] == "prompt_patch" and any(policy_check.norm_text(q["brief_quote"]) in policy_check.norm_text(a["patch"]["after"]) for q in f["extra_rules"]):
+                hit = a; break
+        chosen = hit or next((a for a in acts if a["action"] != "none"), None)
+        fix = None
+        if hit and exp in ("R1", "R3"):
+            fix = R.get_ptr(hit["policy"], ptr0) == f["clean_value"]
+        elif hit and exp == "R4":
+            fix = True
+        rows.append({"fault": f"{brief_name}/{f['fault_id']}", "expected": exp, "detected": hit is not None, "correct": hit is not None, "fixes": fix,
+                     "chosen": (LABEL[chosen["action"]] + " " + (chosen.get("pointer") or chosen.get("flag") or "")) if chosen else "-",
+                     "static": [p for p in static if under(ptr0, p)], "failed": [r["case"] + ":" + cases[r["case"]]["rule"] for r in fails],
+                     "how": (hit or {}).get("how") or ("static pre-check -> R1" if pre else ""), "why": [a.get("why") or a.get("diagnosis") or "" for a in acts][:3]})
+    return rows
 
 
 def abstain(args):
@@ -135,7 +133,7 @@ def main():
     dirs = sorted(p.parent for p in REC.glob("*/*/results.json"))
     if a.faults != "all":
         dirs = [d for d in dirs if f"{d.parent.name}/{d.name}" in a.faults.split(",")]
-    rows = [eval_fault(d) for d in dirs]
+    rows = [r for d in dirs for r in eval_fault(d)]
     print(f"{'fault':40s} {'exp':3s} {'detected':8s} {'action chosen':42s} {'correct':7s} fixes")
     for r in rows:
         print(f"{r['fault']:40s} {r['expected']:3s} {str(r['detected']):8s} {r['chosen'][:42]:42s} {str(r['correct']):7s} {r['fixes']}   static={r['static'][:2]} failed={r['failed']}")
