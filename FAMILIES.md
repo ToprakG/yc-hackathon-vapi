@@ -68,3 +68,10 @@ F1-012, F7-006, F1-004 (whole case). Partly: B-032 r2 (judge queue wording; r1 i
 | **G2 (S2: identity)** | C refusal_count + B digits/alphabet | B-014 F1-003 F2-017 F3-024 F4-025 F5-012, B-032(r1) B-040 F1-017 F2-014 F3-003 | 11 | identity / identity_explain: consecutive refusals, non-answers, digit-by-digit years, spelling alphabets, no resend of an identical rejected answer |
 | **G3 (S3: opening, hardship, dispute, transfer)** | D robot_q + F hardship + H dispute + J opening + the human_offer part of G | B-015 F3-039 F4-006 F7-002, B-013 F1-025 F3-021, F4-018, B-010, F6-009(r1) | 10 | opening / first-reply side lines (ai line with who1 or an answer), hardship routing and fixed sympathy, dispute-wins, human_offer ask-once |
 Local sim (Gemini customer + judge, Sonnet agent, DEV cases only, x2): validate each group on ITS cases; GATE cases are never run.
+
+## 5. Anti-overfit rules for the 85 push (apply to ALL fix groups)
+1. **Cross-brief:** a flag goes into m2 only if its local_sim validation fixes cases in **at least 2 different briefs**. Single-brief fixes are dropped.
+2. **Sealed check at 18:45:** run m2 and m1 with `local_sim.py --sealed` on GATE cases 11-20 of all 9 briefs, x1, **counts only**. Nobody reads or dumps those transcripts; the script writes only pass/fail counts per brief (`out/template_cc/localsim/sealed_counts.json`). If Freya works at 18:45, use the Freya GATE instead.
+3. **If m2 < m1 on that check:** remove flags one at a time, last kept first, until m2 >= m1. Report each step (flag removed, new counts).
+4. The local judge stays `google/gemini-3-flash-preview` (Freya's own judge model). The local agent (Sonnet) is probably stronger than Freya's `experimental-5`, so local passes on agent-capability behaviour are optimistic.
+5. **Local-sim budget (all sessions S1-S4 together):** 300 conversations in total, concurrency 4, enforced by a shared counter and slot lock in `out/template_cc/localsim/_budget/`. The first claude usage / rate-limit warning in any run stops ALL local sim runs (`out/template_cc/localsim/_budget/STOP`) and is reported.
