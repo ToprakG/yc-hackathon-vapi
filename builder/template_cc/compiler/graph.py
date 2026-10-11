@@ -685,6 +685,7 @@ ID_INIT        vars['cb_state'] = 'none'
         say_ask = "vars['id_say'] = (str(CFG['lines'].get('id_reason') or '') + ' ' + prompt).strip()\n" if f1 else ""
         say_explain = "vars['id_say'] = (str(CFG['lines'].get('id_reason') or '') + ' ' + prompt).strip()\n" if f1 else ""
         f18 = f1 and "f18_side_resume" in self.f
+        uses_extra = ()
         f19 = "f19_refusal_rule" in self.f  # F19: a question back is a refusal like any other; the counter counts every one
         pend = "intent == 'asks_question' and not pending and int(num(vars.get('id_declines'))) == 0" if f2 and not f19 else "False"
         body = """
@@ -714,16 +715,17 @@ ID_INIT        vars['cb_state'] = 'none'
                 vars['id_route'] = 'explain'
                 SAY_EXPLAIN
             else:""", """            if n <= EXPLAIN_N:
-                if n == 1:
+                if n == 1 and said_once(vars, 'id_reason'):
                     vars['id_route'] = 'explain'
                     SAY_EXPLAIN
                 else:
                     vars['id_say'] = prompt
             else:""")
+            uses_extra = ("said_once",)
         body = body.replace("PEND", pend).replace("EXPLAIN_N", str(limit if f19 else min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
            .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
         body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
-        uses = ("num",)
+        uses = ("num",) + (uses_extra if f19 else ())
         if f18:  # F18: a side answer that is waiting is said first; the step to resume is remembered
             body = body.rstrip() + ("\n        vars['resume_step'] = 'identity_explain' if vars['id_route'] == 'explain' else 'identity'\n"
                                     "        if vars['id_route'] in ('ask', 'explain'):\n"
@@ -816,7 +818,7 @@ ID_INIT        vars['cb_state'] = 'none'
                 value = (digit_string(alone) or alone) if kind.startswith('digits') else norm_answer(kind, alone, today)
                 complete = True
         if complete:
-            vars['id_send_field'] = field
+            RESET_STREAKvars['id_send_field'] = field
             vars['id_send_value'] = str(value)
             vars['id_last_field'] = field
             vars['id_partial'] = ''
@@ -844,6 +846,7 @@ ID_INIT        vars['cb_state'] = 'none'
         f19 = "f19_refusal_rule" in self.f
         f18 = "f18_side_resume" in self.f and "f7_router" in self.f
         refusing = "intent0 in ('refuses', 'asks_question', 'declines', 'asks_purpose')" if f19 else "False"
+        body = body.replace("RESET_STREAK", "vars['id_declines'] = '0'\n            " if f19 else "")
         body = body.replace("INTENT0", "intent0 = str(vars.get('id_intent') or '')\n        " if f19 else "")
         body = body.replace("REFUSE_ALONE", ("if not complete and " + refusing + ":\n            alone = ''\n        ") if f19 else "")
         body = body.replace("REFUSE_ROUTE", ("elif " + refusing + ":\n            vars['id_route'] = 'refuse'\n        ") if f19 else "")

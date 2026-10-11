@@ -155,3 +155,17 @@ def test_after_the_explanation_a_non_answer_counts_as_a_refusal():
     assert wf["nodes"]["identity"]["transitions"][-1]["target_node"] == "id_resume"
     wf, _ = build(BASE + ",f18")
     assert wf["nodes"]["identity_explain"]["transitions"][-1]["target_node"] == "id_resume"
+
+
+def test_refusals_are_consecutive_and_the_explanation_is_said_once_per_call():
+    def one(p):
+        p["ask_limits"]["id_decline"] = 1
+    wf, pol = build(BASE + ",f19", one)
+    reason = pol["lines"]["id_reason"]["text"]
+    v = run_code(wf, "id_refusal_count", start(wf, pol, id_intent="refuses", id_q="date_of_birth"))
+    assert v["id_route"] == "explain" and v["id_say"].startswith(reason)
+    v = run_code(wf, "id_check", dict(v, id_intent="answer", id_answer_text="the tenth of April nineteen eighty"))
+    assert v["id_route"] == "send" and v["id_declines"] == "0"  # a complete answer ends the streak
+    v = run_code(wf, "id_refusal_count", dict(v, id_intent="asks_question"))
+    assert v["id_route"] == "ask" and reason not in v["id_say"]  # a later question: no second explanation, no close
+    assert run_code(wf, "id_refusal_count", dict(v, id_intent="refuses"))["id_route"] == "decline"
