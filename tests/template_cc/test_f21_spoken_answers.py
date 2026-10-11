@@ -50,3 +50,35 @@ def test_id_check_uses_the_spoken_forms_only_when_the_flag_is_on():
         v["id_q"] = "date_of_birth"
         v["id_answer_text"] = "the third of June, one nine five nine"
         assert run_code(wf, "id_check", v)["id_route"] == expect
+
+
+@pytest.mark.parametrize("kind,text,value", [
+    ("date", "the fourth of May, one nine eight one, sorry, one nine eight two", "1982-05-04"),   # last spoken year wins
+    ("date", "the fourth of May, one nine eight one, I mean the sixth of July nineteen ninety", "1990-07-06"),
+    ("alnum_code", "M as in Mike, G as in Golf, nine seven, T for Tango, Z for Zulu", "MG9 7TZ"),
+    ("alnum_code", "A like Alpha, B as in Bravo, one two, C for Charlie D for Delta", "AB1 2CD"),
+])
+def test_corrected_years_and_as_in_letters(kind, text, value):
+    assert R.answer_from_spoken(kind, text) == (value, True)
+
+
+@pytest.mark.parametrize("kind,text", [
+    ("date", "the fourth of May nineteen eighty-"),   # cut off inside the year: not a complete answer
+    ("year", "nineteen seventy-"),
+    ("date", "the fourth of May nineteen sixty -"),
+])
+def test_a_year_cut_off_after_a_tens_word_is_incomplete(kind, text):
+    assert R.answer_from_spoken(kind, text) == ("", False)
+
+
+def test_a_full_hyphenated_year_still_counts():
+    assert R.answer_from_spoken("date", "the fourth of May nineteen eighty-two") == ("1982-05-04", True)
+
+
+def test_without_the_flag_the_cut_off_year_goes_the_old_way():
+    for feats, expect in (("f1,f21", "ask"), ("f1", "send")):
+        wf, pol = build(feats)
+        v = run_code(wf, "setup", call_vars(pol, "2031-03-05T10:00"))
+        v["id_q"] = "date_of_birth"
+        v["id_answer_text"] = "the third of June nineteen sixty-"
+        assert run_code(wf, "id_check", v)["id_route"] == expect

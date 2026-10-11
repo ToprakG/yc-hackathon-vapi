@@ -763,10 +763,12 @@ def spoken_forms(kind, text):
             return ds if len(ds) == 4 and 1880 <= int(ds) <= 2100 else m.group(0)
         t = DIGIT_RUN.sub(year, t)
     elif kind == 'alnum_code':
+        t = re.sub(r"\b([A-Za-z])\s*(?:,\s*)?(?:as in|as a|for|like)\s+[A-Za-z]+", r"\1", t, flags=re.I)   # "M as in Mike" -> M
         t = ' '.join(SPELLING.get(w.lower(), w) for w in re.findall(r"[A-Za-z]+|\d+|[^\sA-Za-z\d]+", t))
     return t
 
 
+CUT_OFF_YEAR = re.compile(r"\b(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s*-\s*[.,!?]?\s*$", re.I)
 MONTH_CARDINAL = re.compile(r"\b(january|february|march|april|may|june|july|august|september|october|november|december)[ ,]+"
                             r"((?:twenty|thirty)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|one|two|three|four|"
                             r"five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
@@ -784,7 +786,15 @@ def answer_from_spoken(kind, text):
     """answer_from_speech after spoken_forms (F21). A date said as 'July sixteen' (a cardinal day after the month) is read
     when the plain reading is incomplete."""
     t = spoken_forms(kind, text)
+    if kind in ('date', 'year') and CUT_OFF_YEAR.search(t):   # "...nineteen sixty-" stops inside the year: never send it as a full answer
+        return '', False
     v, ok = answer_from_speech(kind, t)
+    if ok and kind == 'date':   # a corrected year ("... one nine seven four, sorry, one nine seven five"): the last version counts
+        last = after_correction(t)
+        if last != str(t).lower() and not re.search(r"[a-z]*(?:" + '|'.join(ID_MONTHS) + r")\b", last):
+            y, yok = _id_answer('year', last)
+            if yok and y != v[:4]:
+                v = y + v[4:]
     if not ok and kind == 'date':
         v2, ok2 = answer_from_speech(kind, MONTH_CARDINAL.sub(_day_digits, t))
         if ok2:
