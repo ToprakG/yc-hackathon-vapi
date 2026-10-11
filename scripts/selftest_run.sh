@@ -22,7 +22,7 @@ take() { l=$LOCKS/lane$1.lock
   if [ -d "$l" ] && ! kill -0 "$(cat "$l/pid" 2>/dev/null)" 2>/dev/null; then rm -rf "$l"; fi
   mkdir "$l" 2>/dev/null || return 1
   echo $$ > "$l/pid"; echo "$TAG" > "$l/tag"; return 0; }
-lane_ok() { [ "$1" = 1 ] || [ -f "$MAIN/../yc-w2/w2_env.sh" ]; }
+lane_ok() { [ "$1" = 1 ]; }   # ONE Freya key: lane 2 (the W2 key) is never used in the final path
 preempt() { for n in ${SELFTEST_LANES:-1}; do l=$LOCKS/lane$n.lock
     [ -e "$l/background" ] || continue
     chain=$(pgrep -P "$(cat "$l/pid")" -f "eval_chain\.sh" | head -1)
@@ -46,7 +46,7 @@ trap 'rm -rf "$LOCKS/lane$LANE.lock"' EXIT
 echo "$(date +%H:%M:%S) lane $LANE, $DIR, $(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$CASES") scenarios"
 cd "$HERE" || exit 2
 set -a; [ -f .env ] && . ./.env; set +a
-if [ "$LANE" = 2 ]; then set -a; . "$MAIN/../yc-w2/w2_env.sh"; set +a; else export FREYA_STATE_FILE=$MAIN/.freya-agents.ali.json; fi
+unset FREYA_API_KEY_W2; export FREYA_STATE_FILE=$MAIN/.freya-agents.ali.json
 export FREYA_SIM_CONCURRENCY=10 SELFTEST_PERSONA_DIR=$MAIN/out/template_cc/eval/freya
 timeout ${SELFTEST_TIMEOUT:-1800} .venv310/bin/python scripts/selftest_run.py --out-dir "$DIR" --cases "$CASES" --api "$API" ${PASS[@]+"${PASS[@]}"}
 RC=$?
