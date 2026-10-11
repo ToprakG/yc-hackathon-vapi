@@ -12,6 +12,7 @@ Per brief (one Freya simulation at a time per workspace, so briefs run in sequen
     .venv310/bin/python scripts/tcc_eval_freya.py --brief all --limit 10 --or-budget 3
 """
 import argparse
+import re
 import hashlib
 import json
 import os
@@ -116,10 +117,24 @@ def bank(origin, path, body=None):
         return json.load(r)
 
 
-def evaluate(brief, limit, skip, port, budget, concurrency, tag):
+class NoCases(Exception):
+    pass
+
+
+def category(reason: str) -> str:
+    """The failed criterion without its text: outcome / promises / notes / transfers / judge."""
+    w = re.match(r"\w+", reason or "")
+    w = w.group(0) if w else "other"
+    return "judge" if w == "conversation" else w
+
+
+def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, sealed=False):
     cases, config, api_path, wf_path = sources(brief)
-    chosen = pick(cases, limit, skip)
-    trace = Trace(REPO / "traces" / f"tcc-eval-freya-{brief}-{time.strftime('%Y%m%d-%H%M%S')}", {"brief": brief, "cases": len(chosen)})
+    chosen = [c for c in sorted(cases, key=lambda c: c["id"]) if c["id"] in only] if only else pick(cases, limit, skip)
+    if not chosen:
+        raise NoCases(brief)
+    tdir = (OUT.parent / "sealed" / "traces") if sealed else (REPO / "traces")  # sealed runs: nothing readable outside sealed/
+    trace = Trace(tdir / f"tcc-eval-freya-{brief}-{time.strftime('%Y%m%d-%H%M%S')}", {"brief": brief, "cases": len(chosen)})
     runner = VendorRunner(f"tcc-{brief}", config, ApiModel.load(api_path), trace, freya, port=port, slot_suffix="-eval")
     if SHARED:
         runner.use_shared(SHARED.rstrip("/") + "/" + brief)
@@ -164,7 +179,15 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag):
            "local_passed": sum(1 for r in rows if r["local_judge"] and r["local_judge"]["pass"] is True and r["ledger_pass"]),
            "seconds": round(time.time() - t0), "simulation": sim_id, "status": status, "rows": rows}
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / f"{brief}.{tag}.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False))
+    if sealed:  # GATE / TEST: the full record stays in sealed/; the shared folder only gets pass/fail and the failed criterion category
+        (OUT.parent / "sealed").mkdir(parents=True, exist_ok=True)
+        (OUT.parent / "sealed" / f"{brief}.{tag}.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False))
+        out_rep = {**{k: rep[k] for k in ("brief", "tag", "cases", "passed", "seconds", "status")}, "sealed": True,
+               "rows": [{"case": r["case"], "family": r["family"], "level": r["level"], "pass": r["pass"],
+                         "failed": sorted({category(x) for x in r["failed"]})} for r in rows]}
+    else:
+        out_rep = rep
+    (OUT / f"{brief}.{tag}.json").write_text(json.dumps(out_rep, indent=1, ensure_ascii=False))
     trace.close("ok", passed=rep["passed"], cases=rep["cases"])
     return rep
 
@@ -178,6 +201,9 @@ def main():
     ap.add_argument("--concurrency", type=int, default=10, help="parallel calls inside one Freya simulation")
     ap.add_argument("--port", type=int, default=8830)
     ap.add_argument("--tag", default="s10")
+    ap.add_argument("--tag-suffix", default="", help="appended to --tag")
+    ap.add_argument("--cases", default="", help="comma-separated case ids (instead of --skip/--limit); briefs without any are skipped")
+    ap.add_argument("--sealed", action="store_true", help="GATE/TEST run: transcripts and reasons go to sealed/ (also automatic for tags ending in g<n>/t<n>)")
     ap.add_argument("--shared-origin", default="")
     a = ap.parse_args()
     global SHARED
@@ -195,13 +221,18 @@ def main():
     freya.api = _api
     budget = Budget(a.or_budget)
     print(f"OpenRouter usage at start: {budget.start}; local-judge budget ${a.or_budget}", flush=True)
+    tag = a.tag + a.tag_suffix
+    only = {x.strip() for x in a.cases.split(",") if x.strip()} or None
+    sealed = a.sealed or bool(re.search(r"[gt]\d+$", tag))
     for b in (ALL if a.brief == "all" else a.brief.split(",")):
         try:
-            r = evaluate(b, a.limit, a.skip, a.port, budget, a.concurrency, a.tag)
+            r = evaluate(b, a.limit, a.skip, a.port, budget, a.concurrency, tag, only, sealed)
             sp = budget.spent()
             print(f"{b}: {r['passed']}/{r['cases']} passed (bank records + Freya judge); local judge + records "
                   f"{r['local_passed']}/{r['local_judged']} judged; {r['seconds']}s; OpenRouter spent so far "
                   f"${sp if sp is None else round(sp, 2)}", flush=True)
+        except NoCases:
+            print(f"{b}: no matching cases, skipped", flush=True)
         except Exception as e:  # noqa: BLE001 - one brief failing must not stop the others
             print(f"{b}: ERROR {e!r}"[:300], flush=True)
 
