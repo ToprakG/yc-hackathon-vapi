@@ -8,7 +8,7 @@ from builder.template_cc.compiler import i18n
 
 REPO = Path(__file__).resolve().parents[2]
 GOLD = Path(__file__).resolve().parent / "golden"
-FEATS = "f1,f2,f3,f4,f7,f8,f9,f11,f12,f13,f24_day_once,f33_attempt_ladder"
+FEATS = "f1,f2,f3,f4,f7,f8,f9,f11,f12,f13,f24_day_once"
 
 
 def build(lang):
