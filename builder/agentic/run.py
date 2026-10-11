@@ -204,6 +204,8 @@ def unit_phase(ws: Path, opts: BuildOptions, trace: Trace, workflow_path: Path, 
             out["skipped"] = "no usable unit tests"
             return out
         freya = freya_mod or _import_freya()
+        from builder.common.sim_gate import wait_until_idle  # noqa: PLC0415
+        out["sim_gate_idle"] = wait_until_idle(freya, trace)   # one simulation at a time per workspace
         saved = freya.save_workflow(f"{opts.slot}-unit", wf, state_file=str(STATE_FILE))
         trace.event("freya", {"saved (unit-test copy)": saved})
         cvars = {k: v for k, v in (wf.get("test_variables") or {}).items()}

@@ -60,3 +60,15 @@ def test_the_agentic_export_is_committed_under_workflows_and_saved_is_that_path(
     rep = {"exported": str(exp), "saved": {"workflow_id": "w", "agent_id": "a"}}
     B._commit_export(rep, "slot-x")
     assert rep["saved"] == str(tmp_path / "workflows" / "slot-x.workflow.json") and rep["saved_ids"]["workflow_id"] == "w" and (tmp_path / "workflows" / "slot-x.workflow.json").exists()
+
+
+def test_sim_gate_waits_while_a_simulation_runs_and_never_cancels(monkeypatch):
+    from builder.common import sim_gate as G
+    states = iter([[("theirs", 3.0, "abcd1234")], [("theirs", 3.5, "abcd1234")], []])
+    monkeypatch.setattr(G, "running_simulations", lambda f: next(states))
+    said = []
+    assert G.wait_until_idle(object(), sleep=lambda s: None, say=said.append) is True and len(said) == 2 and "ask the other user to pause" in said[0]
+    monkeypatch.setattr(G, "running_simulations", lambda f: [("theirs", 1.0, "x")])
+    assert G.wait_until_idle(object(), max_wait_s=0, sleep=lambda s: None, say=lambda m: None) is False
+    monkeypatch.setattr(G, "running_simulations", lambda f: (_ for _ in ()).throw(RuntimeError("api down")))
+    assert G.wait_until_idle(object(), sleep=lambda s: None, say=lambda m: None) is True   # a failing list never stops a build
