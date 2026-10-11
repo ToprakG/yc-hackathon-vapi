@@ -111,6 +111,12 @@ def runtime_cfg(policy: dict, api) -> dict:
     }
 
 
+def verified(policy: dict, *prefixes: str) -> bool:
+    """A policy parameter counts only when its _source quote exists and was verified against the brief."""
+    src = policy.get("_source") or {}
+    return any(k.startswith(pre) and v and not str(v).startswith("UNVERIFIED") for k, v in src.items() for pre in prefixes)
+
+
 class Graph:
     def __init__(self, policy: dict, api, close_form: str = "lifecycle", features=frozenset()):
         self.p, self.api, self.close_form = policy, api, close_form
@@ -1116,6 +1122,10 @@ ID_INIT        vars['cb_state'] = 'none'
         if "f11_promise_typed" in self.f and with_offer:
             out.append(eq("promise_check", "the customer names, accepts or leaves vague an amount or a date", "offer_intent",
                           "proposes", "accepts_offer", "vague"))
+            if self.day_once:  # the exact day was asked once: a turn without a day is 'still none', so the date is offered
+                out.append(any_of("promise_check", "the exact day was asked and the customer gave no day", [
+                    {"logic": "and", "conditions": [leaf("day_asked", "equals", "1"), leaf("offer_intent", "equals", "none"),
+                                                    leaf("side", "equals", "none"), leaf("turn_intent", "equals", "none")]}]))
         for i in range(1, self.nmax + 1):
             k = len(out)
             desc = (f"Product {i} of the facts: its persuasion attempts are used up and the customer still refuses, "
@@ -1143,6 +1153,7 @@ ID_INIT        vars['cb_state'] = 'none'
         row = [r for r in rows if r['pid'] == pid]
         at = str(vars.get('offer_amount_text') or '').strip() or str(vars.get('pend_amt') or '')
         dt = str(vars.get('offer_date_text') or '').strip() or str(vars.get('pend_date') or '')
+        AMTCUT
         if at:
             vars['said_amount'] = at[:40]
         if dt:
@@ -1155,6 +1166,7 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['hs_choice'] = 'none'
         vars['human_choice'] = 'none'
         vars['cp_route'] = 'back'
+        DAYOFF
         say = ''
         if row:
             r = row[0]
@@ -1167,6 +1179,7 @@ ID_INIT        vars['cb_state'] = 'none'
             amt, ac = amount_from_speech(at) if at else (None, False)
             if ac == 'full':
                 amt = past
+            AMTJOIN
             d_iso, dc = date_from_speech(dt, vars.get('now')) if dt else (None, False)
             if not d_iso and dt:
                 d_iso = to_iso(dt, today)
@@ -1175,6 +1188,7 @@ ID_INIT        vars['cb_state'] = 'none'
                 vars['vague_n'] = str(n)
                 if n <= int(CFG['vague_limit']):
                     say = 'On which day exactly would you like to pay it?'
+                    DAYON
                 elif CFG['vague_offer'] == 'attempt1' and r.get('att1'):
                     say = 'The date I can record is ' + spoken(datetime.date.fromisoformat(r['att1'])) + '. Could you pay on that date?'
                 else:
@@ -1218,6 +1232,27 @@ ID_INIT        vars['cb_state'] = 'none'
             vars['pend_date'] = dt if (keep and ok_d) else ''
         vars['say_line'] = say
         """
+        if self.amount_assembly:
+            check = check.replace("        AMTCUT\n", (
+                "        frag = str(vars.get('amt_frag') or '')\n"
+                "        vars['amt_frag'] = ''\n"
+                "        raw_at = str(vars.get('offer_amount_text') or '').strip()\n"
+                "        if raw_at and re.search(r'(?:sorry|i mean|no wait|wait no|actually|rather|make that|correction)\\W*(?:i\\W*)?$', raw_at.lower()):\n"
+                "            at = ''  # cut off in the middle of a self-correction: the amount is not settled\n"
+                "            vars['pend_amt'] = ''\n")).replace("            AMTJOIN\n", (
+                "            if frag and amt is not None and ac is True and amt < floor - 0.005 and not re.search(r'\\b(?:no|sorry|i mean|actually|wait|rather)\\b', at.lower()):\n"
+                "                fa = amount_from_speech(frag)[0]\n"
+                "                if fa and float(fa).is_integer() and float(amt).is_integer():\n"
+                "                    cand = float(str(int(fa)) + str(int(amt)))\n"
+                "                    if floor - 0.005 <= cand <= past + 0.005:\n"
+                "                        amt = cand\n"
+                "                        at = str(int(cand))\n"
+                "            if amt is not None and ac is True and amt < floor - 0.005 and float(amt).is_integer() and amt < 1000:\n"
+                "                vars['amt_frag'] = str(int(amt))\n"))
+        else:
+            check = check.replace("        AMTCUT\n", "").replace("            AMTJOIN\n", "")
+        check = (check.replace("DAYOFF", "vars['day_asked'] = '0'").replace("DAYON", "vars['day_asked'] = '1'") if self.day_once
+                 else check.replace("        DAYOFF\n", "").replace("                    DAYON\n", ""))
         self.code("promise_check", check, [eq("promise_confirm", "a valid promise to read back", "cp_route", "confirm"),
                                            always("negotiate_resume")],
                   uses=("jget", "open_pids", "pick_products", "parse_now", "hol_set", "amount_from_speech", "date_from_speech",
@@ -1368,6 +1403,24 @@ ID_INIT        vars['cb_state'] = 'none'
         if "transition:finish/intent" not in used:
             self.book.zones.pop("transition:finish/intent", None)
 
+    @property
+    def dispute_first(self) -> bool:
+        """F25: needs the brief's dispute outcome with a verified quote."""
+        return "f25_dispute_wins" in self.f and bool((self.p.get("outcome_map") or {}).get("np_dispute")) \
+            and verified(self.p, "/outcome_map/np_dispute")
+
+    @property
+    def amount_assembly(self) -> bool:
+        """F26: amount fragments are joined and a cut-off self-correction is not taken; needs the F9 helpers and a verified floor."""
+        return ("f26_amount_assembly" in self.f and "f11_promise_typed" in self.f and "f9_number_input" in self.f
+                and verified(self.p, "/product_types"))
+
+    @property
+    def day_once(self) -> bool:
+        """F24 (rule E): "ask the exact day once" is counted in code. Needs the router (turn_intent) and a verified limit."""
+        return ("f24_day_once" in self.f and "f11_promise_typed" in self.f and "f7_router" in self.f
+                and verified(self.p, "/ask_limits/vague_date") and "vague_limit" in self.cfg)
+
     def _restructuring_notes(self) -> bool:
         return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]
                     and (self.p.get("note_map") or {}).get(self.p["notes_on_restructuring"]))
@@ -1384,9 +1437,12 @@ ID_INIT        vars['cb_state'] = 'none'
         fields = [("side", ["none", "hardship", "dispute", "paid_already", "restructuring", "human", "stop_talking"]
                    + (["discount"] if f4 else []) + ([f"refused_{i}" for i in range(1, self.nmax + 1)] if f7 else []))]
         f16 = "f16_intents" in self.f
-        side_text = P.side_desc(f4, self.nmax if f7 else 0, P.intents_text(self.p, fields[0][1]) if f16 else "")
-        side_descs = {"side": side_text} if (f4 or f7 or f16) else None
+        side_text = P.side_desc(f4, self.nmax if f7 else 0, P.intents_text(self.p, fields[0][1]) if f16 else "",
+                                dispute_first=self.dispute_first)
+        side_descs = {"side": side_text} if (f4 or f7 or f16 or self.dispute_first) else None
         side_budget = {"side": len(side_text) + 300} if f16 else None
+        if self.amount_assembly:  # the tail of a cut-off self-correction must reach the code
+            side_descs = dict(side_descs or {}, offer_amount_text=P.EXTRACT["offer_amount_text"] + P.AMOUNT_TAIL)
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]
                            + (["none"] if "f11_promise_typed" in self.f else [])))
@@ -1625,12 +1681,12 @@ ID_INIT        vars['cb_state'] = 'none'
         """F13: every path into the close passes through here (the node is named wrap; the close computation is wrap_close).
         Every product has a status, and a required line that was not said is said once before the call closes."""
         body = """
+        vars['vc_route'] = 'go'
         if str(vars.get('phase')) == 'products' and str(vars.get('transfer_key') or 'none') == 'none':
             for pid in open_pids(vars):
                 set_status(vars, pid, 'refused')
         key = refresh_close(vars, CFG)
         req = (CFG.get('required_lines') or dict()).get(key)
-        vars['vc_route'] = 'go'
         if req and str(vars.get('said_' + req)) != '1' and int(num(vars.get('say_miss_n'))) < 1:
             vars['say_miss_n'] = '1'
             vars['miss_line'] = str(CFG['lines'].get(req) or '')
