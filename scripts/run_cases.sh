@@ -44,7 +44,7 @@ fi
 trap 'rm -rf "$LOCKS/lane$LANE.lock"' EXIT
 echo "lane $LANE, worktree $WT, set $SET, tag $PREFIX x$REPS, args: ${EVAL_ARGS:-<none>}"
 if [ "$LANE" = 1 ]; then
-  export LANE_ENV="" ORIGIN_OVERRIDE=$(cat "$MAIN/out/template_cc/eval/shared_origin.txt") FREYA_STATE_FILE=$MAIN/.freya-agents.ali.json
+  export LANE_ENV="" ORIGIN_OVERRIDE=$(cat "${ORIGIN_FILE:-$MAIN/out/template_cc/eval/shared_origin.txt}") FREYA_STATE_FILE=$MAIN/.freya-agents.ali.json   # ORIGIN_FILE: another bank (final_eval.sh)
   PSRC=$MAIN/out/template_cc/eval/freya
 else
   export LANE_ENV=$MAIN/../yc-w2/w2_env.sh ORIGIN_OVERRIDE=$(cat "$MAIN/../yc-w2/out/template_cc/eval/shared_origin.txt")
