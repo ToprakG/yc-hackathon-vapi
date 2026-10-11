@@ -31,3 +31,13 @@ none, its flag does nothing for that brief and the p6 prompt sentence stays (gra
 - Rule: a spoken identity answer is turned into the field's kind by code (words, pieces over several turns,
   corrections): digit-by-digit years ("one nine five nine"), spelling alphabets in codes ("Mike Golf nine seven").
 - Parameter: `identity.kinds` (from the tool API). Kind `text` -> unchanged.
+
+## Extraction bug found (for S4, R1)
+`ask_limits.id_decline` flips between builds although every brief has the same sentence ("explain once ... a second refusal
+closes" = 1). p10: brief-a 2, f2 2, f3 2 (wrong); brief-b/f1/f4/f6/f7 flip 1<->2 across p6/p10x/x1. f19 reads the policy
+value (no constant), so a wrong extraction shows up as a second explanation. Targeted evals of f19 use set s2d, whose
+policies of brief-a, f2, f3 are corrected to 1 (what a correct extraction gives).
+
+## Folded into f18: a side intent in the first reply
+Deceased / third party / robot question in the first reply when extraction does not fire (B-010, B-015): the opening has an
+`always` fallback; the robot answer is kept (`aside_open`) and the second ask is the policy's `ask_again` line, fixed.
