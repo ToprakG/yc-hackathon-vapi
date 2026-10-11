@@ -6,14 +6,16 @@
 cd "$(dirname "$0")/.." || exit 1
 SET=${1:?set}; PFX=${2:?tag prefix}; TAG=${PFX}1
 E=out/template_cc/eval; LOG=$E/gate_$SET.log; ST=$E/gate_$SET.state; mkdir -p $ST
-BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
+BRIEFS=${GATE_BRIEFS:-"brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"}   # GATE_BRIEFS="brief-b f3-kestrel ...": a subset, in that order
+N=$(echo $BRIEFS | wc -w | tr -d " ")
 log() { echo "$(date +%H:%M) $*" >> $LOG; }
 late() { [ -n "${GATE_END:-}" ] && [ "$(date +%H%M | sed 's/^0*//')" -ge "$GATE_END" ]; }
-n_done() { ls $E/freya/*.$TAG.json 2>/dev/null | wc -l | tr -d ' '; }
+n_done() { n=0; for b in $BRIEFS; do [ -f $E/freya/$b.$TAG.json ] && n=$((n+1)); done; echo $n; }
 log "gate $SET ($TAG): waiting for $SET/<brief>/workflow.json for all 9 briefs"
-while [ "$(ls out/template_cc/$SET/*/workflow.json 2>/dev/null | wc -l | tr -d ' ')" -lt 9 ]; do late && { log "GATE_END reached before the set was complete"; exit 0; }; sleep 60; done
+have() { n=0; for b in $BRIEFS; do [ -f out/template_cc/$SET/$b/workflow.json ] && n=$((n+1)); done; echo $n; }
+while [ "$(have)" -lt "$N" ]; do late && { log "GATE_END reached before the set was complete"; exit 0; }; sleep 60; done
 log "set $SET is complete: starting"
-while [ "$(n_done)" -lt 9 ] && ! late; do
+while [ "$(n_done)" -lt "$N" ] && ! late; do
   progressed=0
   for b in $BRIEFS; do
     [ -f $E/freya/$b.$TAG.json ] && continue
@@ -27,7 +29,7 @@ while [ "$(n_done)" -lt 9 ] && ! late; do
     if [ "$tries" -ge 1 ]; then touch $ST/$b.abandoned; log "$TAG $b failed twice: abandoned"
     else log "$TAG $b failed: one retry in 5 minutes"; sleep 300; fi
   done
-  [ "$progressed" = 0 ] && [ "$(ls $ST/*.abandoned 2>/dev/null | wc -l | tr -d ' ')" -ge $((9 - $(n_done))) ] && break
+  [ "$progressed" = 0 ] && [ "$(ls $ST/*.abandoned 2>/dev/null | wc -l | tr -d ' ')" -ge $((N - $(n_done))) ] && break
   sleep 60
 done
-log "gate $SET finished: $(n_done)/9 briefs"
+log "gate $SET finished: $(n_done)/$N briefs"
