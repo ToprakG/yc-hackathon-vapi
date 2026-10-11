@@ -402,10 +402,14 @@ ID_INIT        vars['cb_state'] = 'none'
         # first chat turn wait on the code sandbox (seen at 37-41 s, and 504s from the chat gateway). setup runs
         # after the customer's first reply and routes on who answered.
         if "f1_id_complete" in self.f:
+            scam_say = ("        if str(vars.get('scam_asked')) == 'yes' and CFG['lines'].get('scam'):\n"
+                        "            vars['id_say'] = str(CFG['lines']['scam']) + ' ' + str(vars['id_say'])\n"
+                        if "f29_scam_open" in self.f and P.line(self.p, "scam") and P.line(self.p, "ai") else "")
             body = body.replace("ID_INIT", """        vars['id_q'] = CFG['identity']['questions'][0]
         vars['id_say'] = CFG['identity']['prompts'].get(vars['id_q'], vars['id_q'])
         if str(vars.get('ai_asked')) == 'yes' and CFG['lines'].get('ai'):
             vars['id_say'] = str(CFG['lines']['ai']) + ' ' + str(vars['id_say'])
+SCAM_SAY
         vars['id_partial'] = ''
         vars['id_answer_text'] = ''
         vars['id_send_field'] = ''
@@ -418,7 +422,7 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['aside_line'] = ''
         vars['aside_open'] = ''
         vars['resume_step'] = 'identity'
-""")
+""").replace("SCAM_SAY\n", scam_say)
         elif "f2_question_not_refusal" in self.f:
             body = body.replace("ID_INIT", """        vars['id_intent'] = 'other'
         vars['id_declines'] = '0'
@@ -465,18 +469,22 @@ ID_INIT        vars['cb_state'] = 'none'
         ai_ask = "f1_id_complete" in self.f and bool(P.line(self.p, "ai"))
         # F18: a first reply that gets no decision (extraction did not fire: a death, a robot question, chatter) is not left to a
         # free model turn: the robot answer is kept as the side line and the second ask is the policy's fixed line
+        scam_ask = "f29_scam_open" in self.f and ai_ask and bool(P.line(self.p, "scam"))  # F29 (opt-in): a scam question in the first reply gets the brief's line too
         f18_open = ("f18_side_resume" in self.f and "f18_opening_fallback" in self.f and "f1_id_complete" in self.f and second
                     and bool(P.line(self.p, "ask_again")))
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
                   extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])
-                                             + ([("ai_asked", ["yes", "no"])] if ai_ask else [])),
+                                             + ([("ai_asked", ["yes", "no"])] if ai_ask else [])
+                                             + ([("scam_asked", ["yes", "no"])] if scam_ask else [])),
                   transitions=([eq("human_offer", "asks for a person", "who_wants_human", "yes")] if hf else [])
                   + [any_of("setup", "the person answered", [leaf("who1", "is_set")])]
                   + ([always("opening_resume")] if f18_open else []),
                   max_turns=4, turn_target="setup")
         if f18_open:
             self.code("opening_resume", "vars['aside_open'] = str(CFG['lines'].get('ai') or '') if str(vars.get('ai_asked')) == 'yes' else ''\n"
-                      "vars['ai_asked'] = 'no'\n", [always("opening_ask2")], fallback="vars['aside_open'] = ''")
+                      + ("if str(vars.get('scam_asked')) == 'yes' and CFG['lines'].get('scam'):\n"
+                         "    vars['aside_open'] = (vars['aside_open'] + ' ' + str(CFG['lines']['scam'])).strip()\n" if scam_ask else "")
+                      + "vars['ai_asked'] = 'no'\n" + ("vars['scam_asked'] = 'no'\n" if scam_ask else ""), [always("opening_ask2")], fallback="vars['aside_open'] = ''")
         self.task_zones("opening", "opening", P.opening_task(self.p))
         if second:
             self.conv("opening_ask2", on_enter=self.tts("opening_ask2", "{{aside_open}} " + P.line(self.p, "ask_again")) if f18_open else {"type": "llm"},

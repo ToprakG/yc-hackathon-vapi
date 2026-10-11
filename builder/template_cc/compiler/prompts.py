@@ -328,6 +328,7 @@ EXTRACT = {
                    "is over; finished = everything is settled or cannot go on and the customer has nothing more to discuss "
                    "(never while an agreed promise is still waiting to be recorded); none = anything else.",
     "ai_asked": "yes = the customer asks whether they are talking to a robot, a computer or an AI; no = anything else.",
+    "scam_asked": "yes = the customer asks whether this call is a scam or fraud, or doubts that it is really from the bank; no = anything else.",
     "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
                        "is NOT that); no = anything else.",
     "offer_intent": "proposes = the customer names an amount or a date for paying; accepts_offer = the customer agrees to your "
