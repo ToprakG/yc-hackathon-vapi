@@ -1,5 +1,6 @@
 """Our hackathon builder: brief material + a tool API file -> a Freya workflow phone agent.
 
+    python3 builder/build.py <case_folder> <mock_url> [--members "A,B"] [options]      (the final format: ONE case folder + the mock tool API URL)
     python3 builder/build.py <brief> [<more briefs> ...] <tools.openapi.json> [options]
 
 The tool API is the one argument whose JSON has a top-level `openapi` key; every other argument is brief material in
@@ -92,24 +93,57 @@ def parse(argv=None):
     p.add_argument("--fix-minutes", type=float, default=6.0)
     p.add_argument("--model", default=os.environ.get("BUILDER_MODEL", "claude-opus-5-5"))
     p.add_argument("--max-usd", type=float, default=None, help="optional cost cap for the agent run")
+    p.add_argument("--members", default="", help="team members for submission.json, comma separated (default: MEMBERS.txt)")
     p.add_argument("--out", help="output directory; default out/<variant>/<slot>/")
     p.add_argument("--self-test", default="none", choices=["none"], help="later: local, freya")
     p.add_argument("--keep-workspace", action="store_true", help="keep the temp workspace for inspection")
     return p.parse_args(argv)
 
 
+def write_submission(args, report: dict, mock_url: str) -> Path:
+    """submission.json: members[], workflow (the exported Freya workflow, else the last-green file), trace, mock_url. In <out>/ and at the repo root."""
+    members = [m.strip() for m in (args.members or "").split(",") if m.strip()]
+    mf = REPO / "MEMBERS.txt"
+    if not members and mf.exists():
+        members = [m.strip() for m in mf.read_text().replace("\n", ",").split(",") if m.strip()]
+    wf = report.get("saved") or str(Path(args.out) / "workflow.json")
+    sub = {"members": members, "workflow": wf, "trace": report.get("trace"), "mock_url": mock_url}
+    (Path(args.out) / "submission.json").write_text(json.dumps(sub, indent=1, ensure_ascii=False))
+    (REPO / "submission.json").write_text(json.dumps(sub, indent=1, ensure_ascii=False))
+    return REPO / "submission.json"
+
+
 def main(argv=None) -> int:
     args = parse(argv)
-    try:
-        briefs, api = split_inputs(args.inputs)
-    except InputError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    mock_url = ""
+    if Path(args.inputs[0]).is_dir():   # final format: <case_folder> <mock_url>
+        from builder.ingest import ingest  # noqa: PLC0415
+        if len(args.inputs) != 2 or not args.inputs[1].startswith("http"):
+            print("error: usage: builder/build.py <case_folder> <mock_url>", file=sys.stderr)
+            return 2
+        folder, mock_url = Path(args.inputs[0]), args.inputs[1]
+        args.slot = args.slot or "case-" + "".join(c if c.isalnum() else "-" for c in folder.resolve().name.lower()).strip("-")[:40]
+        args.out = args.out or str(REPO / "out" / args.variant / args.slot)
+        try:
+            ing = ingest(folder, mock_url, Path(args.out) / "ingest")
+        except Exception as e:  # noqa: BLE001
+            print(f"error: ingest failed: {e}", file=sys.stderr)
+            return 2
+        print(f"ingest: {ing['files']} file(s), {ing['chars']} chars, tool API from {ing['api_source']}", file=sys.stderr)
+        briefs, api = [Path(ing["brief"])], Path(ing["api"])
+    else:
+        try:
+            briefs, api = split_inputs(args.inputs)
+        except InputError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
     args.max_minutes = args.max_minutes if args.max_minutes is not None else (30.0 if args.variant == "tcc" else 15.0)
     args.slot = args.slot or slot_name(briefs, args.variant)
     args.out = args.out or str(REPO / "out" / args.variant / args.slot)
     report = VARIANTS[args.variant](args, briefs, api)
-    print(json.dumps({k: report.get(k) for k in ("status", "slot", "saved", "fallback_used", "message", "trace")}, default=str))
+    if mock_url:
+        report["submission"] = str(write_submission(args, report, mock_url))
+    print(json.dumps({k: report.get(k) for k in ("status", "slot", "saved", "fallback_used", "message", "trace", "submission")}, default=str))
     return 0 if report.get("status") == "ok" else 1
 
 
