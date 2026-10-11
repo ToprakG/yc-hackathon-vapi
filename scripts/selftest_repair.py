@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import re
 import json
 import os
 import subprocess
@@ -160,8 +161,13 @@ def unlocked_zones(base_dir, limit=60):
     return {k: {"purpose": z.get("purpose", ""), "text": z["text"][:700]} for k, z in list(book.zones.items()) if not z["locked"]}
 
 
+OWNED_BY_FIXUPS = re.compile(r"^/(ask_limits/id_decline|attempt_plan/\d+/cap_at_deadline)$")  # set deterministically by policy_fixups (final_build); never re-decided by a model
+
+
 def verify_field(policy, ptr, diagnosis, brief):
     """The extraction verifier, for one field: a new value only with an exact brief quote. Returns (new_policy, quote) or (None, why)."""
+    if OWNED_BY_FIXUPS.match(ptr):
+        return None, "this field is set by policy_fixups from explicit brief phrases"
     cur = get_ptr(policy, ptr)
     if cur is extract.extract_vote.ABSENT:
         return None, "pointer does not exist"
@@ -369,6 +375,10 @@ def precheck_fix(policy, brief, build_dir=None):
     log, cur = [], policy
     for ptr in precheck(policy, brief, build_dir):
         new, why = verify_field(cur, ptr, "the value disagrees with its _source quote, or a verbatim line is not the brief's sentence", brief)
+        if new is not None:  # a static change needs the verifier to agree with itself twice (a flaky verifier must not flip a field between runs)
+            new2, _ = verify_field(cur, ptr, "the value disagrees with its _source quote, or a verbatim line is not the brief's sentence", brief)
+            if new2 is None or get_ptr(new2, ptr) != get_ptr(new, ptr):
+                new, why = None, "the verifier did not give the same value twice"
         if new is not None and ptr.startswith("/lines/") and ptr.endswith("/text"):
             key = ptr.split("/")[2]
             new["lines"][key]["verbatim"] = bool(policy_check.quote_in(new["lines"][key]["text"], brief))

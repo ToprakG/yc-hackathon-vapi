@@ -17,9 +17,11 @@ cd "$(dirname "$0")/.." || exit 2
 MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
 set -a; [ -f .env ] && . ./.env; set +a; unset FREYA_API_KEY_W2   # one Freya key; FINAL_SAVE=freya (default): the first build and the last-green build are saved to Freya
 export FINAL_SAVE=${FINAL_SAVE:-freya}
-POS=(); FLAGS_ARG=""; FROM_SET=""; BUDGET_MIN=""; SHIP_MIN=26; JOBS=()
+[ "${OFFLINE:-}" ] || for a in "$@"; do [ "$a" = --offline ] && OFFLINE=1; done
+[ -n "${OFFLINE:-}" ] && export FINAL_SAVE=none
+OFFLINE=${OFFLINE:-}; POS=(); FLAGS_ARG=""; FROM_SET=""; BUDGET_MIN=""; SHIP_MIN=26; JOBS=()
 while [ $# -gt 0 ]; do case "$1" in
-  --job) JOBS+=("$2"); shift 2;; --budget-min) BUDGET_MIN=$2; shift 2;; --ship-min) SHIP_MIN=$2; shift 2;;
+  --job) JOBS+=("$2"); shift 2;; --offline) OFFLINE=1; shift;; --budget-min) BUDGET_MIN=$2; shift 2;; --ship-min) SHIP_MIN=$2; shift 2;;
   --set-flags) FLAGS_ARG=$2; shift 2;; --set-flags=*) FLAGS_ARG=${1#*=}; shift;;
   --from-set) FROM_SET=$2; shift 2;; --briefs-parallel) shift 2;; *) POS+=("$1"); shift;; esac; done
 if [ ${#JOBS[@]} -gt 0 ]; then   # sequential briefs, each its own call with its own budget
@@ -27,7 +29,7 @@ if [ ${#JOBS[@]} -gt 0 ]; then   # sequential briefs, each its own call with its
   for j in "${JOBS[@]}"; do
     IFS='|' read -r files api out <<< "$j"; t=$(date +%s)
     echo "$(date +%H:%M:%S) job start: $out"
-    bash "$0" $files "$api" "$out" --budget-min "${BUDGET_MIN:-30}" --ship-min "$SHIP_MIN" ${FLAGS_ARG:+--set-flags "$FLAGS_ARG"} ${FROM_SET:+--from-set "$FROM_SET"} || rc=1
+    bash "$0" $files "$api" "$out" --budget-min "${BUDGET_MIN:-30}" --ship-min "$SHIP_MIN" ${OFFLINE:+--offline} ${FLAGS_ARG:+--set-flags "$FLAGS_ARG"} ${FROM_SET:+--from-set "$FROM_SET"} || rc=1
     echo "$(date +%H:%M:%S) job done: $out in $(( $(date +%s) - t ))s (budget ${BUDGET_MIN:-30} min, ship at ${SHIP_MIN})"
   done
   exit $rc
@@ -76,6 +78,12 @@ if [ -z "$FROM_SET" ] || [ -n "${PRECHECK:-}" ]; then
   fi
 fi
 
+if [ -n "${OFFLINE:-}" ]; then   # --offline: the stages that need no Freya (extraction x3 + vote, fixups, compile, lint, rule coverage, static pre-check + R1/R3)
+  RC_FLAGS=(); stage rule_coverage env RULE_COVERAGE_ENFORCE=0 .venv310/bin/python scripts/rule_coverage.py "${BRIEFS[@]}" "$GREEN/policy.json" "$GREEN/workflow.json" --out "$OUT/rule_coverage"
+  cp "$GREEN/workflow.json" "$OUT/workflow.json"; cp "$GREEN/policy.json" "$OUT/policy.json"
+  stage finalize .venv310/bin/python scripts/final_trace.py --out "$OUT" --base "$GREEN" --green "$GREEN" --slot "$FINAL_SLOT" --stages "${STAGES[*]}"
+  say "offline run done: $(( $(date +%s) - T_START ))s; stages ${STAGES[*]}; nothing was sent to Freya"; exit 0
+fi
 BASE=$GREEN   # the build whose run.py trace carries the self-test events
 # 2. scenarios (from the brief + the extracted policy only)
 mkdir -p "$OUT/selftest"

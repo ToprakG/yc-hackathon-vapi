@@ -226,3 +226,24 @@ def test_repair_does_not_act_on_an_outage_run(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out.strip().startswith("FINAL " + str(b))
     rep = json.loads((tmp_path / "w" / "patch_report.json").read_text())
     assert rep["status"] == "outage" and "outage signature" in rep["outage"]
+
+
+def test_static_precheck_never_touches_policy_fixups_fields_and_needs_two_agreeing_answers(monkeypatch):
+    import selftest_repair as R
+    p = policy()
+    assert R.verify_field(p, "/ask_limits/id_decline", "x", "brief") == (None, "this field is set by policy_fixups from explicit brief phrases")
+    ptr = next(k for k in ("/identity/max_wrong", "/callback/start") if R.get_ptr(p, k) is not R.extract.extract_vote.ABSENT)
+    p["_source"] = {ptr: "q"}
+    answers = iter([({**p}, "quote"), ({**p}, "quote")])
+    seen = []
+
+    def fake_verify(pol, pt, diag, brief):
+        seen.append(pt)
+        a = next(answers)
+        new = json.loads(json.dumps(pol))
+        R.extract._set(new, pt, 99 if len(seen) == 1 else 98)   # two different answers
+        return new, "quote"
+    monkeypatch.setattr(R, "precheck", lambda pol, brief, d=None: [ptr])
+    monkeypatch.setattr(R, "verify_field", fake_verify)
+    new, log = R.precheck_fix(p, "brief")
+    assert len(seen) == 2 and "new" not in log[0] and R.get_ptr(new, ptr) == R.get_ptr(p, ptr)

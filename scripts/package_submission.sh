@@ -6,12 +6,13 @@
 # Never copies keys: the .env is not read into the package, and the copied files are scanned for the value of every *KEY*/*TOKEN*/*SECRET*
 # environment variable (and the .env values) - the script stops if one is found.
 cd "$(dirname "$0")/.." || exit 2
-OUT=${1:?usage: scripts/package_submission.sh <out dir>}
+DRY=""; [ "${1:-}" = --dry ] && { DRY=1; shift; }   # --dry: copy and scan, but call no Freya API; report what WOULD be exported
+OUT=${1:?usage: scripts/package_submission.sh [--dry] <out dir>}
 [ -d "$OUT" ] || { echo "no such directory: $OUT"; exit 2; }
 unset FREYA_API_KEY_W2          # one Freya key only: the second workspace's key is never part of a final path
 set -a; [ -f .env ] && . ./.env; set +a; unset FREYA_API_KEY_W2
 PKG="$OUT/submission"; rm -rf "$PKG"; mkdir -p "$PKG"
-.venv310/bin/python - "$OUT" "$PKG" <<'PY'
+DRY=$DRY .venv310/bin/python - "$OUT" "$PKG" <<'PY'
 import json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
@@ -21,7 +22,7 @@ reports = sorted(p for p in list(out.glob("*/build_report.json")) + list(out.glo
 if not reports:
     sys.exit(f"no build_report.json under {out}")
 freya = None
-if os.environ.get("FREYA_API_KEY"):
+if os.environ.get("FREYA_API_KEY") and not os.environ.get("DRY"):
     import freya  # noqa: PLC0415
 rows, problems = [], []
 for rp in reports:
@@ -47,6 +48,8 @@ for rp in reports:
             exported = freya.export_workflow(wid, str(d / "freya_export.workflow.json"))
         except Exception as e:  # noqa: BLE001
             problems.append(f"{brief}: export_workflow failed: {e!r}")
+    elif wid and os.environ.get("DRY"):
+        problems.append(f"{brief}: DRY run: would export Freya workflow {wid} to {d / 'freya_export.workflow.json'}")
     elif not wid:
         problems.append(f"{brief}: no Freya workflow id in build_report.json (was it built with --save freya?)")
     elif not freya:
