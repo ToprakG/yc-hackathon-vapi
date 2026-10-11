@@ -704,6 +704,33 @@ def answer_from_speech(kind, text):
     return v, ok
 
 
+SPELLING = {'alpha': 'A', 'alfa': 'A', 'bravo': 'B', 'charlie': 'C', 'delta': 'D', 'echo': 'E', 'foxtrot': 'F', 'golf': 'G',
+            'hotel': 'H', 'india': 'I', 'juliet': 'J', 'juliett': 'J', 'kilo': 'K', 'lima': 'L', 'mike': 'M', 'november': 'N',
+            'oscar': 'O', 'papa': 'P', 'quebec': 'Q', 'romeo': 'R', 'sierra': 'S', 'tango': 'T', 'uniform': 'U', 'victor': 'V',
+            'whiskey': 'W', 'whisky': 'W', 'xray': 'X', 'yankee': 'Y', 'zulu': 'Z'}
+DIGIT_RUN = re.compile(r"\b(?:(?:zero|oh|nought|one|two|three|four|five|six|seven|eight|nine|\d)[ ,.-]+){3}"
+                       r"(?:zero|oh|nought|one|two|three|four|five|six|seven|eight|nine|\d)\b", re.I)
+
+
+def spoken_forms(kind, text):
+    """F21: a spoken identity answer in the shapes the plain parsers miss. Four single digits in a row are a year
+    ("one nine five nine" -> 1959) for dates and years; a spelling alphabet in a code is its letters ("mike golf" -> MG")."""
+    t = str(text or '')
+    if kind in ('date', 'year'):
+        def year(m):
+            ds = digit_string(m.group(0))
+            return ds if len(ds) == 4 and 1880 <= int(ds) <= 2100 else m.group(0)
+        t = DIGIT_RUN.sub(year, t)
+    elif kind == 'alnum_code':
+        t = ' '.join(SPELLING.get(w.lower(), w) for w in re.findall(r"[A-Za-z]+|\d+|[^\sA-Za-z\d]+", t))
+    return t
+
+
+def answer_from_spoken(kind, text):
+    """answer_from_speech after spoken_forms (F21)."""
+    return answer_from_speech(kind, spoken_forms(kind, text))
+
+
 def _id_answer(kind, text):
     if kind == "date":
         v = parse_date(text)

@@ -776,9 +776,12 @@ ID_INIT        vars['cb_state'] = 'none'
                 vars['id_partial'] = ''
                 vars['id_say'] = 'Let us try that once more. ' + prompt
         """
+        uses = ("parse_now", "digit_string", "answer_from_speech", "norm_answer", "num")
+        if "f21_spoken_answers" in self.f:  # F21: digit-by-digit years, spelling alphabets in codes
+            body = body.replace("v, ok = answer_from_speech(kind, text)", "v, ok = answer_from_spoken(kind, text)")
+            uses += ("answer_from_spoken",)
         self.code("id_check", body, [eq("id_verify", "a complete answer to send", "id_route", "send"), always("identity")],
-                  uses=("parse_now", "digit_string", "answer_from_speech", "norm_answer", "num"),
-                  fallback="vars['id_route'] = 'ask'")
+                  uses=uses, fallback="vars['id_route'] = 'ask'")
         self.api_node("id_verify", tool, self._id_state_transitions() + [always("identity")],
                       response_mapping=[{"path": "data.ok", "variable": "id_ok"}])
         parts = [{"zone": self.book.add(f"hook:verify_identity/msg/{k}", v, False, P.BUDGET["hook"], "what_to_do_next text"),
