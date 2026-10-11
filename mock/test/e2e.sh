@@ -1,12 +1,17 @@
 #!/bin/sh
 # usage: test/e2e.sh <base-url> [admin-token]   — hits every endpoint, then checks the ledger
-B=${1:-http://localhost:8799}/brief-a; T=$2; C=PUB-01; fail=0
-post(){ body=$(printf '%s' "$2" | sed "s/CID/$C/"); curl -s -X POST "$B/v1/$1" -H 'content-type: application/json' -d "$body"; echo; }
+SPEC=${SPEC:-$(cd $(dirname $0)/.. && pwd)/specs/spec.brief-a.json}; B=${1:-http://localhost:8799}/$(node -p "require('$SPEC').id"); T=$2; fail=0
+C=$(node -p "require('$SPEC').customers[0].customer_id"); DOB=$(node -p "require('$SPEC').customers[0].identity.date_of_birth"); PH=$(node -p "require('$SPEC').customers[0].identity.phone_last4")
+C2=$(node -p "require('$SPEC').customers[1].customer_id")
+post(){ body=$(printf '%s' "$2" | sed "s/CID/$C/; s/\$DOB/$DOB/; s/\$PH/$PH/"); curl -s -X POST "$B/v1/$1" -H 'content-type: application/json' -d "$body"; echo; }
 chk(){ echo "$2" | grep -q "$3" && echo "ok   $1" || { echo "FAIL $1: $2"; fail=1; }; }
+[ -n "$T" ] && chk put-spec "$(curl -s -X PUT -H "Authorization: Bearer $T" --data-binary @$SPEC $B/admin/spec)" '"ok":true'
+[ -n "$T" ] && curl -s -X POST -H "Authorization: Bearer $T" "$B/admin/reset" >/dev/null
+chk openapi-server "$(curl -s $B/openapi.json)" "\"url\":\"$B/v1\""
 chk openapi "$(curl -s $B/openapi.json)" '"/verify_identity"'
 chk pre-verify "$(post get_account '{"customer_id":"CID"}')" 'identity not verified'
-chk dob "$(post verify_identity '{"customer_id":"CID","field":"date_of_birth","answer":"1988-03-14"}')" '"verified":true'
-chk phone "$(post verify_identity '{"customer_id":"CID","field":"phone_last4","answer":"4471"}')" '"all_verified":true'
+chk dob "$(post verify_identity '{"customer_id":"CID","field":"date_of_birth","answer":"$DOB"}')" '"verified":true'
+chk phone "$(post verify_identity '{"customer_id":"CID","field":"phone_last4","answer":"$PH"}')" '"all_verified":true'
 chk account "$(post get_account '{"customer_id":"CID"}')" '"product_id":"p1"'
 chk promise "$(post create_promise '{"customer_id":"CID","product_id":"p1","amount":126,"date":"2026-10-20"}')" 'promise_id'
 chk dup-promise "$(post create_promise '{"customer_id":"CID","product_id":"p1","amount":126,"date":"2026-10-20"}')" '"ok":false'
@@ -18,7 +23,7 @@ chk after-close "$(post get_account '{"customer_id":"CID"}')" 'already closed'
 chk ledger "$(curl -s $B/v1/practice/ledger/$C)" '"outcome":"promise"'
 chk records "$(curl -s $B/records?customer_id=$C)" '"tool":"close_call"'
 chk state "$(curl -s $B/state)" '"closed":true'
-chk 500 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/v1/get_account -H 'x-mock-fail: 1' -d '{"customer_id":"PUB-02"}')" '500'
+chk 500 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/v1/get_account -H 'x-mock-fail: 1' -d "{\"customer_id\":\"$C2\"}")" '500'
 [ -n "$T" ] && chk reset "$(curl -s -X POST -H "Authorization: Bearer $T" "$B/admin/reset?customer_id=$C")" '"ok":true' && chk after-reset "$(curl -s $B/v1/practice/ledger/$C)" '"outcome":null'
 chk admin-forbidden "$(curl -s -X POST "$B/admin/reset")" 'forbidden'
 exit $fail

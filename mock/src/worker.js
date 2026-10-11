@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { Bank, openapi } from "./engine.js";
+import { adapt } from "./adapt.js";
 import bundled from "./bundled_specs.json";
 
 const J = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } });
@@ -30,7 +31,8 @@ export class BankDO extends DurableObject {
     };
   }
   async spec(tenant) {
-    return (await this.ctx.storage.get("spec")) || bundled[tenant] || null;
+    const s = (await this.ctx.storage.get("spec")) || bundled[tenant] || null;
+    return s && adapt(s);
   }
   async fetch(req) {
     const url = new URL(req.url);
@@ -39,17 +41,18 @@ export class BankDO extends DurableObject {
     const rest = "/" + parts.slice(1).join("/");
     const spec = await this.spec(tenant);
     if (!spec) return J({ ok: false, error: "unknown tenant" }, 404);
-    spec.tenant = spec.tenant || tenant;
+    spec.tenant = tenant;   // the URL decides the tenant name
     const bank = new Bank(spec, this.store);
     const token = bearer(req, url);
 
     if (rest.startsWith("/admin/")) {
       if (!this.env.ADMIN_TOKEN || token !== this.env.ADMIN_TOKEN) return J({ ok: false, error: "forbidden" }, 403);
-      if (rest === "/admin/spec" && req.method === "GET") return J(spec);
-      if (rest === "/admin/spec" && req.method === "PUT") { await this.ctx.storage.put("spec", await req.json()); return J({ ok: true }); }
+      if (rest === "/admin/spec" && req.method === "GET") return J((await this.ctx.storage.get("spec")) || bundled[tenant]);
+      if (rest === "/admin/spec" && req.method === "PUT") { const ns = await req.json(); if (!adapt(ns)?.endpoints) return J({ ok: false, error: "not a spec" }, 400); await this.ctx.storage.put("spec", ns); return J({ ok: true, tenant: adapt(ns).tenant, customers: (ns.customers || []).length }); }
       if (rest === "/admin/customers" && req.method === "PUT") {
         const incoming = await req.json(); const list = Array.isArray(incoming) ? incoming : incoming.customers;
-        const cur = { ...spec, customers: [...(spec.customers || [])] };
+        const raw = (await this.ctx.storage.get("spec")) || bundled[tenant];
+        const cur = { ...raw, customers: [...(raw.customers || [])] };
         for (const c of list) { const i = cur.customers.findIndex((x) => x.customer_id === c.customer_id); i >= 0 ? (cur.customers[i] = c) : cur.customers.push(c); }
         await this.ctx.storage.put("spec", cur); return J({ ok: true, customers: cur.customers.length });
       }

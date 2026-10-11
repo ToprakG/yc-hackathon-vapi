@@ -3,7 +3,8 @@ import fs from "node:fs";
 const out = {};
 for (const f of fs.readdirSync("specs").filter((f) => f.endsWith(".json"))) {
   const s = JSON.parse(fs.readFileSync("specs/" + f, "utf8"));
-  out[s.tenant || f.replace(/\.json$/, "")] = { ...s, tenant: s.tenant || f.replace(/\.json$/, "") };
+  const t = s.tenant || s.id || f.replace(/\.json$/, "").replace(/^spec\./, "");
+  out[t] = s;
 }
 fs.writeFileSync("src/bundled_specs.json", JSON.stringify(out));
 console.log("bundled", Object.keys(out).join(", ") || "(none)");

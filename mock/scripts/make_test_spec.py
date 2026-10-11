@@ -15,5 +15,5 @@ spec = {"tenant": "brief-a", "info": oa["info"], "base_path": "/v1",
         "rules": {"one_promise_per_product": True, "require_verified": ["get_account", "create_promise"]},
         "endpoints": eps,
         "customers": [{"customer_id": c["id"], "identity": c["identity"], "products": c["products"], "meta": {"title": c["title"], "expected": c.get("expected")}} for c in cases]}
-json.dump(spec, open(R / "mock/specs/brief-a.json", "w"), indent=1)
+json.dump(spec, open(R / "mock/test/fixtures/internal-brief-a.json", "w"), indent=1)
 print(len(cases), "customers", len(eps), "endpoints")

@@ -14,18 +14,13 @@ export function normDate(s) {
 const swapDate = (iso) => { const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m && +m[3] <= 12 ? `${m[1]}-${m[3]}-${m[2]}` : null; };
 export const isTime = (s) => typeof s === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 
-// minimal JSON-schema check: required, type, enum, format date. Returns an error string or null.
+// lenient schema check: required and enum only (types/formats are the agent's business; the service does not enforce the brief). Returns an error string or null.
 export function validate(body, schema) {
   if (!schema || !schema.properties) return null;
   for (const k of schema.required || []) if (body[k] === undefined || body[k] === null || body[k] === "") return `missing ${k}`;
   for (const [k, p] of Object.entries(schema.properties)) {
     const v = body[k]; if (v === undefined || v === null) continue;
-    if (p.type === "string" && typeof v !== "string") return `${k} must be a string`;
-    if ((p.type === "number" || p.type === "integer") && typeof v !== "number") return `${k} must be a number`;
-    if (p.type === "integer" && !Number.isInteger(v)) return `${k} must be an integer`;
-    if (p.type === "boolean" && typeof v !== "boolean") return `${k} must be a boolean`;
     if (p.enum && !p.enum.includes(v)) return `${k} must be one of ${p.enum.join(", ")}`;
-    if (p.format === "date" && normDate(v) === null) return `${k} must be YYYY-MM-DD`;
   }
   return null;
 }
@@ -92,7 +87,7 @@ export class Bank {
     const c = this.customer(cid);
     if (!c) return bad("unknown customer");
     const st = await this.state(cid);
-    if (st.closed) { await this.log({ customer_id: cid, tool: op, args: body, result: { ok: false, error: "call already closed" }, fault: true, late: true }); return { status: 200, json: { ok: false, error: "call already closed" } }; }   // kept out of the call list: nothing is accepted after close_call
+    if (st.closed) { await this.log({ customer_id: cid, tool: op, args: body, result: { ok: false, error: "the call is already closed" }, fault: true, late: true }); return { status: 200, json: { ok: false, error: "the call is already closed" } }; }   // kept out of the call list: nothing is accepted after close_call
     const need = (this.spec.rules?.require_verified ?? ["get_account", "create_promise"]).includes(op);
     const allOk = () => (this.spec.identity?.fields || []).every((f) => st.verified[f.name]);
     if (need && !allOk()) return bad("identity not verified");
@@ -100,39 +95,41 @@ export class Bank {
     switch (op) {
       case "verify_identity": return this.verify(c, st, arg("field"), arg("answer"), done, bad);
       case "get_account": {
-        const pmap = this.spec.products?.map || {};
-        const products = this.products(c).map((p) => { const o = {}; for (const [k, src] of Object.entries(pmap)) if (p[src] !== undefined) o[k] = p[src]; return { product_id: p.product_id, ...o }; });
+        const pmap = this.spec.products?.map, idf = this.idField();
+        const products = this.products(c).map((p) => { if (!pmap) return p; const o = { [idf]: p[idf] }; for (const [k, src] of Object.entries(pmap)) if (p[src] !== undefined) o[k] = p[src]; return o; });
         return done({ ok: true, products }, st);
       }
       case "create_promise": {
         const pid = arg("product_id"), amount = arg("amount"), date = arg("date");
-        if (!this.products(c).some((p) => p.product_id === pid)) return bad("unknown product");
-        if (typeof amount !== "number" || !(amount > 0)) return bad("amount must be positive");
-        if (this.spec.rules?.one_promise_per_product !== false && st.promises.some((p) => p.product_id === pid)) return bad("promise already exists for product");
-        const promise_id = "pr_" + (st.promises.length + 1) + "_" + cid;
-        st.promises.push({ promise_id, product_id: pid, amount, date });
+        if (!this.products(c).some((p) => this.pid(p) === pid)) return bad("unknown " + (pm.product_id || "product_id"));
+        if (this.spec.rules?.one_promise_per_product !== false && st.promises.some((p) => p.product_id === pid)) return bad("this product already has a promise");
+        const promise_id = "pr" + (st.promises.length + 1);
+        const prod = this.products(c).find((p) => this.pid(p) === pid);
+        const amt = ep.amount_unit === "cents" && typeof amount === "number" ? amount / 100 : amount;
+        st.promises.push({ promise_id, product_id: pid, type: prod.type ?? null, amount: amt, date });
         return done({ ok: true, promise_id }, st);
       }
       case "add_note": {
         const pid = arg("product_id");
-        if (pid && !this.products(c).some((p) => p.product_id === pid)) return bad("unknown product");
+        if (pid && !this.products(c).some((p) => this.pid(p) === pid)) return bad("unknown " + (pm.product_id || "product_id"));
         st.notes.push({ product_id: pid ?? null, reason: arg("reason"), text: arg("text") ?? null });
         return done({ ok: true }, st);
       }
       case "schedule_callback": {
-        if (!isTime(arg("time"))) return bad("time must be HH:MM");
-        st.callbacks.push({ date: arg("date"), time: arg("time") });
+        if (ep.mode === "datetime") { const [d, t = ""] = String(arg("datetime") ?? "").split("T"); st.callbacks.push({ date: d, time: t.slice(0, 5) }); }
+        else st.callbacks.push({ date: arg("date"), time: arg("time") });
         return done({ ok: true }, st);
       }
       case "transfer_to_agent": st.transfers.push({ queue: arg("queue") }); return done({ ok: true }, st);
       case "dispute": {
         const pid = arg("product_id");
-        if (pid && !this.products(c).some((p) => p.product_id === pid)) return bad("unknown product");
+        if (pid && !this.products(c).some((p) => this.pid(p) === pid)) return bad("unknown " + (pm.product_id || "product_id"));
         st.disputes.push({ product_id: pid ?? null, reason: arg("reason") ?? null, text: arg("text") ?? null });
         return done({ ok: true, dispute_id: "dp_" + st.disputes.length + "_" + cid }, st);
       }
       case "close_call": {
-        st.closed = true; st.outcome = arg("outcome"); st.reason = arg("reason") ?? null;
+        st.closed = true;
+        if (ep.mode === "code") { st.outcome = arg("code"); st.reason = null; } else { st.outcome = arg("outcome"); st.reason = arg("reason") || null; }
         return done({ ok: true }, st);
       }
       default: { // generic record
@@ -144,9 +141,11 @@ export class Bank {
   }
 
   products(c) {
-    const pre = this.spec.products?.id_prefix || "p";
-    return (c.products || []).map((p, i) => ({ ...p, product_id: p.product_id || pre + (i + 1) }));
+    const fmt = this.spec.products?.id_format || (this.spec.products?.id_prefix || "p") + "{n}", idf = this.idField();
+    return (c.products || []).map((p, i) => ({ [idf]: fmt.replace("{n}", i + 1), ...p }));
   }
+  idField() { return this.spec.products?.id_field || "product_id"; }
+  pid(p) { return p[this.idField()]; }
   canon(body, pm) { const o = { ...body }; for (const [canon, actual] of Object.entries(pm)) if (actual !== canon && body[actual] !== undefined) o[canon] = body[actual]; return o; }
   canonSchema(schema, pm) {
     if (!Object.keys(pm).length || !schema.properties) return schema;
@@ -157,18 +156,18 @@ export class Bank {
   async verify(c, st, field, answer, done, bad) {
     const id = this.spec.identity || { fields: [], max_wrong: 3 };
     const f = id.fields.find((x) => x.name === field);
-    if (!f) return bad("unknown field");
+    if (!f) return bad(`${this.spec.endpoint_fields?.field || "field"} must be one of: ` + id.fields.map((x) => x.name).join(", "));
     const max = id.max_wrong ?? 3;
     const left = () => Math.max(0, max - st.wrong);
     const allv = () => id.fields.every((x) => st.verified[x.name]);
-    if (st.wrong >= max) return done({ ok: false, error: "too many wrong answers", verified: false, wrong_answers_left: 0, all_verified: false }, st);
+    if (st.wrong >= max) return done({ ok: false, verified: false, wrong_answers_left: 0, error: "identity check is over" }, st);
     if (st.verified[field]) return done({ ok: true, verified: true, wrong_answers_left: left(), all_verified: allv() }, st);
     const truth = c.identity?.[field];
     let given = answer, want = truth, hint;
     if (f.kind === "date") {
       given = normDate(answer);
-      if (given === null) return bad("unreadable date, expected YYYY-MM-DD");   // not counted
-      if (want !== undefined && given !== want && swapDate(given) === want) hint = "day_month_swapped";
+      if (given === null) return bad("answer is not a date. Send it as YYYY-MM-DD.");   // not counted
+      if (want !== undefined && given !== want && swapDate(given) === want) { if (id.swap_hint) return done({ ok: true, verified: false, wrong_answers_left: left(), hint: "day_month_swapped" }, st); }   // a swap is not a wrong answer
     } else if (f.kind === "digits") {
       given = String(answer ?? "").replace(/\D/g, ""); want = String(truth ?? "").replace(/\D/g, "");
       if (f.len && given.length !== f.len) return bad(`expected ${f.len} digits`);
@@ -198,6 +197,7 @@ export class Bank {
 }
 
 export function openapi(spec, origin) {
+  if (spec.openapi_raw) return { ...spec.openapi_raw, servers: [{ url: `${origin}/${spec.tenant}${spec.base_path || ""}` }] };   // the bank's own contract, only the server is ours
   const paths = {};
   for (const e of spec.endpoints || []) {
     const m = (e.method || "POST").toLowerCase();
