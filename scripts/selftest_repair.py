@@ -63,7 +63,7 @@ exactly ONE action:
  1. "policy_field": a value of policy.json contradicts the brief (JSON pointer from ALLOWED_POINTERS, never one in PROTECTED).
  2. "disable_flag": ONLY when the brief defines the parameters of a code rule differently from what the transcript shows (the rule's
     behaviour contradicts a brief sentence you can quote). A mere bug of the agent in following a rule the brief does state is NOT this: choose "none".
-    Name the flag from ACTIVE_FLAGS (FLAG_HINTS_FOR_THIS_RULE lists likely ones) and say which behaviour contradicts which brief sentence.
+    Give "brief_quote" = the exact brief sentence the rule's behaviour contradicts. Name the flag from ACTIVE_FLAGS (FLAG_HINTS_FOR_THIS_RULE lists likely ones) and say which behaviour contradicts which brief sentence.
  3. "line_fix": a spoken line of policy.json (a key of LINES) differs from a sentence the brief fixes; give "line_key" and "brief_quote" =
     the brief's own sentence, copied exactly.
  4. "prompt_patch": ONLY when UNKNOWN_RULE is true. Pick the unlocked zone of the stage where the behaviour happens from ZONES; "after" must
@@ -129,7 +129,8 @@ def transcript_text(path, last=24):
 
 
 def is_unknown(case):
-    return bool(case.get("unknown")) or case.get("rule") not in SOURCES
+    """R4 is only for scenarios built from a brief rule marked UNKNOWN / prompt-only (they carry that rule's brief quote)."""
+    return bool(case.get("unknown")) and bool(case.get("quotes"))
 
 
 def unlocked_zones(base_dir, limit=60):
@@ -290,7 +291,7 @@ def diagnose(row, case, policy, brief, flags, base, protected):
         if new is not None:
             return {**act, "action": "policy_field", "pointer": prop["pointer"], "policy": new, "quote": why, "how": "diagnosis -> R1"}
         return {**act, "action": "none", "why": why}
-    if kind == "disable_flag" and prop.get("flag") in flags:
+    if kind == "disable_flag" and prop.get("flag") in flags and policy_check.quote_in(str(prop.get("brief_quote") or ""), brief):
         return {**act, "action": "disable_flag", "flag": prop["flag"], "how": "diagnosis -> R2"}
     if kind == "line_fix" and prop.get("line_key") in (policy.get("lines") or {}) and policy_check.quote_in(str(prop.get("brief_quote") or ""), brief):
         new = copy.deepcopy(policy)
@@ -300,6 +301,8 @@ def diagnose(row, case, policy, brief, flags, base, protected):
         if not is_unknown(case):
             return {**act, "action": "none", "why": "prompt patches are only for unknown rules"}
         pt = check_patch(prop, brief, [case])
+        if not isinstance(pt, str) and not any(policy_check.norm_text(q) in policy_check.norm_text(pt["brief_quote"]) or policy_check.norm_text(pt["brief_quote"]) in policy_check.norm_text(q) for q in case["quotes"]):
+            pt = "patch: the quoted sentence is not the unknown rule of this scenario"
         return {**act, "action": "none", "why": pt} if isinstance(pt, str) else {**act, "action": "prompt_patch", "patch": pt, "how": "diagnosis -> R4"}
     return {**act, "action": "none", "why": "no clear cause"}
 

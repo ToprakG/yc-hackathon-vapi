@@ -46,6 +46,15 @@ else
 fi
 [ -f "$GREEN/workflow.json" ] || { say "no workflow from the build: nothing to test"; exit 1; }
 
+# 1b. static pre-check (no simulation): fields that disagree with their own _source quote -> R1 (verifier + brief quote), then rebuild
+if [ -z "$FROM_SET" ] || [ -n "${PRECHECK:-}" ]; then
+  stage precheck .venv310/bin/python scripts/policy_precheck.py "${BRIEFS[@]}" "$GREEN/policy.json" --out "$OUT/policy.fixed.json"
+  if [ "$(tail -1 "$OUT/precheck.out" | python3 -c "import json,sys;print(json.loads(sys.stdin.read() or '{}').get('changed',0))" 2>/dev/null)" -gt 0 ] 2>/dev/null; then
+    say "precheck changed fields: rebuilding from the fixed policy"; cp "$GREEN/policy.json" "$OUT/policy.extracted.json"
+    stage rebuild env POLICY="$OUT/policy.fixed.json" bash scripts/final_build.sh "${BRIEFS[@]}" "$API" "$OUT/r0b" && [ -f "$OUT/r0b/workflow.json" ] && GREEN=$OUT/r0b
+  fi
+fi
+
 # 2. scenarios (from the brief + the extracted policy only)
 mkdir -p "$OUT/selftest"
 stage cases .venv310/bin/python scripts/selftest_cases.py "${BRIEFS[@]}" "$GREEN/policy.json" --out "$OUT/selftest/cases.json"
