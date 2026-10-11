@@ -26,8 +26,9 @@ PY
 mkdir -p "$OUT"; T0=$(date +%s)
 echo "features: $FEATURES"
 [ -n "${FINAL_BUILD_DRY:-}" ] && exit 0
+#   POLICY=file: skip the extraction and compile this policy.json (self-test repairs; same flags, checked by policy_check)
 env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
-  --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
+  ${POLICY:+--policy "$POLICY"} --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}") python3 - "$OUT" "$RC" "$WALL" "$API" "${CONFIG:-}" <<'PY'
 import json, re, subprocess, sys
