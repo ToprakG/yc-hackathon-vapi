@@ -242,3 +242,11 @@ def test_judge_agreement_on_a_toy_labels_file(tmp_path):
     a.write_text("\n".join(json.dumps(x) for x in log))
     b.write_text("\n".join(json.dumps(x) for x in labels))
     assert judge_agreement.main([str(a), str(b)]) == 0
+
+
+def test_claude_cli_judge_needs_no_api_key(tmp_path, monkeypatch):
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr("builder.template_cc.llm.load_env", lambda *a, **k: None)
+    judge = J.make_judge(Models(), NullTrace(), call_llm=lambda *a, **k: {"answer": "yes", "evidence": ""}, vendor_path=tmp_path / "none")
+    assert isinstance(judge, J.LocalDecisionJudge)
