@@ -514,6 +514,8 @@ ID_INIT        vars['cb_state'] = 'none'
         result['data'] = d
         refresh_close(vars, CFG)
         """, uses=("truthy", "num", "refresh_close"), msgs=msgs)
+        if self._tp_flags():
+            return self._third_party_code(f, post, msgs)
         tool = T.api_tool(self.api, "schedule_callback", {**T.customer_leaf(self.api, "schedule_callback"), **body},
                           description="Book a callback for the customer. CALL it as soon as the person names a day and time inside the allowed callback times. Never call it for a time outside them.",
                           pre=pre, post=post)
@@ -527,6 +529,119 @@ ID_INIT        vars['cb_state'] = 'none'
                   transitions=trs, max_turns=8, turn_target="mark_nr_no_callback")
         self.tool_zones("third_party", 0, tool, msgs)
         self.task_zones("third_party", "third_party", P.third_party_task(self.p, hint))
+
+    # F22 ----------------------------------------------------------------------------------------------------------
+    def _tp_flags(self) -> bool:
+        """F22 once its policy parameters are verified (banned words before verification, the callback window); else p6."""
+        cb = self.p.get("callback") or {}
+        return "f22_forbidden_disclosure" in self.f and bool(self.p.get("forbidden_before_verify")) and bool(cb.get("start") and cb.get("end"))
+
+    def _third_party_code(self, f: dict, post: str, msgs: dict):
+        """Third-party step in code (F22): every reply is a fixed line, and the time the person names is checked against the
+        allowed times (a code-booked callback needs it) before schedule_callback runs. The model only extracts tp_state and the day and time the person named."""
+        f22 = True
+        lines = self.p.get("lines") or {}
+        ask = (lines.get("third_party_ask") or {}).get("text") if isinstance(lines.get("third_party_ask"), dict) else lines.get("third_party_ask")
+        self.cfg["tp"] = {"reask": int((self.p.get("ask_limits") or {}).get("callback_reask", 1)),
+                          "banned": list(self.p.get("forbidden_before_verify") or []) if f22 else [],
+                          "ask": ask or "Could you tell me when {first_name} {last_name} can be reached?",
+                          "fallback": "Could you tell me when they can be reached?"}
+        if f["mode"] == "datetime":
+            body = {f["datetime"]: T.baked(self.api, "schedule_callback", f["datetime"], "{{cb_date}}T{{cb_time}}")}
+        else:
+            body = {f["date"]: T.baked(self.api, "schedule_callback", f["date"], "{{cb_date}}"),
+                    f["time"]: T.baked(self.api, "schedule_callback", f["time"], "{{cb_time}}")}
+        tool = T.api_tool(self.api, "schedule_callback", {**T.customer_leaf(self.api, "schedule_callback"), **body},
+                          description="Book a callback for the customer.", post=post)
+        self.api_node("tp_book", tool, [
+            eq("mark_nr_callback", "the callback is booked", "cb_state", "booked"),
+            eq("mark_nr_no_callback", "the callback could not be booked", "cb_state", "failed"),
+            any_of("mark_nr_no_callback", "the call to the tool failed", [leaf("tp_book_failure_count", "greater_than", 0)]),
+            always("tp_book")])
+        self.tool_zones_hook("tp_book", tool, msgs)
+        self.code("tp_init", """
+        T = CFG['tp']
+        line = T['ask'].replace('{first_name}', str(vars.get('first_name') or '')).replace('{last_name}', str(vars.get('last_name') or '')).replace('{title}', str(vars.get('title') or '')).strip()
+        vars['tp_say'] = clean_line(line, T['banned'], T['fallback'])
+        vars['tp_n'] = '0'
+        vars['tp_m'] = '0'
+        vars['cb_day_in'] = ''
+        vars['cb_time_in'] = ''
+        """, [always("third_party")], uses=("clean_line",), fallback="vars['tp_say'] = CFG['tp']['fallback']")
+        route = "f7_router" in self.f
+        body = """
+        T = CFG['tp']
+        now = parse_now(vars.get('now'))
+        today = now.date()
+        allowed = jget(vars, 'cb_allowed', [])
+        dtxt, ttxt = str(vars.get('cb_day_in') or ''), str(vars.get('cb_time_in') or '')
+        vars['cb_day_in'] = ''
+        vars['cb_time_in'] = ''
+        d, t, inside = cb_pick(dtxt, ttxt, allowed, today)
+        window = cb_window_line(allowed, today)
+        n, m = int(num(vars.get('tp_n'))), int(num(vars.get('tp_m')))
+        if str(vars.get('turn_intent') or 'none') != 'none':
+            vars['tp_route'] = 'router'
+        elif inside:
+            vars['cb_date'], vars['cb_time'] = d, t
+            vars['tp_route'] = 'book'
+        elif not allowed:
+            vars['tp_route'] = 'giveup'
+        elif d and t:
+            n += 1
+            vars['tp_n'] = str(n)
+            vars['tp_route'] = 'giveup' if n > T['reask'] else 'ask'
+            vars['tp_say'] = clean_line(window + ' Could you give me another time?', T['banned'], T['fallback'])
+        else:
+            m += 1
+            vars['tp_m'] = str(m)
+            vars['tp_route'] = 'giveup' if m > T['reask'] + 1 else 'ask'
+            vars['tp_say'] = clean_line((window + ' ' if window else '') + 'Which day and time would suit?', T['banned'], T['fallback'])
+        """
+        trs = ([eq("route_third_party", "the customer said something the router handles", "tp_route", "router")] if route else []) + [
+            eq("tp_book", "a time inside the allowed times", "tp_route", "book"),
+            eq("mark_nr_no_callback", "no usable time", "tp_route", "giveup"),
+            always("third_party")]
+        self.code("tp_check", body, trs, uses=("parse_now", "jget", "num", "cb_pick", "cb_window_line", "clean_line"),
+                  fallback="vars['tp_route'] = 'giveup'")
+        # who reaches the step now goes through tp_init (the first line is fixed text)
+        for nid, n in self.nodes.items():
+            if nid in ("tp_init", "tp_check", "tp_book"):
+                continue
+            for tr in n.get("transitions") or []:
+                if tr.get("target_node") == "third_party":
+                    tr["target_node"] = "tp_init"
+            if n.get("passthrough_default_transition") == "third_party":
+                n["passthrough_default_transition"] = "tp_init"
+        descs = {"tp_state": "gave_up = the person gave a second time outside the allowed times, or cannot or will not say when the customer can be "
+                             "reached; not_their_number = not the customer's number; customer_died = the customer has died; gave_time = the person "
+                             "named a day and/or a time for the call back; none = anything else.",
+                 "cb_day_in": "The day the person offers for the call back, as said or as YYYY-MM-DD; empty when no day was named.",
+                 "cb_time_in": "The time the person offers for the call back, as said or as HH:MM; empty when no time was named."}
+        trs = [eq("mark_nr_wrong_number", "not the customer's number", "tp_state", "not_their_number"),
+               eq("mark_nr_deceased", "the customer has died", "tp_state", "customer_died"),
+               eq("mark_nr_no_callback", "no time inside the window", "tp_state", "gave_up"),
+               eq("tp_check", "the person named a day or a time", "tp_state", "gave_time")]
+        if f22:  # every other turn is answered by the fixed re-ask line, never by the model
+            trs.append(eq("tp_check", "anything else", "tp_state", "none"))
+        ext = self.extraction("third_party", "third_party", [("tp_state", ["gave_up", "not_their_number", "customer_died", "gave_time", "none"]),
+                                                             ("cb_day_in", None), ("cb_time_in", None)], descs=descs)
+        self.conv("third_party", on_enter={"type": "tts", "text": "{{tp_say}}"}, extraction=ext, transitions=trs, max_turns=8,
+                  turn_target="mark_nr_no_callback")
+        self.book.add("tts:third_party", "{{tp_say}}", True, purpose="fixed spoken line")
+        self.book.target(self._ptr("third_party") + "/on_enter/text", "text", [{"zone": "tts:third_party"}])
+        task = ("You are not speaking with the customer. Do not say why you are calling and give no account details, even if the person "
+                "offers to pay or to answer questions for the customer. Never ask them security questions. Ask only when the customer can be "
+                "reached; the callback itself is booked by the system.")
+        self.task_zones("third_party", "third_party", task)
+
+    def tool_zones_hook(self, nid: str, tool: dict, msgs: dict):
+        """The what_to_do_next texts of a code-called tool stay patchable zones (the tool is not in a conversation node)."""
+        name = tool["function"]["name"]
+        parts = []
+        for k, v in msgs.items():
+            parts.append({"zone": self.book.add(f"hook:{name}/msg/{k}", v, False, P.BUDGET["hook"], "what_to_do_next text"), "key": k})
+        self.book.target(self._ptr(nid) + "/pre_actions/0/post_process_code", "hook_msgs", parts)
 
     # identity ---------------------------------------------------------------------------------------------------------
     def _identity_tool(self):

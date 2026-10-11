@@ -33,7 +33,7 @@ NORMATIVE = re.compile(
     r"\b(must|never|only|once|twice|exactly|if\b|close as|transfer|say|do not|don't|does not|did not|may not|may\b|"
     r"ask|call|offer|propose|record|state|read|send|count|keep|add|stop|take|answer|describe|treat|applies|wins|"
     r"counts? as|means|before|after|first|then|else|otherwise|is closed|are closed|closes|no\b|not\b)", re.I)
-DESCRIPTIVE_ONLY = re.compile(r"^(every rule of brief a|the outcome table of brief a|freya bank is fictional|every customer|this brief has|brief [ab] is|read all of it|the voice bot must follow)", re.I)
+DESCRIPTIVE_ONLY = re.compile(r"^(every rule of brief a|the outcome table of brief a|\w+ \w+ is fictional|every customer|this brief has|brief [ab] is|read all of it|the voice bot must follow)", re.I)
 
 # regex pre-pass: type -> patterns. A sentence can have several candidate types.
 HINTS = {
