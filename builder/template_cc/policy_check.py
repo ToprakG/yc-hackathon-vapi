@@ -178,7 +178,7 @@ def apply_multi_product_rule(policy: dict, brief: str) -> str | None:
     n = brief_multi_product(brief)
     if n:
         return None
-    if policy.get("multi_product") or (policy.get("max_products") or 1) > 1:
+    if policy.get("multi_product") or (policy.get("max_products") or 1) > 1 or policy.get("max_products") is None:
         policy["multi_product"], policy["max_products"] = False, 1
         return "multi_product forced to false / max_products 1: the brief states no customer with more than one product"
     return None

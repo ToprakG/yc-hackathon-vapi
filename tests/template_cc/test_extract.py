@@ -93,3 +93,10 @@ def test_band_number_not_in_its_quote_goes_to_the_fix_round(fx_policy, fx_api, f
     _, _, mock = run(mock, fx_api, fx_brief)
     fixes = [p for p in mock.purposes if "fix round" in p]
     assert fixes and "/bands/0" in mock.users[fixes[0]]
+
+
+def test_null_max_products_becomes_one_when_the_brief_states_one_product(fx_policy, fx_api, fx_brief):
+    a = copy.deepcopy(fx_policy)
+    a["multi_product"], a["max_products"] = False, None
+    policy, _, _ = run(Mock(a), fx_api, "A plain brief. Customers are late on one loan.\n" + fx_brief)
+    assert policy["multi_product"] is False and policy["max_products"] == 1
