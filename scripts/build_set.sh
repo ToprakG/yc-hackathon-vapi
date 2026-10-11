@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")/.."
 SET=${1:?set name}; F=${2:?features}
 # STANDING RULE: sets m1* use the flags in M1_FLAGS.txt (the argument is ignored for them); S2 may remove a dropped flag from that file.
-case $SET in m1*) [ -f M1_FLAGS.txt ] || { echo "M1_FLAGS.txt missing"; exit 1; }; F=$(tr -d ' \n' < M1_FLAGS.txt); echo "set $SET: flags from M1_FLAGS.txt";; esac
+case $SET in m1*) [ -f M1_FLAGS.txt ] || { echo "M1_FLAGS.txt missing"; exit 1; }; F=$(tr -d ' \n' < M1_FLAGS.txt); case $SET in m1f26) F="$F,f26_amount_assembly";; esac; echo "set $SET: flags from M1_FLAGS.txt${F##*f25_dispute_wins}";; esac
 PY=${PY:-.venv310/bin/python}
 # STANDING RULE: sets m1* (m1, m1x) are built ONLY from out/template_cc/policies_fixed/ (policy_fixups applied), never from cached policies.
 fx() { case $SET in m1*) f=out/template_cc/policies_fixed/$1/policy.json; [ -f "$f" ] || { echo "m1 needs $f (scripts/make_policies_fixed.py)" >&2; exit 1; }; echo "$f";; *) echo "$2";; esac; }
