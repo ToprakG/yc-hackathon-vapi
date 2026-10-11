@@ -78,7 +78,7 @@ def poll_freya():
                         row["runs"] = dict(c)
                         finished = [x for x in states if x in ("pass", "fail", "inconclusive", "error")]
                         row["prog"] = {"total": len(states), "done": len(finished), "passed": c.get("pass", 0), "failed": c.get("fail", 0),
-                                       "other": c.get("inconclusive", 0), "boxes": sorted(states, key=lambda x: ["pass", "fail", "inconclusive", "analyzing", "running", "queued"].index(x) if x in ["pass", "fail", "inconclusive", "analyzing", "running", "queued"] else 9)}
+                                       "other": c.get("inconclusive", 0) + c.get("error", 0), "boxes": sorted(states, key=lambda x: ["pass", "fail", "inconclusive", "analyzing", "running", "queued"].index(x) if x in ["pass", "fail", "inconclusive", "analyzing", "running", "queued"] else 9)}
                         row["stuck"] = (row["age"] > 20) or (row["age"] > 3 and set(c) == {"queued"})
                     except Exception as e:  # noqa: BLE001
                         row["runs"] = {"error": str(e)[:60]}
