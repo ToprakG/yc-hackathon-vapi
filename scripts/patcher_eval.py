@@ -124,11 +124,38 @@ def abstain(args):
     print(f"\nabstain errors: {len(bad)}/{len(out)} dev failures got a proposal (each would be a harmful patch at the final)")
 
 
+def static_eval(briefs):
+    """No simulation: the static pre-check (+ its R1/R3 verifier) on the faulty builds; faults it misses are 'needs a run'."""
+    rows = []
+    for b in briefs:
+        d = REPO / "out" / "template_cc" / "faults" / b / "combo"
+        F = json.loads((d / "fault.json").read_text())
+        brief = tio.brief_text(tio.read_briefs([REPO / x for x in brief_files(b)]))
+        policy = json.loads((d / "policy.json").read_text())
+        static = R.precheck(policy, brief, d)
+        fixed, log = R.precheck_fix(policy, brief, d)
+        for f in F["faults"]:
+            ptr0 = f["pointers"][0]
+            ok = [x for x in log if under(ptr0, x["pointer"]) and "new" in x]
+            det = bool(ok) and f["expected_action"] in ("R1", "R3")
+            rows.append({"fault": f"{b}/{f['fault_id']}", "expected": f["expected_action"], "static_hit": [p for p in static if under(ptr0, p)],
+                         "detected": det, "fixes": (R.get_ptr(fixed, ptr0) == f["clean_value"]) if det else None,
+                         "needs_run": not det})
+    print(f"{'fault':40s} {'exp':3s} {'static detected':15s} fixes  needs a Freya run")
+    for r in rows:
+        print(f"{r['fault']:40s} {r['expected']:3s} {str(r['detected']):15s} {str(r['fixes']):6s} {r['needs_run']}   static={r['static_hit']}")
+    n = len(rows)
+    print(f"static-only: detected {sum(r['detected'] for r in rows)}/{n}, fixes {sum(bool(r['fixes']) for r in rows)}/{n}, still need a run {sum(r['needs_run'] for r in rows)}")
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--static", default="", help="brief,brief: static-only eval of the faulty combo builds (no simulation)")
     ap.add_argument("--faults", default="all")
     ap.add_argument("--abstain", action="store_true")
     a = ap.parse_args()
+    if a.static:
+        return static_eval(a.static.split(","))
     if a.abstain:
         return abstain(a)
     dirs = sorted(p.parent for p in REC.glob("*/*/results.json"))

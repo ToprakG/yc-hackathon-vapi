@@ -57,6 +57,33 @@ def faults(p):
             q = copy.deepcopy(p); q["lines"][key]["text"] = ln["text"].replace(".", ",").rstrip(",") + " and have a nice day." if key != "right_party_question" else ln["text"].replace("Am I speaking with", "Is this")
             add("corrupt_line", f"verbatim line {key} corrupted", [f"/lines/{key}/text"], q, "R3", {"condolence": ["deceased"], "right_party_question": ["pieces_identity", "robot_turn1"]}.get(key, ["pieces_identity"]), line_key=key)
             break
+    # held-out kinds (different fields from the tuned set)
+    if cb.get("end"):
+        q = copy.deepcopy(p); h = int(cb["end"][:2]) - 2; q["callback"]["end"] = f"{h:02d}:{cb['end'][3:]}"
+        add("callback_end", "callback window end moved", ["/callback/end"], q, "R1", ["third_party"])
+    nm = p.get("note_map") or {}
+    if nm.get("dispute") and nm.get("refused") and nm["dispute"] != nm["refused"]:
+        q = copy.deepcopy(p); q["note_map"]["dispute"] = nm["refused"]
+        add("note_value", "note reason for dispute swapped", ["/note_map/dispute"], q, "R1", ["dispute"])
+    for tk, t in (p.get("product_types") or {}).items():
+        if t.get("floor_field") and t["floor_field"] != p["account_fields"]["past_due"]:
+            q = copy.deepcopy(p); q["product_types"][tk]["floor_field"] = p["account_fields"]["past_due"]
+            add("floor_field", "floor amount read from the full overdue field", [f"/product_types/{tk}/floor_field"], q, "R1", ["floor_amount"])
+            break
+    if len(p.get("holidays") or []) > 2:
+        q = copy.deepcopy(p); q["holidays"] = [h for i, h in enumerate(p["holidays"]) if i != 1]
+        add("holiday_drop", "one holiday missing", ["/holidays"], q, "R1", ["vague_date", "pieces_identity"])
+    for key in ("first_ask", "confirm_question", "promise_confirmation", "right_party_question"):
+        ln = (p.get("lines") or {}).get(key)
+        if ln and ln.get("verbatim"):
+            q = copy.deepcopy(p); q["lines"][key]["text"] = ln["text"].rstrip() + " Please hold while I check."
+            add("corrupt_line2", f"verbatim line {key} corrupted", [f"/lines/{key}/text"], q, "R3", ["pieces_identity", "vague_date"], line_key=key)
+            break
+    ex2 = [e for e in p.get("extra_rules") or [] if e.get("brief_quote") and e.get("stage") not in (None, "global")]
+    if len(ex2) > 1:
+        q = copy.deepcopy(p); q["extra_rules"] = [e for e in q["extra_rules"] if e != ex2[1]]
+        add("unknown_rule_removed2", "a second brief rule removed from the policy", ["/extra_rules"], q, "R4", ["unknown_rule"],
+            extra_rules=[{"statement": ex2[1]["statement"], "brief_quote": ex2[1]["brief_quote"]}])
     ex = [e for e in p.get("extra_rules") or [] if e.get("brief_quote") and e.get("stage") not in (None, "global")]
     if ex:
         q = copy.deepcopy(p); q["extra_rules"] = [e for e in q["extra_rules"] if e is not ex[0] and e != ex[0]]

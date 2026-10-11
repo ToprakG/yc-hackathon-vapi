@@ -43,9 +43,13 @@ Environment (names only): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_STATE_F
 
 `patcher_eval` on 6 faults (5 in one f5 build, 1 in a brief-a build; 2 Freya simulations): iteration 1 detection 50%, iteration 2 detection 100% / correct action 100% / fixes the field 100% (same recordings, run twice). Caution: the fixes of iteration 2 were made after seeing these 6 faults (scenario priority, number words and verbatim lines in the static pre-check, the meaning of `right_party` for the verifier), so 100% is tuned, not held out. Abstain check after the allow-list and quote rules: 0/33.
 
+## Held-out faults (patcher not changed after seeing them)
+
+8 new faults on f3 and f7 (different fields from the tuned set): detection 7/8, correct action 7/8, fixes the field 7/8 (88%). Static pre-check alone found 5/8 (callback end, holiday, dispute outcome code, id_decline, a corrupted verbatim line); the f3 Freya run (1 simulation) found the dispute note value and the removed rule as R4. Missed: `floor_field` (the floor amount read from the overdue field): the floor scenario failed on the judge, but the diagnosis did not point at `/product_types/*/floor_field`. Tuned set: 6/6. The patcher is frozen from 12:45.
+
 ## Not tested yet
 
-- A held-out set of faults (the 100% above is tuned on the 6 recorded ones); no R2 fault could be injected.
+- No R2 fault could be injected (none of the allowed flags exist in the p10 builds).
 - The accept/revert path with a real candidate (rebuild, subset re-run, keep or revert) has not run end to end; no action has been proposed on a real failure yet.
 - R2 on a real allowed flag (the p10 builds have none of them).
 - `final_run.sh` as one command since the last edits (its stages were run separately).
