@@ -56,6 +56,30 @@ def _schema_fields(spec: dict, schema: dict) -> dict:
     return {k: _field(spec, v, k in req) for k, v in schema.get("properties", {}).items()}
 
 
+ENVELOPE_NAMES = {"data", "payload", "request", "body", "params", "input"}
+
+
+def _envelope(spec: dict, schema: dict):
+    """A request body that wraps the real fields in one required object next to call metadata ({data: {...}, call: {...}}).
+    Returns (wrapper name, inner schema, other top-level property names) or None. Generic: any wrapper that is required and either
+    sits beside other properties or has a conventional envelope name."""
+    schema = _resolve(spec, schema)
+    props, req = schema.get("properties") or {}, set(schema.get("required") or [])
+    inner = {k: _resolve(spec, v) for k, v in props.items() if _resolve(spec, v).get("type") == "object" and _resolve(spec, v).get("properties")}
+    for k, v in inner.items():
+        if k in req and (len(props) >= 2 or k.lower() in ENVELOPE_NAMES):
+            return k, v, [x for x in props if x != k]
+    return None
+
+
+def _security(spec: dict) -> dict:
+    schemes = {}
+    for name, sch in ((spec.get("components") or {}).get("securitySchemes") or {}).items():
+        sch = _resolve(spec, sch)
+        schemes[name] = {k: sch[k] for k in ("type", "scheme", "bearerFormat", "in", "name", "description") if k in sch}
+    return {"schemes": schemes, "global": spec.get("security") or []}
+
+
 def summarize(spec: dict) -> dict:
     servers = spec.get("servers") or [{}]
     base = str(servers[0].get("url", "")).rstrip("/")
@@ -77,17 +101,24 @@ def summarize(spec: dict) -> dict:
                         errors[str(status)] = resp["description"]
                 elif resp.get("description"):
                     errors[str(status)] = resp["description"]
+            env = _envelope(spec, schema)
+            inner = env[1] if env else schema
+            hdrs = [{"name": p_.get("name"), "required": bool(p_.get("required"))} for p_ in (op.get("parameters") or [])
+                    if isinstance(_resolve(spec, p_), dict) and _resolve(spec, p_).get("in") == "header" for p_ in [_resolve(spec, p_)]]
             tools[name] = {
+                "envelope": {"wrap": env[0], "other_keys": env[2]} if env else None,
+                "security": op.get("security"),
+                "headers": hdrs,
                 "method": method.upper(),
                 "path": path,
                 "url": base + path,
                 "summary": op.get("summary", "") or op.get("description", ""),
-                "request": _schema_fields(spec, schema),
-                "required": list(_resolve(spec, schema).get("required", [])),
+                "request": _schema_fields(spec, inner),
+                "required": list(_resolve(spec, inner).get("required", [])),
                 "response": response_fields,
                 "statuses": errors,
             }
-    return {"base_url": base, "title": (spec.get("info") or {}).get("title", ""), "tools": tools,
+    return {"security": _security(spec), "base_url": base, "title": (spec.get("info") or {}).get("title", ""), "tools": tools,
             "missing_kit_tools": [t for t in KIT_TOOLS if t not in tools]}
 
 
@@ -108,10 +139,17 @@ def _fmt_field(name: str, f: dict, indent: str = "    ") -> list[str]:
 def render(summary: dict, max_chars: int = 14000) -> str:
     """Compact text for the agent: one block per tool."""
     out = [f"base URL: {summary['base_url']}"]
+    sec = summary.get("security") or {}
+    for name, sch in (sec.get("schemes") or {}).items():
+        out.append(f"AUTH scheme {name}: {sch}  (global requirement: {sec.get('global') or 'none declared'}) -> send it on every tool call (see reference/envelope-and-auth.md)")
     if summary["missing_kit_tools"]:
         out.append("MISSING kit tools: " + ", ".join(summary["missing_kit_tools"]))
     for name, t in summary["tools"].items():
         out.append(f"\n{name}  {t['method']} {t['url']}")
+        if t.get("envelope"):
+            out.append(f"  ENVELOPE: the request fields below go inside the object '{t['envelope']['wrap']}' of the JSON body; other top-level keys: {t['envelope']['other_keys'] or 'none'} (see reference/envelope-and-auth.md)")
+        if t.get("headers"):
+            out.append("  headers: " + ", ".join(h["name"] + ("*" if h["required"] else "") for h in t["headers"] if h.get("name")))
         if t["summary"]:
             out.append(f"  summary: {t['summary']}")
         out.append("  request:")

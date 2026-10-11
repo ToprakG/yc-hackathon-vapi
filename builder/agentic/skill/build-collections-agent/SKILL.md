@@ -44,7 +44,7 @@ Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`,
 2. Call `openapi_summary`. Note every renamed field, the amount unit (currency or integer cents), the callback field
    shape (date + time, or one datetime), the close shape (outcome + reason, or one code), enums, hints, counters and
    the 5xx wording.
-3. Decide `policy.language` from the brief text and read `reference/language.md`. Read `reference/platform-facts.md` (what Freya really does, from practice runs), `reference/call-architecture.md`
+3. Decide `policy.language` from the brief text and read `reference/language.md`. Read `reference/envelope-and-auth.md` when the API summary shows an ENVELOPE or AUTH line (or the documents define a token, a request wrapper or required headers). Read `reference/platform-facts.md` (what Freya really does, from practice runs), `reference/call-architecture.md`
    and `reference/freya-cookbook.md`. Skim `examples/pattern_demo.workflow.json`.
 
 ### 2. Extract (at most 6 minutes)

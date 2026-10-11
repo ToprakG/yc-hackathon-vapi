@@ -22,6 +22,8 @@ Call variables: declare in the workflow (test_variables, policy.call_variables) 
 
 Language: the workflow is entirely in the language of the brief documents (system prompt, node prompts, fixed lines, sentences built in code, spoken dates and amounts); sentences the brief fixes stay verbatim. Set policy.language from the brief text and read reference/language.md.
 
+Envelopes and auth: if the API summary shows ENVELOPE or AUTH lines, or the documents define a token, a request wrapper, required headers or a fixed response shape, model them for every tool as reference/envelope-and-auth.md says (pre_process_code hook, token step, response guards); do not call the API as if it were flat.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:
