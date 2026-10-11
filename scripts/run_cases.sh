@@ -4,7 +4,7 @@
 # Results are tagged <tag-prefix><rep> (p6g 1 -> p6g1). A tag ending in g<n> or t<n> is SEALED (GATE/TEST): only pass/fail and the
 # failed-criterion category reach out/template_cc/eval/freya/, the rest goes to out/template_cc/eval/sealed/.
 # Lanes: 1 = the main key + bank 8860 (this checkout's .env), 2 = the W2 key + bank 8861 (../yc-w2/w2_env.sh). Lock dirs
-# out/template_cc/eval/lane{1,2}.lock; if both are busy this exits 3 without starting anything. LANE=1|2 forces a lane.
+# out/template_cc/eval/lane{1,2}.lock (a lane with out/template_cc/eval/lane<n>.disabled is never used); if both are busy this exits 3 without starting anything. LANE=1|2 forces a lane.
 set -u
 export FREYA_SIM_CONCURRENCY=10  # one wave per 10-case brief; never above 10
 MAIN=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,13 +18,16 @@ if [ "${ARGS[0]:-}" = "--cases" ]; then
     case " $CHAIN_BRIEFS " in *" $b "*) ;; *) CHAIN_BRIEFS="$CHAIN_BRIEFS $b";; esac
   done
 fi
+[ -n "${ONLY_BRIEFS:-}" ] && CHAIN_BRIEFS=" $ONLY_BRIEFS"   # ONLY_BRIEFS="f2-ostral": run just these briefs of a --skip/--limit run
 LOCKS=$MAIN/out/template_cc/eval
 take() { l=$LOCKS/lane$1.lock
+  [ -e "$LOCKS/lane$1.disabled" ] && return 1   # lane$1.disabled: nothing is routed to that lane
   if [ -d "$l" ] && ! kill -0 "$(cat "$l/pid" 2>/dev/null)" 2>/dev/null; then rm -rf "$l"; fi   # stale lock
   mkdir "$l" 2>/dev/null || return 1
   echo $$ > "$l/pid"; echo "$PREFIX" > "$l/tag"; [ -n "${BACKGROUND:-}" ] && touch "$l/background"; return 0; }
 # a targeted run always gets a lane first: a BACKGROUND run (the p6 GATE) on a busy lane is stopped after its running brief
 preempt() { for n in 1 2; do l=$LOCKS/lane$n.lock
+    [ -e "$LOCKS/lane$n.disabled" ] && continue
     [ -e "$l/background" ] || continue
     chain=$(pgrep -P "$(cat "$l/pid")" -f "eval_chain\.sh" | head -1)
     echo "lane $n holds a background run (tag $(cat "$l/tag" 2>/dev/null)): stopping it after its running brief"

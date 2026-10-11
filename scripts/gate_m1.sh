@@ -1,13 +1,33 @@
 #!/bin/bash
-# Single-lane plan: at 12:45 (and once out/template_cc/m1 exists) run the m1 GATE x1 (tag m1g1) on the same 9 briefs as p6g1, as a normal
-# (non-background) run on lane 1.
+# Single-lane plan: from 12:45 (and once out/template_cc/m1 exists) run the m1 GATE x1 (tag m1g1) on the same 9 briefs as p6g1, one brief
+# at a time, as normal (non-background) runs on lane 1. Finished briefs are skipped.
+#   Rule G (gate):   all 9 briefs done        -> ship m1 if m1g1 >= p6g1 over all 9 briefs, else p6.
+#   Rule C (canary): the gate cannot complete by 14:00 (API errors) -> as soon as the Freya API answers, run the full scripts/canary.txt
+#                    (20 cases, tag m1c1) on m1 -> ship m1 if canary >= 19/20, else p6.
+#   Rule D (default): neither rule could decide by 16:30 -> ship p6.
+# A brief that fails (API error, timeout, no result) is retried ONCE after 5 minutes, never in a tight loop; after that it is left for rule C.
+# Each decision line says which rule decided: out/template_cc/eval/gate_m1.log (last line: DECISION ...).
 # STANDING RULE: m1 (and m1x) are built ONLY from out/template_cc/policies_fixed/ (scripts/make_policies_fixed.py; build_set.sh and
-# build_set_x.sh enforce it for set names m1*). This script refuses to run m1g1 on a set whose id_decline / cap_at_deadline differ from it; finished briefs are skipped. Then print the decision: m1 if m1g1 >= p6g1 over all 9 briefs.
+# build_set_x.sh enforce it for set names m1*). This script refuses to run on a set whose id_decline / cap_at_deadline differ from it.
 cd "$(dirname "$0")/.." || exit 1
-E=out/template_cc/eval; LOG=$E/gate_m1.log
+E=out/template_cc/eval; LOG=$E/gate_m1.log; ST=$E/gate_m1.state; mkdir -p $ST
+BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
 log() { echo "$(date +%H:%M) $*" >> $LOG; }
+now() { date +%H%M | sed 's/^0*//'; }          # 1245, 1400 ... (numeric)
+n_done() { ls $E/freya/*.m1g1.json 2>/dev/null | wc -l | tr -d ' '; }
+api_ok() { (set -a; . ./.env; set +a; .venv310/bin/python -c "import freya; freya.api('GET', '/api/v2/workspaces')" >/dev/null 2>&1); }
+tot() { python3 - "$1" <<'PY'
+import glob, json, sys
+t = n = 0
+for f in glob.glob(f"out/template_cc/eval/freya/*.{sys.argv[1]}.json"):
+    d = json.load(open(f)); t += d["passed"]; n += d["cases"]
+print(t, n)
+PY
+}
+
 log "waiting for 12:45 and set m1"
-while [ "$(date +%H%M)" -lt 1245 ] || [ ! -d out/template_cc/m1 ]; do sleep 60; done
+while [ "$(now)" -lt 1245 ] || [ ! -d out/template_cc/m1 ]; do sleep 60; done
+
 python3 - >> $LOG <<'PY' || { log "REFUSED: set m1 was not built from policies_fixed (rebuild: scripts/build_set.sh m1 <features>)"; exit 3; }
 import json, sys
 bad = []
@@ -22,16 +42,44 @@ for b in ["brief-a", "brief-b", "f1-nordhavn", "f2-ostral", "f3-kestrel", "f4-br
 if bad:
     print("\n".join(bad)); sys.exit(1)
 PY
-while [ "$(ls $E/freya/*.m1g1.json 2>/dev/null | wc -l)" -lt 9 ]; do
-  log "starting m1g1"; scripts/run_cases.sh . m1 m1g --skip 10 --limit 10 1 >> $LOG 2>&1; sleep 60
+
+# --- phase 1: the gate, brief by brief, until all 9 are done or it is 14:00 ---
+while [ "$(n_done)" -lt 9 ] && [ "$(now)" -lt 1400 ]; do
+  progressed=0
+  for b in $BRIEFS; do
+    [ -f $E/freya/$b.m1g1.json ] && continue
+    [ "$(now)" -ge 1400 ] && break
+    [ -f $ST/$b.abandoned ] && continue
+    tries=$(cat $ST/$b.tries 2>/dev/null || echo 0)
+    log "m1g1 $b (try $((tries + 1)))"
+    echo $((tries + 1)) > $ST/$b.tries
+    ONLY_BRIEFS=$b scripts/run_cases.sh . m1 m1g --skip 10 --limit 10 1 >> $LOG 2>&1
+    if [ -f $E/freya/$b.m1g1.json ]; then progressed=1; continue; fi
+    if grep -E "50[234]|Bad Gateway|Gateway Time|Service Unavailable" $E/chain-m1g.log 2>/dev/null | tail -5 | grep -q .; then why="API error (5xx)"; else why="no result"; fi
+    if [ "$tries" -ge 1 ]; then touch $ST/$b.abandoned; log "m1g1 $b failed twice ($why): left for rule C"
+    else log "m1g1 $b failed ($why): one retry in 5 minutes"; sleep 300; fi
+  done
+  [ "$progressed" = 0 ] && [ "$(ls $ST/*.abandoned 2>/dev/null | wc -l | tr -d ' ')" -ge $((9 - $(n_done))) ] && break   # nothing left to try
+  sleep 60
 done
-python3 - >> $LOG <<'PY'
-import glob, json
-def tot(tag):
-    t = n = 0
-    for f in glob.glob(f"out/template_cc/eval/freya/*.{tag}.json"):
-        d = json.load(open(f)); t += d["passed"]; n += d["cases"]
-    return t, n
-p, m = tot("p6g1"), tot("m1g1")
-print(f"p6g1 {p[0]}/{p[1]}  m1g1 {m[0]}/{m[1]}  ->", "m1" if m[0] >= p[0] else "p6")
-PY
+
+# --- decision ---
+if [ "$(n_done)" -ge 9 ]; then
+  set -- $(tot p6g1); P=$1; set -- $(tot m1g1); M=$1; N=$2
+  [ "$M" -ge "$P" ] && W=m1 || W=p6
+  log "DECISION $W  rule G (gate): m1g1 $M/$N vs p6g1 $P over all 9 briefs"; exit 0
+fi
+log "gate incomplete at $(now) ($(n_done)/9 briefs): rule C (canary) - waiting for the API"
+while ! api_ok; do
+  [ "$(now)" -ge 1630 ] && { log "DECISION p6  rule D (default): the API did not answer by 16:30; gate $(n_done)/9"; exit 0; }
+  sleep 300
+done
+IDS=$(grep -v '^#' scripts/canary.txt | tr -s ' \n' ',' | sed 's/^,//; s/,$//')
+for attempt in 1 2; do
+  scripts/run_cases.sh . m1 m1c --cases "$IDS" 1 >> $LOG 2>&1
+  [ "$(ls $E/freya/*.m1c1.json 2>/dev/null | wc -l | tr -d ' ')" -ge 1 ] && break
+  [ "$attempt" = 1 ] && { log "canary run failed: one retry in 5 minutes"; sleep 300; }
+done
+set -- $(tot m1c1); C=$1; CN=$2
+if [ "$CN" -ge 20 ] && [ "$C" -ge 19 ]; then W=m1; else W=p6; fi
+log "DECISION $W  rule C (canary): m1c1 $C/$CN (needs >= 19/20)$([ "$CN" -lt 20 ] && echo '; fewer than 20 cases ran')"
