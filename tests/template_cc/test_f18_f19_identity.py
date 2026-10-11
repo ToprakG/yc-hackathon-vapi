@@ -207,3 +207,20 @@ def test_chatter_is_a_non_answer_even_when_the_policy_has_no_side_lines():
     assert after["resume_step"] == "identity_explain" and after["id_route"] == "resume"
     # without f19 the chatter is left to the free turn, as before
     assert "id_resume" not in mk(BASE).get("nodes", {})
+
+
+def test_a_complete_answer_resets_the_streak_so_an_earlier_refusal_is_not_carried_to_a_later_question():
+    def one(p):
+        p["ask_limits"]["id_decline"] = 1
+    wf, pol = build(BASE + ",f19", one)
+    # a question before any answer counts: it is refusal number 1
+    first = run_code(wf, "id_refusal_count", start(wf, pol, id_intent="asks_question", id_q="date_of_birth"))
+    assert first["id_declines"] == "1" and first["id_route"] == "explain"
+    # a refusal, then a complete answer: the streak is back to zero
+    v = run_code(wf, "id_check", dict(first, id_intent="answer", id_answer_text="the tenth of April nineteen eighty"))
+    assert v["id_declines"] == "0" and v["id_fill"] == "0"
+    # the question that follows is a fresh first one (not refusal number 2, so the call does not close)
+    nxt = run_code(wf, "id_refusal_count", dict(v, id_intent="asks_question"))
+    assert nxt["id_declines"] == "1" and nxt["id_route"] != "decline"
+    # without the answer in between the same question would have closed the call
+    assert run_code(wf, "id_refusal_count", dict(first, id_intent="asks_question"))["id_route"] == "decline"
