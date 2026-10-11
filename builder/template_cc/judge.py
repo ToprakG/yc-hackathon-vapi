@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import re
 import sys
 from dataclasses import asdict, dataclass, field
@@ -359,7 +360,9 @@ class LocalDecisionJudge(PatchJudge):
 
 def make_judge(models, trace, call_llm, deadline=None, vendor_path: Path = VENDOR) -> PatchJudge | None:
     """The vendor decision model when it loads and has a key; else LocalDecisionJudge (loud); else None."""
-    mod = load_vendor(vendor_path)
+    # The vendor decision model talks to OpenAI / OpenRouter: it is used only when asked for (TCC_VENDOR_JUDGE=1) or when a vendor_path is passed
+    # explicitly. The final path judges with the local decision model through claude_cli (no key, no OpenRouter credit, reproducible).
+    mod = load_vendor(vendor_path) if (vendor_path != VENDOR or os.environ.get("TCC_VENDOR_JUDGE")) else None
     if mod is not None:
         try:
             ok = bool(mod.has_decision_key())
