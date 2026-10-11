@@ -48,7 +48,7 @@ cd "$HERE" || exit 2
 set -a; [ -f .env ] && . ./.env; set +a
 if [ "$LANE" = 2 ]; then set -a; . "$MAIN/../yc-w2/w2_env.sh"; set +a; else export FREYA_STATE_FILE=$MAIN/.freya-agents.ali.json; fi
 export FREYA_SIM_CONCURRENCY=10 SELFTEST_PERSONA_DIR=$MAIN/out/template_cc/eval/freya
-timeout 1800 .venv310/bin/python scripts/selftest_run.py --out-dir "$DIR" --cases "$CASES" --api "$API" ${PASS[@]+"${PASS[@]}"}
+timeout ${SELFTEST_TIMEOUT:-1800} .venv310/bin/python scripts/selftest_run.py --out-dir "$DIR" --cases "$CASES" --api "$API" ${PASS[@]+"${PASS[@]}"}
 RC=$?
 [ $RC -eq 124 ] && echo "selftest_run: TIMEOUT after 1800 s"
 exit $RC

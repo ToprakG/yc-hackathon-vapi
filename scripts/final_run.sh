@@ -7,22 +7,40 @@
 #   --briefs-parallel N   accepted for the entry-point contract; one brief per call, the lane runs one eval at a time
 #   FINAL_END=<epoch>  end of the working window (default now + 3 h); no new round starts after FINAL_END - 30 min
 #   MAX_ROUNDS=3
+#   FINAL_MODE=patcher_on|patcher_off   (default patcher_on; off = build + tests + report, no repair rounds)
+#   --budget-min N [--ship-min M]       per-brief budget (default off; the hidden briefs use 30 / 26): FINAL_END = start + N min and
+#                                       nothing runs past start + M min; the build is shipped (copied to <out>) at that point at the latest
+#   --job "file1 file2|tools.json|out"  repeatable: several briefs run SEQUENTIALLY (one simulation at a time per workspace), each with its own budget
 # Result: <out>/workflow.json + policy.json = the LAST-GREEN build, <out>/final_run.log (time per stage), <out>/patch_report.json,
 #         <out>/selftest_report.md. The builder never reads testbed files.
 cd "$(dirname "$0")/.." || exit 2
 MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
-POS=(); FLAGS_ARG=""; FROM_SET=""
+POS=(); FLAGS_ARG=""; FROM_SET=""; BUDGET_MIN=""; SHIP_MIN=26; JOBS=()
 while [ $# -gt 0 ]; do case "$1" in
+  --job) JOBS+=("$2"); shift 2;; --budget-min) BUDGET_MIN=$2; shift 2;; --ship-min) SHIP_MIN=$2; shift 2;;
   --set-flags) FLAGS_ARG=$2; shift 2;; --set-flags=*) FLAGS_ARG=${1#*=}; shift;;
   --from-set) FROM_SET=$2; shift 2;; --briefs-parallel) shift 2;; *) POS+=("$1"); shift;; esac; done
+if [ ${#JOBS[@]} -gt 0 ]; then   # sequential briefs, each its own call with its own budget
+  rc=0
+  for j in "${JOBS[@]}"; do
+    IFS='|' read -r files api out <<< "$j"; t=$(date +%s)
+    echo "$(date +%H:%M:%S) job start: $out"
+    bash "$0" $files "$api" "$out" --budget-min "${BUDGET_MIN:-30}" --ship-min "$SHIP_MIN" ${FLAGS_ARG:+--set-flags "$FLAGS_ARG"} ${FROM_SET:+--from-set "$FROM_SET"} || rc=1
+    echo "$(date +%H:%M:%S) job done: $out in $(( $(date +%s) - t ))s (budget ${BUDGET_MIN:-30} min, ship at ${SHIP_MIN})"
+  done
+  exit $rc
+fi
 set -- "${POS[@]}"
 [ $# -ge 3 ] || { sed -n 2,12p "$0"; exit 2; }
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); API=$(cd "$(dirname "$API")" && pwd)/$(basename "$API")
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}")
-FEATURES=${FLAGS_ARG:-${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || cat "$MAIN/FINAL_FLAGS.txt" 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
+FEATURES=${FLAGS_ARG:-${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || cat "$MAIN/FINAL_FLAGS.txt" 2>/dev/null || cat "$MAIN/M1_FLAGS.txt" 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
 export FEATURES SELFTEST_API=$API SELFTEST_SLOT="st-$(echo "$OUT" | shasum | cut -c1-6)"  # one Freya workflow slot per brief run, updated in place (preference; a new one is fine if that fails)
-T_START=$(date +%s); END=${FINAL_END:-$((T_START + 10800))}; CUT=$((END - 1800)); MAX_ROUNDS=${MAX_ROUNDS:-3}
+T_START=$(date +%s); MAX_ROUNDS=${MAX_ROUNDS:-3}; FINAL_MODE=${FINAL_MODE:-patcher_on}
+if [ -n "$BUDGET_MIN" ]; then END=$((T_START + BUDGET_MIN * 60)); CUT=$((T_START + SHIP_MIN * 60)); ROUND_S=${ROUND_S:-720}
+else END=${FINAL_END:-$((T_START + 10800))}; CUT=$((END - 1800)); ROUND_S=${ROUND_S:-1500}; fi
+secs_left() { echo $(( CUT - $(date +%s) )); }
 LOG=$OUT/final_run.log; : > "$LOG"
 say() { echo "$(date +%H:%M:%S) $*" | tee -a "$LOG"; }
 left() { echo $(( (CUT - $(date +%s)) / 60 )); }
@@ -31,6 +49,7 @@ stage() { local n=$1; shift; local t=$(date +%s)
   say "stage $n: start (T-30 in $(left) min)"
   "$@" >> "$OUT/$n.out" 2>&1; local rc=$?
   local s=$(( $(date +%s) - t )); STAGES+=("$n=$s"); say "stage $n: ${s}s, exit $rc"; return $rc; }
+say "mode $FINAL_MODE, budget ${BUDGET_MIN:-window} min, ship at $(date -r "$CUT" +%H:%M:%S)"
 say "final_run: briefs ${BRIEFS_CSV}, window ends $(date -r "$END" +%H:%M), flags: $FEATURES${FROM_SET:+, from set $FROM_SET}"
 
 # 1. build (fresh extraction + compile), or an already built set
@@ -63,19 +82,25 @@ stage cases .venv310/bin/python scripts/selftest_cases.py "${BRIEFS[@]}" "$GREEN
 STATUS=tested
 if [ ! -s "$OUT/selftest/cases.json" ]; then say "no scenarios: delivering the build untested"; STATUS=untested
 else
-  export LANE_WAIT=${LANE_WAIT:-1800}
+  S=$(secs_left); [ "$S" -lt 60 ] && S=60
+  export LANE_WAIT=${LANE_WAIT:-$(( S < 1800 ? S / 3 : 1800 ))} SELFTEST_TIMEOUT=$(( S < 1800 ? S : 1800 ))
   stage run_r0 bash scripts/selftest_run.sh "$GREEN" --cases "$OUT/selftest/cases.json" --api "$API"
   [ -f "$GREEN/selftest/results.json" ] || { say "the first test run produced no results: delivering the build untested"; STATUS=untested; }
 fi
 
-# 3. repair rounds (inside selftest_repair.py: <= MAX_ROUNDS, stops at T-30, reverts a round that breaks anything)
-if [ "$STATUS" = tested ]; then
-  stage repair .venv310/bin/python scripts/selftest_repair.py --dir "$GREEN" --work "$OUT/repair" --briefs "$BRIEFS_CSV" --api "$API" \
-      --cases "$OUT/selftest/cases.json" --deadline "$CUT" --rounds "$MAX_ROUNDS"
-  R=$(tail -1 "$OUT/repair.out"); say "repair: $R"
-  case "$R" in GREEN*|FINAL*) GREEN=${R#* };; esac
-  [ -f "$OUT/repair/patch_report.json" ] && cp "$OUT/repair/patch_report.json" "$OUT/patch_report.json"
-fi
+# 3. repair rounds (inside selftest_repair.py: <= MAX_ROUNDS, a round starts only if ROUND_S fits before the ship time, reverts a round that breaks anything)
+if [ "$STATUS" = tested ] && [ "$FINAL_MODE" = patcher_on ]; then
+  S=$(secs_left)
+  if [ "$S" -lt "$ROUND_S" ]; then say "repair skipped: ${S}s before ship time, a round needs about ${ROUND_S}s"
+  else
+    export LANE_WAIT=$(( S / 4 )) SELFTEST_TIMEOUT=$(( ROUND_S + 300 < S ? ROUND_S + 300 : S ))
+    stage repair timeout "$S" .venv310/bin/python scripts/selftest_repair.py --dir "$GREEN" --work "$OUT/repair" --briefs "$BRIEFS_CSV" --api "$API" \
+        --cases "$OUT/selftest/cases.json" --deadline "$CUT" --rounds "$MAX_ROUNDS" --round-s "$ROUND_S"
+    R=$(tail -1 "$OUT/repair.out"); say "repair: $R"
+    case "$R" in GREEN*|FINAL*) GREEN=${R#* };; *) [ -f "$OUT/repair/green.txt" ] && GREEN=$(cat "$OUT/repair/green.txt") && say "repair killed at ship time: last green $GREEN";; esac
+    [ -f "$OUT/repair/patch_report.json" ] && cp "$OUT/repair/patch_report.json" "$OUT/patch_report.json"
+  fi
+elif [ "$FINAL_MODE" != patcher_on ]; then say "repair off (FINAL_MODE=$FINAL_MODE)"; fi
 
 # 4. deliver the last-green build + the report
 cp "$GREEN/workflow.json" "$OUT/workflow.json"; cp "$GREEN/policy.json" "$OUT/policy.json"
@@ -100,4 +125,4 @@ for rd in (pr or {}).get("rounds", []):
 open(os.path.join(out, "selftest_report.md"), "w").write("\n".join(L) + "\n")
 json.dump({"status": status, "green": green, "stages_s": st}, open(os.path.join(out, "selftest_report.json"), "w"), indent=1)
 PY
-say "done: $(( $(date +%s) - T_START ))s; workflow $OUT/workflow.json (from $GREEN); report $OUT/selftest_report.md"
+say "done: $(( $(date +%s) - T_START ))s (budget ${BUDGET_MIN:-window} min, ship at ${SHIP_MIN}); workflow $OUT/workflow.json (from $GREEN); report $OUT/selftest_report.md"

@@ -30,6 +30,14 @@ Environment (names only): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_STATE_F
 
 `R2_ALLOW` (one constant in `selftest_repair.py`): `f17*`, `f19_refusal_rule`, `f22_forbidden_disclosure`, `f24_day_once`, `f25_dispute_wins`. Core flags f1-f15 and f18/f20/f21 are never disabled.
 
+## Hidden briefs: sequential jobs with a budget
+
+```
+FINAL_MODE=patcher_on scripts/final_run.sh --budget-min 30 --ship-min 26 --set-flags "$(cat M1_FLAGS.txt)" \
+  --job "briefA1.md briefA2.md|toolsA.json|out/A" --job "briefB.md|toolsB.json|out/B"
+```
+Jobs run one after the other (one simulation at a time per workspace), each with its own budget: nothing runs past start+26 min, the last green build is copied to `<out>` at the latest then. A repair round starts only if ROUND_S (720 s in budget mode) fits before the ship time; `FINAL_MODE=patcher_off` skips repair. One Freya workflow slot per brief run (`SELFTEST_SLOT`). Expect no repair round in 30 min unless the first run is short: build ~3 min, scenarios + pre-check ~2 min, first Freya run 10-15 min.
+
 ## Fault tools (patcher development)
 
 `inject_faults.py <set> <brief> [--combo ids]` (clean policy + known faults, compiled), `record_faults.py` (record the self-test of the faulty builds once, in as few simulations as possible), `patcher_eval.py` (offline: detected / action chosen / correct / fixes the field; `--abstain` runs the dev failures, where the right answer is "not patchable").

@@ -495,6 +495,7 @@ def main():
         if keep:
             (d / "selftest" / "results.json").write_text(json.dumps(merged_results(rep, sr), indent=1, ensure_ascii=False))
             green, single = d, False
+            (work / "green.txt").write_text(str(green))  # a killed run (ship deadline) still leaves the last green build
         else:
             single = len(use) > 1
     return finish("done")
