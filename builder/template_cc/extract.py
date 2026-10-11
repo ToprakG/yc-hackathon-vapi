@@ -11,6 +11,7 @@ conservative default (policy_check.repair) and is logged. Every trace line says 
 from __future__ import annotations
 
 import json
+import os
 import re
 
 from builder.template_cc import brief_prep, extract_vote, policy_check, policy_fixups
@@ -205,7 +206,7 @@ def apply_rules(policy: dict, brief: str, pins: dict, trace) -> None:
     note = policy_check.apply_multi_product_rule(policy, brief)
     if note:
         trace.line("extract rule: " + note)
-    for c in policy_fixups.apply(policy, brief):  # id_decline / cap_at_deadline from explicit brief phrases (value + quote)
+    for c in ([] if os.environ.get("TCC_NO_FIXUPS") else policy_fixups.apply(policy, brief)):  # TCC_NO_FIXUPS=1: measure the raw extraction  # id_decline / cap_at_deadline from explicit brief phrases (value + quote)
         trace.line(f"extract fixup {c['field']}: {c['before']!r} -> {c['after']!r} ({c['quote'][:80]})")
 
 
