@@ -1,6 +1,6 @@
 #!/bin/bash
 # Unattended eval queue: f149b, p2, p3, p4 (x2 each) as soon as the Freya workspace is free.
-# Every 5 minutes until 09:00 or until all 72 result files exist: check the tunnel (restart bank+tunnel if dead), start the next
+# Every 5 minutes until $QUEUE_UNTIL (default 09:00) or until all 72 result files exist: check the tunnel (restart bank+tunnel if dead), start the next
 # unfinished set via scripts/eval_chain.sh (which skips finished briefs and stops itself after 10 min of "another simulation is
 # running"), and log one line. Never runs two evals at once.
 cd "$(dirname "$0")/.." || exit 2
@@ -13,7 +13,7 @@ BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden
 # The baseline f149br was run once already (f149br1 complete).
 QUEUE="p6:p6r:2 p8:p8r:2 p8x:p8xr:2 p9:p9r:2 p2:p2r:2 p3:p3r:2"  # p8 = p6 + the fixes of the p6r1 run; p8x = x1 policies; p9 = p8x + intents
 TOTAL=108
-DEADLINE=$(date -j -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) 09:00" +%s)
+DEADLINE=$(date -j -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) ${QUEUE_UNTIL:-09:00}" +%s)
 [ "$DEADLINE" -le "$(date +%s)" ] && DEADLINE=$((DEADLINE + 86400))
 BLOCKED_SINCE=0; SWITCHED=0
 log() { echo "$(date +%m-%d\ %H:%M:%S) $*" >> "$LOG"; }
