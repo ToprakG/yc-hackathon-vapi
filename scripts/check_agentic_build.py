@@ -49,7 +49,7 @@ names, urls = set(), []
 def walk(o):
     if isinstance(o, dict):
         f = o.get("function")
-        if isinstance(f, dict) and f.get("name"):
+        if isinstance(f, dict) and f.get("name") and f.get("handler") == "__function__:api_call":   # only API tools; end_call / code_exec functions are the platform's
             names.add(f["name"])
         for k, v in o.items():
             if k == "url" and isinstance(v, dict) and isinstance(v.get("default"), str):
@@ -66,7 +66,8 @@ def walk(o):
 walk(wf)
 api_tools = {n for n in names if n not in {"code_exec", "end_call", "call_finished", "api_call"}}
 line(api_tools <= ops, f"workflow tools {sorted(api_tools)} ⊆ OpenAPI operations {sorted(o for o in ops if o)}" + ("" if api_tools <= ops else f"; NOT in the API: {sorted(api_tools - ops)}"))
-bad = [u for u in urls if server and not u.startswith(server + "/")]
+tok = {t for t in re.findall(r"\"tokenUrl\": \"([^\"]+)\"", json.dumps(api))}
+bad = [u for u in urls if server and not u.startswith(server + "/") and u not in tok]   # the OAuth2 token URL is declared by the API and may sit beside the base
 line(bool(urls) and not bad, f"{len(urls)} tool URL(s) under {server}/" + (f"; BAD {sorted(set(bad))[:3]}" if bad else ""))
 nodes = list(wf.get("nodes", {})) + list(wf.get("global_nodes", {}))
 idn = [n for n in nodes if re.search(r"identity|^id_|verify|promise|negoti", n, re.I)] if not any("verify" in o or "promise" in o for o in ops) else []
