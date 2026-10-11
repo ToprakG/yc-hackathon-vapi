@@ -67,3 +67,6 @@ if now is not None and best is not None and now <= best - 2:
 else:
     print("interaction check ok (not 2+ below the best single fix)")
 PY
+# info only, no claude calls: m2final x1 on the other 8 briefs (tag m2fg1); no new brief starts after 19:35 (the lane must be idle by 19:45 for the final)
+GATE_END=1935 GATE_BRIEFS="f3-kestrel brief-b f4-brightwell f5-halden-email brief-a f1-nordhavn f2-ostral f7-lumen-codes" scripts/gate_set.sh m2final m2fg
+.venv310/bin/python scripts/m2final_report.py | tee -a $LOG
