@@ -1,7 +1,7 @@
 #!/bin/bash
 # m2final = m2b + every flag whose slot said KEEP (recompiled from the m2b policies, no claude, no Freya), then GATE x1 on f6 (tag m2fg1) as the interaction check.
 # Compared with the best single-fix result on f6 (m2cg1 scam, m2rg1 refusal, m2dg1 third party, whatever exists): a score 2+ below it is reported loudly.
-#   scripts/m2final.sh --wait   waits until the slots are finished (scheduler stopped, or every started slot has a verdict and it is 18:15+), gives up at 18:30
+#   scripts/m2final.sh --wait   waits until the slots are finished (every started slot has its verdict and no slot waits: after the scheduler stopped at 18:40, or 4 slots done), gives up at 19:00
 #   scripts/m2final.sh          runs now with the verdicts found in out/template_cc/eval/gate_reserved.log
 # slot name -> flag and (if not yet on main) branch:  scam=f29_scam_open (merged)  refusal=f33_attempt_ladder@fix-refusal-f33  third_party=f22_forbidden_disclosure (merged)
 # multi_product = <flag from FLAG= / BRANCH= in its slot env file>
@@ -11,11 +11,11 @@ now() { date +%H%M | sed 's/^0*//'; }
 log() { echo "$(date +%H:%M) $*" | tee -a $LOG; }
 if [ "${1:-}" = --wait ]; then
   while true; do
-    [ "$(now)" -ge 1830 ] && { log "18:30 reached before the slots finished: m2final not built (tell S0)"; exit 3; }
-    grep -q "scheduler stopped" $E/gate_reserved.log 2>/dev/null && break
+    [ "$(now)" -ge 1900 ] && { log "19:00 reached before the slots finished: m2final not built (tell S0)"; exit 3; }
     started=$(ls $E/reserved_slot*.env.done 2>/dev/null | wc -l | tr -d ' '); verd=$(ls $E/reserved_slot*.env.verdict 2>/dev/null | wc -l | tr -d ' ')
     pend=$(for f in $E/reserved_slot*.env; do [ -f "$f.done" ] || echo x; done | wc -l | tr -d ' ')
-    [ "$started" -ge 3 ] && [ "$verd" -ge "$started" ] && [ "$pend" -eq 0 ] && [ "$(now)" -ge 1815 ] && break
+    # every started slot has its verdict, and no slot is waiting: after the scheduler stopped (18:40) or when 4 slots are done
+    [ "$verd" -ge "$started" ] && [ "$pend" -eq 0 ] && { grep -q "scheduler stopped" $E/gate_reserved.log 2>/dev/null || [ "$started" -ge 4 ]; } && break
     sleep 30
   done
 fi
@@ -67,6 +67,11 @@ if now is not None and best is not None and now <= best - 2:
 else:
     print("interaction check ok (not 2+ below the best single fix)")
 PY
-# info only, no claude calls: m2final x1 on the other 8 briefs (tag m2fg1); no new brief starts after 19:35 (the lane must be idle by 19:45 for the final)
-GATE_END=1935 GATE_BRIEFS="f3-kestrel brief-b f4-brightwell f5-halden-email brief-a f1-nordhavn f2-ostral f7-lumen-codes" scripts/gate_set.sh m2final m2fg
+# info only, no claude calls. Phase 1: from the f6 check until the dress run needs the lane (no new brief after 19:10): f3, brief-b, f4, f5, brief-a.
+GATE_END=1910 GATE_BRIEFS="f3-kestrel brief-b f4-brightwell f5-halden-email brief-a" scripts/gate_set.sh m2final m2fg
+# Phase 2: resume after the dress run (it has the lane priority) only if it can finish by 19:40: no new brief after 19:35; the lane must be idle by 19:45.
+while [ "$(now)" -lt 1935 ] && ! grep -q " done$" out/dress/report.txt 2>/dev/null; do sleep 20; done
+if [ "$(now)" -lt 1935 ]; then
+  GATE_END=1935 GATE_BRIEFS="f1-nordhavn f2-ostral f7-lumen-codes f3-kestrel brief-b f4-brightwell f5-halden-email brief-a" scripts/gate_set.sh m2final m2fg
+fi
 .venv310/bin/python scripts/m2final_report.py | tee -a $LOG

@@ -15,7 +15,10 @@ from builder.template_cc import features as F  # noqa: E402
 
 out = Path(sys.argv[1])
 OFFLINE = "--offline" in sys.argv
+OFFLINE_BRIEFS = set(sys.argv[sys.argv.index("--offline-briefs") + 1].split(",")) if "--offline-briefs" in sys.argv else set()
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
+if OFFLINE_BRIEFS:
+    args = [a for a in args if a not in {",".join(sorted(OFFLINE_BRIEFS)), *OFFLINE_BRIEFS}]
 flags_file = Path(args[1]) if len(args) > 1 else (Path("FINAL_FLAGS.txt") if Path("FINAL_FLAGS.txt").exists() else Path("M1_FLAGS.txt"))
 want = F.parse(flags_file.read_text().replace("\n", "").strip())
 problems = []
@@ -62,7 +65,7 @@ for b in ("brief-a", "brief-b"):
     line(info.get("status") == "ok", f"{b}: builder/build.py reported status {info.get('status')} ({info.get('message') or ''})".strip())
     tr = Path(info.get("trace") or rep.get("trace") or "")
     line(bool(str(tr)) and (tr / "trace.txt").exists() and "traces" in tr.parts, f"{b}: trace file under traces/ ({tr / 'trace.txt'})")
-    if not OFFLINE:
+    if not OFFLINE and b not in OFFLINE_BRIEFS:
         sv = Path(info.get("saved") or "x")
         line(sv.exists() and sv.parent.name == "workflows", f"{b}: Freya export at the committed path ({info.get('saved')})")
     logs = " ".join(p.read_text(errors="ignore") for p in list(out.glob(f"{b}/**/*.log")) + list(out.glob(f"{b}/**/trace.txt")) + list(out.glob(f"{b}/*.out"))[:3])
