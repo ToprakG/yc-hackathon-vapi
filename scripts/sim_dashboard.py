@@ -50,17 +50,24 @@ def poll_freya():
                 m = s.get("metrics") or {}
                 row = {"id": s["id"][:8], "name": s["name"], "status": s["status"], "age": round((now - created).total_seconds() / 60, 1),
                        "created": created.astimezone().strftime("%H:%M:%S"), "total": m.get("totalRuns"), "passed": m.get("passedRuns"),
-                       "failed": m.get("failedRuns"), "runs": None}
+                       "failed": m.get("failedRuns"), "runs": None, "prog": None}
                 if s["status"] == "running":
                     try:
                         its = freya.api("GET", f"/api/v2/simulations/{s['id']}/iterations")
                         its = its.get("iterations") or its.get("items") or its
                         runs = freya.get_iteration(s["id"], its[0]["id"])["runs"]
-                        c = collections.Counter(str(x.get("outcome") or x.get("status")) for x in runs)
+                        states = [str(x.get("outcome") or x.get("status") or "queued") for x in runs]
+                        c = collections.Counter(states)
                         row["runs"] = dict(c)
+                        finished = [x for x in states if x in ("pass", "fail", "inconclusive")]
+                        row["prog"] = {"total": len(states), "done": len(finished), "passed": c.get("pass", 0), "failed": c.get("fail", 0),
+                                       "other": c.get("inconclusive", 0), "boxes": sorted(states, key=lambda x: ["pass", "fail", "inconclusive", "analyzing", "running", "queued"].index(x) if x in ["pass", "fail", "inconclusive", "analyzing", "running", "queued"] else 9)}
                         row["stuck"] = (row["age"] > 20) or (row["age"] > 3 and set(c) == {"queued"})
                     except Exception as e:  # noqa: BLE001
                         row["runs"] = {"error": str(e)[:60]}
+                if row["prog"] is None and row["total"]:
+                    row["prog"] = {"total": row["total"], "done": row["total"], "passed": row["passed"] or 0, "failed": row["failed"] or 0, "other": 0,
+                                   "boxes": ["pass"] * (row["passed"] or 0) + ["fail"] * (row["failed"] or 0)}
                 res["sims"].append(row)
             res["ok"] = True
         except Exception as e:  # noqa: BLE001
@@ -87,6 +94,11 @@ def procs():
     return [" ".join(l.split())[:150] for l in keep]
 
 
+def LIVE_SIMS():
+    with LOCK:
+        return list(STATE["freya"]["sims"])
+
+
 def gate():
     m, p = results("m1g1"), results("p6g1")
     running = {m_.group(1) for l in procs() for m_ in [re.search(r"--brief (\S+).*--tag m1g1", l)] if m_}
@@ -95,7 +107,8 @@ def gate():
         tries = (EVAL / "gate_m1.state" / f"{b}.tries")
         t = int(tries.read_text()) if tries.exists() else 0
         status = "done" if b in m else "running" if b in running else "abandoned" if (EVAL / "gate_m1.state" / f"{b}.abandoned").exists() else "waiting"
-        rows.append({"brief": b, "m1": m.get(b), "p6": p.get(b), "tries": t, "status": status})
+        live = next((x["prog"] for x in LIVE_SIMS() if x["name"] == f"tcc eval {b} m1g1" and x["status"] == "running"), None)
+        rows.append({"brief": b, "m1": m.get(b), "p6": p.get(b), "tries": t, "status": status, "live": live})
     done = [r for r in rows if r["m1"]]
     log = (EVAL / "gate_m1.log").read_text().splitlines()[-14:] if (EVAL / "gate_m1.log").exists() else []
     return {"rows": rows, "m1_total": sum(r["m1"][0] for r in done), "m1_cases": sum(r["m1"][1] for r in done),
@@ -118,18 +131,22 @@ h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:18px 0 6px;color:var(-
 table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;font-variant-numeric:tabular-nums}
 .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:6px 0}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}pre{margin:0;white-space:pre-wrap;font-size:12px}
+.bx{display:inline-block;width:14px;height:14px;margin:1px;border-radius:3px;background:var(--line)}
+.bx.pass{background:var(--ok)}.bx.fail{background:var(--bad)}.bx.inconclusive{background:#d98f00}.bx.analyzing{background:#2f81f7}.bx.running{background:var(--warn);opacity:.6}
+.bar{display:inline-block;width:90px;height:8px;border-radius:4px;background:var(--line);vertical-align:middle;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
 .banner{padding:8px 12px;border-radius:6px;margin:8px 0;border:1px solid var(--bad);color:var(--bad)}
 </style></head><body><h1>Simulations <span class=mut id=t></span></h1><div id=app>loading...</div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const prog=p=>!p?'':`<b>${p.done}/${p.total}</b> done &middot; <b class=ok>${p.passed}</b> passed &middot; <b class=bad>${p.failed}</b> failed${p.other?' &middot; '+p.other+' inconclusive':''} <span class=bar><i style="width:${p.total?100*p.done/p.total:0}%"></i></span><br>`+p.boxes.map(b=>`<span class="bx ${b}" title="${b}"></span>`).join('');
 const cls=s=>({done:'ok',completed:'ok',running:'warn',abandoned:'bad',waiting:'mut'}[s]||'');
 async function tick(){try{const d=await (await fetch('/api/state')).json();const f=d.freya,g=d.gate;let h='';
  if(f.ok===null)h+=`<div class=banner>Freya API: no answer yet - a call can hang for up to 2 minutes during an outage</div>`;else h+=f.ok?`<div class=card>Freya API <b class=ok>answers</b> <span class=mut>(checked ${f.stale_s}s ago)</span></div>`:`<div class=banner>Freya API <b>failing</b>: ${esc(f.error)} <span class=mut>(${f.stale_s}s ago)</span></div>`;
  const stuck=(f.sims||[]).filter(s=>s.stuck);if(stuck.length)h+=`<div class=banner>Possibly stuck: ${stuck.map(s=>esc(s.name)+' ('+s.id+', '+s.age+' min, '+JSON.stringify(s.runs)+')').join('; ')}</div>`;
- h+='<h2>Newest simulations</h2><table><tr><th>id<th>name<th>status<th>created<th>age<th>runs<th>passed<th>live run states</tr>';
- for(const s of f.sims||[])h+=`<tr><td>${s.id}<td>${esc(s.name)}<td class=${cls(s.status)}>${s.status}<td>${s.created}<td>${s.age} min<td>${s.total??''}<td>${s.passed??''}<td>${s.runs?esc(JSON.stringify(s.runs)):''}</tr>`;
- h+='</table><h2>m1 gate vs p6 (GATE cases, pass/fail only)</h2><table><tr><th>brief<th>m1 (m1g1)<th>p6 (p6g1)<th>status<th>tries</tr>';
- for(const r of g.rows)h+=`<tr><td>${r.brief}<td>${r.m1?r.m1[0]+'/'+r.m1[1]:'-'}<td>${r.p6?r.p6[0]+'/10':'-'}<td class=${cls(r.status)}>${r.status}<td>${r.tries}</tr>`;
+ h+='<h2>Newest simulations</h2><table><tr><th>id<th>name<th>status<th>created<th>age<th>progress (finished / passed)</tr>';
+ for(const s of f.sims||[])h+=`<tr><td>${s.id}<td>${esc(s.name)}<td class=${cls(s.status)}>${s.status}<td>${s.created}<td>${s.age} min<td>${prog(s.prog)}</tr>`;
+ h+='</table><h2>m1 gate vs p6 (GATE cases, pass/fail only)</h2><table><tr><th>brief<th>m1 (m1g1)<th>p6 (p6g1)<th>status<th>live<th>tries</tr>';
+ for(const r of g.rows)h+=`<tr><td>${r.brief}<td>${r.m1?r.m1[0]+'/'+r.m1[1]:'-'}<td>${r.p6?r.p6[0]+'/10':'-'}<td class=${cls(r.status)}>${r.status}<td>${prog(r.live)}<td>${r.tries}</tr>`;
  h+=`</table><div class=card><b>${g.done}/9 briefs done.</b> m1 <b>${g.m1_total}/${g.m1_cases}</b> vs p6 <b>${g.p6_same}</b> on the same briefs <span class=mut>(p6 total over all 9: ${g.p6_all}/90; rule: ship m1 if m1 >= p6 over all 9)</span></div>`;
  h+='<h2>Gate log</h2><div class=card><pre>'+esc(g.log.join('\\n'))+'</pre></div><h2>Eval processes</h2><div class=card><pre>'+esc(d.procs.join('\\n')||'none')+'</pre></div>';
  document.getElementById('app').innerHTML=h;document.getElementById('t').textContent=d.now}catch(e){document.getElementById('app').innerHTML='<div class=banner>dashboard server not answering</div>'}}
