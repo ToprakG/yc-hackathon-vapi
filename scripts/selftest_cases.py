@@ -14,6 +14,7 @@ file is read: the scenarios come from the brief and from the policy extracted fr
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import json
 import random
@@ -56,9 +57,8 @@ SOURCES = {
     "wrong_number": ["/outcome_map/nr_wrong_number"],
     "right_party": ["/ask_limits/right_party", "/outcome_map/nr_unclear", "/lines/ask_again", "/lines/right_party_question"],
 }
-PRIORITY = ["identity_declined", "robot_turn1", "human_then_pay", "hardship", "vague_date", "pieces_identity", "floor_amount",
-            "dispute", "already_paid", "restructuring", "deceased", "multi_product", "robot_mid", "identity_failed",
-            "third_party", "wrong_number", "right_party"]
+PRIORITY = ["identity_declined", "identity_failed", "right_party", "robot_turn1", "human_then_pay", "hardship", "vague_date", "pieces_identity",
+            "floor_amount", "dispute", "already_paid", "restructuring", "deceased", "multi_product", "robot_mid", "third_party", "wrong_number"]
 
 
 # --- small helpers ---------------------------------------------------------------------------------------------------
@@ -381,7 +381,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("inputs", nargs="+", help="brief file(s) then policy.json")
     ap.add_argument("--out", default="selftest/cases.json")
-    ap.add_argument("--max", type=int, default=12)
+    ap.add_argument("--max", type=int, default=0, help="0 = no cap: one scenario per rule type present (the default)")
+    ap.add_argument("--extra", type=int, default=0, help="extra variants (other speaking style) on top of the one-per-rule-type set, when time allows")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--extra-rules", help="JSON list of {statement, brief_quote}: brief rules no rule type covers; one judge-only scenario each")
     a = ap.parse_args()
@@ -397,7 +398,13 @@ def main():
         present = None
     cx = Ctx(policy, a.seed)
     sk = [c for c in skeletons(policy, cx) if present is None or c["rule"] in present]
-    sk = sk[:a.max]
+    if a.max:
+        sk = sk[:a.max]
+    for c, style in zip([c for c in sk if c.get("ledger") == "strict" and not c.get("third_party")][:a.extra], ["in_words", "talkative", "corrects", "asks_back"] * 4):
+        v = cx.new_case(c["rule"], c["title"] + f" [{style}]", [])
+        v.update({k: copy.deepcopy(x) for k, x in c.items() if k not in ("id", "title", "style")})
+        v.update({"title": c["title"] + f" [{style}]", "style": style, "variant_of": c["id"]})
+        sk.append(v)
     if a.extra_rules:
         sk += unknown_skeletons(cx, json.loads(Path(a.extra_rules).read_text()))
     for i, c in enumerate(sk, 1):

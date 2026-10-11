@@ -15,10 +15,11 @@ from builder.template_cc import io as tio  # noqa: E402
 ap = argparse.ArgumentParser()
 ap.add_argument("inputs", nargs="+")
 ap.add_argument("--out", required=True)
+ap.add_argument("--build-dir", help="the build of this policy: its trace shows lines the compiler defaulted")
 a = ap.parse_args()
 *bf, pol = a.inputs
 brief = tio.brief_text(tio.read_briefs([Path(b) for b in bf]))
 policy = json.loads(Path(pol).read_text())
-new, log = R.precheck_fix(policy, brief)
+new, log = R.precheck_fix(policy, brief, a.build_dir)
 Path(a.out).write_text(json.dumps(new, indent=1, ensure_ascii=False))
 print(json.dumps({"mismatches": log, "changed": sum(1 for x in log if "new" in x)}, ensure_ascii=False))

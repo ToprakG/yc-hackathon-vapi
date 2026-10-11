@@ -41,7 +41,7 @@ def eval_fault(d):
     rep = json.loads((d / "results.json").read_text())
     cases = {c["id"]: c for c in json.loads((d / "cases.json").read_text())}
     flags = R.active_flags(d)
-    static = R.precheck(policy, brief)
+    static = R.precheck(policy, brief, d)
     fails = [r for r in rep["rows"] if not r["pass"] and r["case"] not in (rep.get("missing") or [])]
     ok_rules = {cases[r["case"]]["rule"] for r in rep["rows"] if r["pass"]} - {cases[r["case"]]["rule"] for r in fails}
     protected = {p for rule in ok_rules for p in R.SOURCES.get(rule, [])} - {p for r in fails for p in R.SOURCES.get(cases[r["case"]]["rule"], [])}
@@ -51,8 +51,9 @@ def eval_fault(d):
         ptr0, exp = f["pointers"][0], f["expected_action"]
         pre = None
         if any(under(ptr0, p) for p in static):
-            new, why = R.verify_field(policy, ptr0, "static mismatch with the _source quote", brief)
-            pre = {"action": "policy_field", "pointer": ptr0, "policy": new, "quote": why} if new is not None else None
+            fixed, log = R.precheck_fix(policy, brief, d)
+            ok = [x for x in log if x["pointer"] == ptr0 and "new" in x]
+            pre = {"action": "line_fix" if ptr0.startswith("/lines/") else "policy_field", "pointer": ptr0, "policy": fixed, "quote": ok[0]["quote"]} if ok else None
         hit = None
         for a in ([pre] if pre else []) + acts:
             if a is None:

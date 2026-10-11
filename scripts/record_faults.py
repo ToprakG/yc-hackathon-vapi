@@ -52,7 +52,7 @@ def main():
         if not fault.get("built"):
             print(fid, "not built, skipped"); continue
         bf, api = paths(brief)
-        cmd = [".venv310/bin/python", "scripts/selftest_cases.py", *bf, str(d / "policy.json"), "--out", str(d / "selftest" / "all_cases.json"), "--max", "12"]
+        cmd = [".venv310/bin/python", "scripts/selftest_cases.py", *bf, str(d / "policy.json"), "--out", str(d / "selftest" / "all_cases.json"), "--max", "0"]
         extra = fault.get("extra_rules") or [e for x in fault.get("faults", []) for e in x.get("extra_rules", [])]
         if extra:
             er = d / "extra_rules.json"; er.write_text(json.dumps(extra)); cmd += ["--extra-rules", str(er)]

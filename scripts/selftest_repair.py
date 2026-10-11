@@ -99,6 +99,12 @@ same_as_current true. Never use an example value; later material in the brief ov
 VERIFY2_SCHEMA = {"type": "object", "required": ["quote", "same_as_current"], "properties": {"quote": {"type": "string"}, "same_as_current": {"type": "boolean"}}}
 
 
+FIELD_MEANING = {
+    "/ask_limits/right_party": "the TOTAL number of times the agent asks the right-party question, the first ask included (1 = never asks again; 2 = one more ask after an unclear answer)",
+    "/identity/max_wrong": "the number of wrong answers in total after which the identity check is over",
+}
+
+
 def sh(cmd, env=None, timeout=None):
     return subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **(env or {})}, timeout=timeout)
 
@@ -158,8 +164,9 @@ def verify_field(policy, ptr, diagnosis, brief):
     cur = get_ptr(policy, ptr)
     if cur is extract.extract_vote.ABSENT:
         return None, "pointer does not exist"
+    meaning = FIELD_MEANING.get(ptr)
     user = json.dumps({"pointer": ptr, "current_value": cur, "current_quote": (policy.get("_source") or {}).get(ptr),
-                       "what_the_self_test_saw": diagnosis}, ensure_ascii=False)
+                       **({"what_the_value_means_in_the_agent": meaning} if meaning else {}), "what_the_self_test_saw": diagnosis}, ensure_ascii=False)
     ans = llm.call_llm(VERIFY2, f"# BRIEF\n\n{brief}\n\n# FIELD\n\n{user}", MODEL, json_schema=VERIFY2_SCHEMA,
                        purpose=f"selftest verifier {ptr}", attempts=2)
     if ans.get("same_as_current") or "value" not in ans or ans["value"] == cur:
@@ -326,18 +333,44 @@ def merged_results(base_rep, sub_rep):
     return {**base_rep, "rows": rows, "passed": sum(r["pass"] for r in rows), "note": "rows of the last round come from the subset re-run"}
 
 
-def precheck(policy, brief):
-    """No-sim static check: policy fields whose value disagrees with their own _source quote (numbers / dates / times), plus policy_check
-    violations on a critical field. Returns the list of pointers to route straight to R1."""
+def repairs_from_build(build_dir):
+    """Pointers the compiler's own policy_check had to default (the trace says `policy default: line X not found verbatim ...`)."""
+    import re
+    try:
+        tr = Path(json.loads((Path(build_dir) / "build_report.json").read_text())["trace"]) / "trace.txt"
+        return [f"/lines/{m.group(1)}/text" for m in re.finditer(r"policy default: line (\w+) not found verbatim", tr.read_text())]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def precheck(policy, brief, build_dir=None):
+    """No-sim static check, routed straight to R1/R3: (1) value vs its _source quote (numbers, dates, times; also a number WORD in the
+    quote against an integer value), (2) a line marked verbatim that is not a brief sentence, (3) a line the compiler defaulted to the model's
+    paraphrase because it was not in the brief."""
     out = list(extract.extract_vote.quote_mismatches(policy))
-    return [p for p in out if not any(p == q or p.startswith(q + "/") for q in LOCKED)]
+    W = extract.extract_vote._word_tokens
+    for ptr, q in (policy.get("_source") or {}).items():
+        v = get_ptr(policy, ptr)
+        if isinstance(v, int) and not isinstance(v, bool) and isinstance(q, str) and ptr not in out:
+            said = W(q)
+            if said and not extract.extract_vote._tokens_text(q) and str(v) not in said and ptr.count("/") >= 2:
+                out.append(ptr)
+    for key, ln in (policy.get("lines") or {}).items():
+        if isinstance(ln, dict) and ln.get("verbatim") and ln.get("text") and not policy_check.quote_in(ln["text"], brief):
+            out.append(f"/lines/{key}/text")
+    if build_dir:
+        out += [p for p in repairs_from_build(build_dir) if p not in out]
+    return [p for p in dict.fromkeys(out) if not any(p == q or p.startswith(q + "/") for q in LOCKED)]
 
 
-def precheck_fix(policy, brief):
+def precheck_fix(policy, brief, build_dir=None):
     """R1 for every static mismatch: the verifier must give a brief quote. Returns (new policy, [{pointer, old, new, quote | why}])."""
     log, cur = [], policy
-    for ptr in precheck(policy, brief):
-        new, why = verify_field(cur, ptr, "the number/date/time in the _source quote differs from the value", brief)
+    for ptr in precheck(policy, brief, build_dir):
+        new, why = verify_field(cur, ptr, "the value disagrees with its _source quote, or a verbatim line is not the brief's sentence", brief)
+        if new is not None and ptr.startswith("/lines/") and ptr.endswith("/text"):
+            key = ptr.split("/")[2]
+            new["lines"][key]["verbatim"] = bool(policy_check.quote_in(new["lines"][key]["text"], brief))
         log.append({"pointer": ptr, "old": get_ptr(cur, ptr), **({"new": get_ptr(new, ptr), "quote": why} if new is not None else {"kept": why})})
         if new is not None:
             cur = new

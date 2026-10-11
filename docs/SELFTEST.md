@@ -8,7 +8,7 @@ build (final_build.sh)  ->  static pre-check  ->  scenarios  ->  Freya run  ->  
 
 1. **Build**: fresh extraction + compile with the kept flags. `--from-set <set>` takes an already built dev set instead.
 2. **Static pre-check** (`policy_precheck.py`, no simulation): a policy field that disagrees with its own `_source` quote goes to R1; rebuild if a value changed.
-3. **Scenarios** (`selftest_cases.py`): 8-12 per brief, one or two per rule type the policy has (identity refusal, robot question at turn 1 and mid-call, human request, hardship with own terms, vague date, spoken/pieces identity, floor amount, dispute, already paid, restructuring, deceased, multi-product, ...). Account data, the bank config and the expected ledger come from `policy.json`; the persona script comes from one `claude_cli:sonnet` call; the success criteria are brief sentences only (each carries an exact brief quote that is checked, otherwise it is dropped). No testbed file is read.
+3. **Scenarios** (`selftest_cases.py`): no fixed count: one scenario per rule type the policy has (16 on f5), plus `--extra N` variants in other speaking styles only when more than 100 min are left; the rule types come from the policy (S3's `rule_coverage.py` is not merged here yet; `present_rule_types` is used if it appears) (identity refusal, robot question at turn 1 and mid-call, human request, hardship with own terms, vague date, spoken/pieces identity, floor amount, dispute, already paid, restructuring, deceased, multi-product, ...). Account data, the bank config and the expected ledger come from `policy.json`; the persona script comes from one `claude_cli:sonnet` call; the success criteria are brief sentences only (each carries an exact brief quote that is checked, otherwise it is dropped). No testbed file is read.
 4. **Run** (`selftest_run.sh`): own mock bank behind a cloudflared tunnel, Freya personas (`persona_for`, `create_personas`), one simulation. Freya plays the customer and judges (no OpenRouter). The ledger is scored too. It takes a lane lock (same lock dirs as `run_cases.sh`), timeout 1800 s.
 5. **Patcher** (`selftest_repair.py`), at most 3 rounds or until T-30. Diagnosis is deterministic first (ledger diff -> policy pointers), then at most one model call per failed scenario. Allowed actions only:
    - **R1** policy field: re-run the extract verifier for that field; accept only a value with an exact brief quote.
@@ -37,11 +37,15 @@ Environment (names only): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_STATE_F
 ## Numbers so far
 
 - f5 dry run (treated as unseen), clean build: build 159 s, scenarios 36 s, Freya run 709 s (bank+tunnel 68 s, simulation 621 s; plus about 10 min waiting for the shared workspace), patcher 52 s. 12 scenarios, 8 passed. The patcher took no action on the 4 failures (agent bugs in rules the brief states, not patchable).
-- Abstain check on 33 p6 dev failures: 1 proposal (F4-025, an R1 id_decline change the verifier backed with a quote; the current value looks right). It was 2 R2 proposals before the allow-list.
+- Abstain check on 33 p6 dev failures: 0 proposals (it was 2 R2 proposals before the allow-list, then 1 R1 on a verifier call that varies between runs).
+
+## Patcher numbers on injected faults
+
+`patcher_eval` on 6 faults (5 in one f5 build, 1 in a brief-a build; 2 Freya simulations): iteration 1 detection 50%, iteration 2 detection 100% / correct action 100% / fixes the field 100% (same recordings, run twice). Caution: the fixes of iteration 2 were made after seeing these 6 faults (scenario priority, number words and verbatim lines in the static pre-check, the meaning of `right_party` for the verifier), so 100% is tuned, not held out. Abstain check after the allow-list and quote rules: 0/33.
 
 ## Not tested yet
 
-- `patcher_eval.py` on the fault recordings (detection and correct-action rates): recordings are queued on the lane.
+- A held-out set of faults (the 100% above is tuned on the 6 recorded ones); no R2 fault could be injected.
 - The accept/revert path with a real candidate (rebuild, subset re-run, keep or revert) has not run end to end; no action has been proposed on a real failure yet.
 - R2 on a real allowed flag (the p10 builds have none of them).
 - `final_run.sh` as one command since the last edits (its stages were run separately).
