@@ -14,7 +14,7 @@ MEMBERS_ARGS=(); IFS=';' read -ra MM <<< "${MEMBERS:-}"; for m in "${MM[@]}"; do
 names() { echo "${MEMBERS:-}" | tr ';' '\n' | sed 's/:.*//' | paste -sd, -; }
 case ${1:?stage} in
   mock)   mock/convert_case.sh "$CASE" "$SPEC" && scripts/mock_load_case.sh "mock/spec.$SPEC.json" "$SPEC";;
-  freeze) scripts/freeze.sh;;
+  freeze) FREEZE_RETAG=1 scripts/freeze.sh;;
   build)  rm -rf out/final; mkdir -p out/final
           python3 builder/build.py "$CASE" "$MOCK_URL" --members "$(names)" --out out/final/build 2>&1 | tee out/final/build.out; tail -1 out/final/build.out > out/final/build_py.json;;
   check)  D=${2:-out/final}; .venv310/bin/python scripts/dress_check_tr.py "$D" FINAL_FLAGS.txt live-mock "${MOCK_URL%/}/v1/" | tee "$D/check.txt";;

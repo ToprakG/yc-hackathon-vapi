@@ -19,10 +19,14 @@ if git merge-base --is-ancestor origin/main HEAD; then PUSH_RANGE=origin/main..m
 .venv310/bin/python scripts/secret_scan.py $PUSH_RANGE | tee -a $LOG || { log "FREEZE NOT DONE: the secret scan found something"; exit 4; }
 HEAD_SHA=$(git rev-parse HEAD)
 if git rev-parse -q --verify refs/tags/final-submit > /dev/null; then
-  [ "$(git rev-parse final-submit^{commit})" = "$HEAD_SHA" ] || { log "FREEZE NOT DONE: tag final-submit already exists on another commit"; exit 2; }
+  if [ "$(git rev-parse final-submit^{commit})" != "$HEAD_SHA" ]; then
+    [ -n "${FREEZE_RETAG:-}" ] || { log "FREEZE NOT DONE: tag final-submit already exists on another commit (FREEZE_RETAG=1 moves the TAG only, never a branch)"; exit 2; }
+    git tag -f -a final-submit -m "final submission (retagged $(date +%H:%M)): FINAL_FLAGS.txt $(tr -d '\n' < FINAL_FLAGS.txt | cut -c1-60)..." || exit 2
+    FORCE_TAG=1
+  fi
 else
   git tag -a final-submit -m "final submission: FINAL_FLAGS.txt $(tr -d '\n' < FINAL_FLAGS.txt | cut -c1-60)..., dress run ALL OK" || exit 2
 fi
 git push origin main 2>&1 | tail -1 | tee -a $LOG
-git push origin final-submit 2>&1 | tail -1 | tee -a $LOG
+if [ -n "${FORCE_TAG:-}" ]; then git push -f origin refs/tags/final-submit 2>&1; else git push origin final-submit 2>&1; fi | tail -1 | tee -a $LOG
 log "FROZEN: final-submit = $(git rev-parse --short HEAD) pushed to origin ($(git remote get-url origin | sed -E 's#//[^@/]*@#//#'))"
