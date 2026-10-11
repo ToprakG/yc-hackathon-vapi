@@ -54,7 +54,9 @@ def test_check_patch_needs_the_brief_sentence_verbatim():
 
 def test_judge_ledger_mode_keeps_only_structural_checks():
     import types
-    sys.modules.setdefault("freya", types.ModuleType("freya"))
+    stub = types.ModuleType("freya")
+    stub.api = lambda *a, **k: None
+    sys.modules.setdefault("freya", stub)
     try:
         import selftest_run as SR
     except Exception:  # vendor tester not importable here
@@ -138,7 +140,8 @@ def test_final_save_retries_only_on_5xx(monkeypatch):
     spec = importlib.util.spec_from_file_location("final_trace", REPO / "scripts" / "final_trace.py")
     ft = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ft)
-    monkeypatch.setattr(ft.time, "sleep", lambda s: None)
+    import selftest_common
+    monkeypatch.setattr(selftest_common.time, "sleep", lambda s: None)
     n = {"c": 0}
 
     def flaky():
@@ -166,3 +169,60 @@ def test_final_save_retries_only_on_5xx(monkeypatch):
         ft.retry_5xx(bad)
     except RuntimeError:
         assert n["c"] == 1
+
+
+# --- outage guard and the Freya 5xx retry -----------------------------------------------------------------------------------------------
+def test_outage_signature():
+    import selftest_common as C
+    quiet = [{"case": "a", "tools": []}, {"case": "b", "tools": []}]
+    assert C.outage_signature(quiet) and C.is_outage({"rows": quiet})
+    assert not C.outage_signature([{"case": "a", "tools": ["verify_identity"]}, {"case": "b", "tools": []}])
+    assert C.outage_signature([], missing=["a", "b"]) and not C.outage_signature([{"case": "a", "tools": []}])  # one scenario is not enough
+    assert C.is_outage({"outage": True, "rows": []})
+
+
+def test_freya_calls_retry_on_5xx_only(monkeypatch):
+    import types
+    import selftest_common as C
+    monkeypatch.setattr(C.time, "sleep", lambda s: None)
+    calls = []
+    fake = types.ModuleType("fakefreya")
+
+    def api(method, path, body=None, **params):
+        calls.append((method, path))
+        if len(calls) < 3:
+            raise RuntimeError(f"{method} {path} -> 502: bad gateway")
+        return {"ok": True}
+    fake.api = api
+    fake.get_call = lambda cid: fake.api("GET", f"/api/v2/call/{cid}")   # resolved through the module global, like freya.py
+    C.install(fake)
+    assert fake.get_call("c1") == {"ok": True} and len(calls) == 3
+    C.install(fake)  # idempotent
+    calls.clear()
+    fake.api = C.install(types.SimpleNamespace(api=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("POST x -> 400: bad request")))).api
+    try:
+        fake.api("POST", "/x")
+        raise AssertionError("a 400 must not be retried silently")
+    except RuntimeError as e:
+        assert "400" in str(e)
+
+
+def test_repair_does_not_act_on_an_outage_run(tmp_path, monkeypatch, capsys):
+    import selftest_repair as R
+    b = tmp_path / "build"
+    (b / "selftest").mkdir(parents=True)
+    (b / "policy.json").write_text((FX / "invented.policy.json").read_text())
+    (b / "build_report.json").write_text(json.dumps({"features": []}))
+    (tmp_path / "brief.md").write_text((FX / "invented.brief.md").read_text())
+    (tmp_path / "api.json").write_text((FX / "invented.openapi.json").read_text())
+    (tmp_path / "cases.json").write_text(json.dumps([{"id": "ST-01", "rule": "dispute"}, {"id": "ST-02", "rule": "robot_turn1"}]))
+    rows = [{"case": "ST-01", "rule": "dispute", "pass": False, "failed": ["x"], "tools": [], "ledger": {}},
+            {"case": "ST-02", "rule": "robot_turn1", "pass": False, "failed": ["y"], "tools": [], "ledger": {}}]
+    (b / "selftest" / "results.json").write_text(json.dumps({"rows": rows, "passed": 0, "cases": 2, "missing": []}))
+    monkeypatch.setattr(R.llm, "call_llm", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no model call on an outage run")))
+    monkeypatch.setattr(sys, "argv", ["x", "--dir", str(b), "--work", str(tmp_path / "w"), "--briefs", str(tmp_path / "brief.md"),
+                                     "--api", str(tmp_path / "api.json"), "--cases", str(tmp_path / "cases.json")])
+    R.main()
+    assert capsys.readouterr().out.strip().startswith("FINAL " + str(b))
+    rep = json.loads((tmp_path / "w" / "patch_report.json").read_text())
+    assert rep["status"] == "outage" and "outage signature" in rep["outage"]

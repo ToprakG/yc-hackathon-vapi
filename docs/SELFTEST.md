@@ -45,6 +45,11 @@ Jobs run one after the other (one simulation at a time per workspace), each with
 - Budget mode runs the 10 most important rule types (identity refusal/failed, right party, robot, dispute, floor, vague date, hardship, human/transfer, callback; `MAX_SCENARIOS`) so a repair round fits before T+26.
 - Every model call of the self-test tools goes through `llm.call_llm`, so `TCC_LLM_PROVIDER=anthropic` (+ `ANTHROPIC_API_KEY`) works without a Claude Code login (`TCC_SELFTEST_MODEL` overrides the model string). Tested with a mocked transport.
 
+## Outage guard and Freya retries
+
+- A self-test run with no tool call in any scenario (needs 2+ scenarios, or all MISSING) is an outage signature, not a result: `results.json["outage"]=true`. `final_run.sh` re-runs once after 60 s if time allows; the patcher never acts on it (status `outage`, the build is kept); a repair round that shows it is re-run once after 60 s, else discarded. All of it is logged in the trace (`outage` events). The turn-time part of the signature (~0 s) is not measured; the no-tool-call part is.
+- Every Freya call in `selftest_run.py` (personas, simulation, iteration, call, save) and the final save/export in `final_trace.py` retries on a 5xx: 3 calls, 10 s apart (`selftest_common.py`). run.py's own first save is not covered.
+
 ## Fault tools (patcher development)
 
 `inject_faults.py <set> <brief> [--combo ids]` (clean policy + known faults, compiled), `record_faults.py` (record the self-test of the faulty builds once, in as few simulations as possible), `patcher_eval.py` (offline: detected / action chosen / correct / fixes the field; `--abstain` runs the dev failures, where the right answer is "not patchable").
