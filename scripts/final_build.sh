@@ -33,6 +33,8 @@ mkdir -p "$OUT"; T0=$(date +%s)
 echo "features: $FEATURES"
 [ -n "${FINAL_BUILD_DRY:-}" ] && exit 0
 VOTES=${FINAL_VOTES:-3}; POLICY_ARG=()
+#   POLICY=file: skip extraction and the vote, compile this policy.json (self-test repairs; same flags, checked by policy_check)
+[ -n "${POLICY:-}" ] && { VOTES=1; POLICY_ARG=(--policy "$POLICY"); }
 if [ "$VOTES" -gt 1 ]; then
   echo "final vote: $VOTES independent extractions"
   PIDS=(); for i in $(seq 1 "$VOTES"); do
