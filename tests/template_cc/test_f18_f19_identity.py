@@ -183,3 +183,27 @@ def test_refusals_are_consecutive_and_the_explanation_is_said_once_per_call():
     v = run_code(wf, "id_refusal_count", dict(v, id_intent="asks_question"))
     assert v["id_route"] == "ask" and reason not in v["id_say"]  # a later question: no second explanation, no close
     assert run_code(wf, "id_refusal_count", dict(v, id_intent="refuses"))["id_route"] == "decline"
+
+
+def _no_side_lines():
+    from builder.template_cc.compiler.graph import Graph
+    from builder.template_cc import features as FT
+    api = ApiModel.load(REPO / "tools" / "openapi.json")
+    pol = compiler.policy_check.complete(copy.deepcopy(json.loads((GOLD / "brief-a.policy.json").read_text())), api)
+    pol["lines"]["ai"] = {"text": "", "verbatim": False}
+    pol["lines"]["scam"] = {"text": "", "verbatim": False}
+    return pol, lambda feats: Graph(pol, api, features=FT.parse(feats)).build()[0]
+
+
+def test_chatter_is_a_non_answer_even_when_the_policy_has_no_side_lines():
+    pol, mk = _no_side_lines()
+    wf = mk(BASE + ",f18,f19")
+    assert "id_aside" not in wf["nodes"] and wf["nodes"]["identity"]["transitions"][-1]["target_node"] == "id_resume"
+    v = start(wf, pol, id_q="date_of_birth", id_declines="0")
+    v = run_code(wf, "id_resume", v)
+    assert v["id_route"] == "resume" and v["resume_step"] == "identity" and v["id_say"].startswith("Sorry")
+    assert run_code(wf, "id_resume", v)["id_route"] == "refuse"  # the second non-answer in a row is a refusal
+    after = run_code(wf, "id_resume", dict(v, id_fill="0", id_declines="1"))
+    assert after["resume_step"] == "identity_explain" and after["id_route"] == "resume"
+    # without f19 the chatter is left to the free turn, as before
+    assert "id_resume" not in mk(BASE).get("nodes", {})

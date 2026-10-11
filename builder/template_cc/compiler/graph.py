@@ -779,8 +779,8 @@ ID_INIT        vars['cb_state'] = 'none'
         self._id_refusal_count()
         if f1:
             self._id_check_and_verify(tool, msgs)
-        if f18:
-            self._id_side_nodes(refusal)
+        if f18 or (f1 and "f19_refusal_rule" in self.f and "f7_router" in self.f):
+            self._id_side_nodes(refusal, aside=f18)
 
     def _id_check_and_verify(self, tool, msgs):
         body = """
@@ -964,7 +964,7 @@ ID_INIT        vars['cb_state'] = 'none'
                   uses=("product_rows", "parse_now", "jput", "spoken_full", "money", "date_table", "weekday_words",
                         "neg_flag", "refresh_close") + (("with_aside",) if aside_f else ()), fallback=fallback)
 
-    def _id_side_nodes(self, refusal):
+    def _id_side_nodes(self, refusal, aside=True):
         """F18: a robot / scam question inside the identity step. The policy's line is stored as the side answer, the turn's
         own content (an answer, a refusal) is still processed, and the step resumes with its pending question."""
         body = """
@@ -981,9 +981,10 @@ ID_INIT        vars['cb_state'] = 'none'
         else:
             vars['id_route'] = 'resume'
         """.replace("REFUSALS", repr(tuple(refusal))).replace("QUESTION_BACK", "True" if "f19_refusal_rule" in self.f else "False")
-        self.code("id_aside", body, [eq("id_check", "the turn holds an answer", "id_route", "answer"),
-                                     eq("id_refusal_count", "the turn holds a refusal", "id_route", "refuse"), always("id_resume")],
-                  fallback="vars['id_route'] = 'resume'")
+        if aside:
+            self.code("id_aside", body, [eq("id_check", "the turn holds an answer", "id_route", "answer"),
+                                         eq("id_refusal_count", "the turn holds a refusal", "id_route", "refuse"), always("id_resume")],
+                      fallback="vars['id_route'] = 'resume'")
         f19 = "f19_refusal_rule" in self.f
         self.code("id_resume", """
         field = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
@@ -991,15 +992,15 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['id_intent'] = 'other'
         vars['id_answer_text'] = ''
         vars['id_route'] = 'resume'
+        vars['resume_step'] = 'identity_explain' if (EXPLAINED and int(num(vars.get('id_declines'))) >= 1) else 'identity'
         FILL
         if str(vars.get('aside_line') or '').strip():
             vars['id_say'] = with_aside(vars, prompt)
         else:
             vars['id_say'] = 'Sorry, I did not catch that. ' + prompt
-        """.replace("FILL", """if str(vars.get('resume_step')) == 'identity_explain':
-            vars['id_fill'] = str(int(num(vars.get('id_fill'))) + 1)
-            if int(num(vars.get('id_fill'))) >= 2:
-                vars['id_route'] = 'refuse'""" if f19 else "pass"),
+        """.replace("EXPLAINED", str(int(self.limits.get("id_decline", 1)) >= 1)).replace("FILL", """vars['id_fill'] = str(int(num(vars.get('id_fill'))) + 1)
+        if int(num(vars.get('id_fill'))) >= 2:
+            vars['id_route'] = 'refuse'""" if f19 else "pass"),
                   [eq("id_refusal_count", "told why and still no answer", "id_route", "refuse"),
                    eq("identity_explain", "the step was the explanation", "resume_step", "identity_explain"), always("identity")],
                   uses=("with_aside", "num"), fallback="pass")
