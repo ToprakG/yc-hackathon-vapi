@@ -47,3 +47,28 @@ Validate a spec with `python3 mock/convert.py --check mock/spec.<id>.json`.
 - Ledger keys: `{outcome, reason, promises[{promise_id,product_id,type,amount,date}], notes[{product_id,reason,text}], callbacks[{date,time}], transfers[{queue}], disputes[], calls[{seq,ts,tool,args,result}], closed}`; post-close calls are rejected and not listed in `calls`.
 - Differences from mockbank.py worth knowing: schema check is only required+enum; a day/month swap is not counted as a wrong answer (as mockbank); dispute is an `add_note` reason.
 - State: one Durable Object (SQLite) per tenant; survives redeploys. Tests: `cd mock && npm test` (engine), `test/e2e.sh <url> <ADMIN_TOKEN>` (live).
+
+## Table mode (`"mode": "table"`) — a bank whose answers are listed, not computed
+Use when the bank's integration document lists exact requests and answers (paths, field names, status codes). Everything is data in one JSON file; no code.
+```jsonc
+{ "mode": "table", "id": "<tenant>", "info": {...}, "base_path": "/api",     // served at <mock_url><base_path><endpoint.path>
+  "openapi": { ... },                      // optional: the bank's own OpenAPI, served at /openapi.json with servers[0].url = <mock_url><base_path>
+  "ledger_key": ["customer_field", ...],   // request fields that identify the customer/card: calls are grouped by the first one present (GET /ledger/<key>)
+  "fallback": {"status": 404, "body": {...}},   // when no rule matches and the endpoint has no `default`
+  "endpoints": [{
+     "name": "lookup", "method": "GET", "path": "/things/{id}",           // {id} = path parameter
+     "rules": [                                                          // first matching rule wins
+       {"when": {"id": "A1", "currency": {"$in": ["X","Y"]}, "email": {"$regex": "^.+@.+$"}},   // inputs = query + JSON body + path params
+        "status": 200, "body": {"id": "{{id}}", "n": 1},                // "{{name}}" = whole-string keeps the type; also {{state.key}}, {{now}}
+        "record": {"kind": "change", "data": {"id": "{{id}}"}},          // a WRITE: stored in the ledger (GET /writes, /ledger/<key>.writes); data defaults to all inputs
+        "set": {"key": "{{value}}"},                                    // remember for later answers: other rules can match {"state.key": ...}
+        "sequence": [{"status": 503, "body": {...}}, {"status": 200, "body": {...}}] }   // 1st match -> item 0, 2nd -> item 1, then the last repeats (flaky service)
+     ],
+     "default": {"status": 404, "body": {...}} }],
+  "checks": [{"name": "...", "request": {"method": "GET", "path": "/things/A1", "query": {}, "body": {}}, "expect": {"status": 200, "body": {"n": 1}}}],   // self-test, body = subset match
+  "expect_writes": [{"kind": "change", "data": {"id": "A1"}}] }
+```
+Operators in `when`: literal (string/number compared as text), `$in`, `$ne`, `$exists`, `$regex` (+`$flags`), `$ci`, `$gt`, `$lt`. Unknown operators never match.
+Every call is logged (`GET /records`, `/ledger/<key>`); `x-mock-fail: 1` gives a 500 that is not listed. Load + self-test + reset: `scripts/mock_load_case.sh <table.json> <tenant>` (runs `checks` and `expect_writes`).
+Fill from a spreadsheet of answers: `python3 mock/table_from_csv.py skeleton.json rules.csv -o table.json` (columns `endpoint`, `when.<field>`, `status`, `body.<path>`, `record_kind`).
+After a Worker redeploy wait ~10 s before the first load (a running instance may still serve the old code).

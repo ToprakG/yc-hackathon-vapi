@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { Bank, openapi } from "./engine.js";
 import { adapt } from "./adapt.js";
+import { TableBank, isTable, tableOpenapi } from "./table.js";
 import bundled from "./bundled_specs.json";
 
 const J = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } });
@@ -49,7 +50,8 @@ export class BankDO extends DurableObject {
       return J({ ok: false, error: "unknown tenant" }, 404);
     }
     spec.tenant = tenant;   // the URL decides the tenant name
-    const bank = new Bank(spec, this.store);
+    const table = isTable(spec);
+    const bank = table ? new TableBank(spec, this.store) : new Bank(spec, this.store);
     const token = bearer(req, url);
 
     if (rest.startsWith("/admin/")) {
@@ -68,21 +70,25 @@ export class BankDO extends DurableObject {
     }
 
     if (req.method === "GET") {
-      if (rest === "/openapi.json") return J(openapi(spec, url.origin));
+      if (rest === "/openapi.json") return J(table ? tableOpenapi(spec, url.origin) : openapi(spec, url.origin));
       if (rest === "/health") return J({ ok: true, tenant, customers: (spec.customers || []).length });
       const guarded = ["/records", "/state"].includes(rest) || /\/ledger\//.test(rest);
       if (guarded && this.env.RECORDS_TOKEN && token !== this.env.RECORDS_TOKEN) return J({ ok: false, error: "forbidden" }, 403);
       if (rest === "/records") return J({ tenant, records: await bank.ledger({ customer_id: url.searchParams.get("customer_id"), limit: +url.searchParams.get("limit") || 0 }) });
-      if (rest === "/state") return J({ tenant, customers: await bank.publicState() });
+      if (rest === "/state") return J(table ? { tenant, ...(await bank.publicState()) } : { tenant, customers: await bank.publicState() });
+      if (table && rest === "/writes") return J({ tenant, writes: await bank.writes(url.searchParams.get("key")) });
       const lm = rest.match(/^(?:\/v1)?(?:\/practice)?\/ledger\/(.+)$/);   // /ledger/<id> and the organisers' /v1/practice/ledger/<id>
       if (lm) return J(await bank.scorerLedger(decodeURIComponent(lm[1])));
     }
 
     let body = {};
-    if (req.method !== "GET") { try { body = await req.json(); } catch { return J({ ok: false, error: "invalid JSON body" }, 400); } }
-    else body = Object.fromEntries(url.searchParams);
+    const query = Object.fromEntries(url.searchParams);
+    if (req.method !== "GET") {
+      const raw = await req.text();
+      if (raw.trim() || !table) { try { body = JSON.parse(raw); } catch { return J({ ok: false, error: "invalid JSON body" }, 400); } }
+    } else body = table ? {} : query;
     const headers = { "x-mock-fail": req.headers.get("x-mock-fail") || "" };
-    const r = await bank.call(req.method, rest, body, headers);
+    const r = await bank.call(req.method, rest, body, headers, query);
     return r ? J(r.json, r.status) : J({ ok: false, error: "not found" }, 404);
   }
 }
