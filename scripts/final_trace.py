@@ -16,6 +16,19 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 
+def retry_5xx(fn, *args, tries=3, wait=30, **kw):
+    """Call fn; on a 5xx answer wait `wait` s and retry, at most `tries` calls in all. Any other error is raised at once."""
+    import re
+    for i in range(tries):
+        try:
+            return fn(*args, **kw)
+        except Exception as e:  # noqa: BLE001
+            if i == tries - 1 or not re.search(r"(?<!\d)5\d\d(?!\d)", str(e)):
+                raise
+            print(f"final_trace: {fn.__name__} got a 5xx ({str(e)[:80]}); retry {i + 1}/{tries - 1} in {wait} s", flush=True)
+            time.sleep(wait)
+
+
 def summary(row):
     """(judge verdict summary, ledger diff) of one scenario row."""
     judge = next((x for x in row.get("failed", []) if x.startswith("conversation")), "")
@@ -81,9 +94,9 @@ def main():
         try:
             import freya  # noqa: PLC0415
             wf = json.loads((green / "workflow.json").read_text())
-            saved = freya.save_workflow(slot, wf, state_file=str(REPO / ".freya-agents.json"))
+            saved = retry_5xx(freya.save_workflow, slot, wf, state_file=str(REPO / ".freya-agents.json"))
             exp = out / f"{slot}.workflow.json"
-            freya.export_workflow(saved.get("workflow_id"), str(exp))
+            retry_5xx(freya.export_workflow, saved.get("workflow_id"), str(exp))
             ev("freya", what="save_workflow (last-green)", slot=slot, **{k: v for k, v in saved.items() if k in ("workflow_id", "agent_id", "version")})
             lines.append(f"freya: saved the last-green workflow to slot {slot}: {saved}")
         except Exception as e:  # noqa: BLE001
@@ -105,4 +118,5 @@ def main():
     print(f"final_trace: {len(events)} events appended to {tdir}; saved={saved}")
 
 
-main()
+if __name__ == "__main__":
+    main()
