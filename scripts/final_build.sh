@@ -12,7 +12,7 @@ set -- "${REST[@]}"
 [ $# -ge 3 ] || { echo "usage: $0 [--disable flag,flag] <brief files...> <tool-api.json> <out-dir>"; exit 2; }
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
 FEATURES=${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
-if [ -n "$DISABLE" ]; then
+{
   FEATURES=$(python3 - "$FEATURES" "$DISABLE" <<'PY'
 import sys
 sys.path.insert(0, ".")
@@ -21,8 +21,8 @@ on = F.parse(sys.argv[1]) - F.parse(",".join(f for f in sys.argv[2].split(",") i
 print(",".join(sorted(on)))
 PY
 )
-  echo "disabled for this brief: $DISABLE"
-fi
+  [ -n "$DISABLE" ] && echo "disabled for this brief: $DISABLE"
+}
 mkdir -p "$OUT"; T0=$(date +%s)
 echo "features: $FEATURES"
 [ -n "${FINAL_BUILD_DRY:-}" ] && exit 0
