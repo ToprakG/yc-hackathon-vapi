@@ -34,6 +34,9 @@ def _import_freya():
     if str(REPO) not in sys.path:
         sys.path.insert(0, str(REPO))
     import freya  # noqa: PLC0415 - kit client; reads FREYA_API_KEY at import
+    from builder.template_cc import freya_retry  # noqa: PLC0415
+
+    freya_retry.install(freya)  # GET/PUT 5xx: 3 tries, 10 s apart
 
     return freya
 

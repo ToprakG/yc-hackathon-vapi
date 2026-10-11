@@ -31,9 +31,12 @@ from judge import judge_transcript  # noqa: E402
 from run_cases import persona_for  # noqa: E402
 from score import score_ledger  # noqa: E402
 
+from builder.template_cc import freya_retry  # noqa: E402
 from builder.template_cc.apimodel import ApiModel  # noqa: E402
 from builder.template_cc.trace import Trace  # noqa: E402
 from builder.template_cc.vendor_runner import VendorRunner, point_at  # noqa: E402
+
+freya_retry.install(freya)  # GET/PUT 5xx: 3 tries, 10 s apart (the kit's freya.py does not retry)
 
 ALL = ["brief-a", "brief-b"] + sorted(p.name for p in (REPO / "testbed" / "fake_briefs").iterdir() if p.is_dir())
 SHARED = ""
@@ -184,6 +187,15 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, seal
                          "call_id": v.get("callId"), "tools": [x["tool"] for x in ledger.get("calls") or []]})
     finally:
         runner.close()
+    if freya_retry.is_outage(rows):  # no customer made any tool call: a Freya outage, not an agent failure -> every case MISSING, no result file
+        missing, rows = [c["id"] for c in chosen], []
+        print(f"{brief}: FREYA OUTAGE signature (no tool call in any of {len(chosen)} cases): all MISSING, not counted", flush=True)
+        (OUT).mkdir(parents=True, exist_ok=True)
+        (OUT / f"{brief}.{tag}.outage.json").write_text(json.dumps({"brief": brief, "tag": tag, "cases": len(chosen), "missing": missing,
+                                                                    "outage": True, "simulation": sim_id}, indent=1))
+        trace.close("outage", cases=len(chosen))
+        return {"brief": brief, "tag": tag, "cases": len(chosen), "passed": 0, "local_passed": 0, "local_judged": 0, "seconds": round(time.time() - t0),
+                "missing": missing, "outage": True, "rows": []}
     rep = {"brief": brief, "tag": tag, "cases": len(chosen), "passed": sum(r["pass"] for r in rows),
            "local_judged": sum(1 for r in rows if r["local_judge"] and r["local_judge"]["pass"] is not None),
            "local_passed": sum(1 for r in rows if r["local_judge"] and r["local_judge"]["pass"] is True and r["ledger_pass"]),
