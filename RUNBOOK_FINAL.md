@@ -16,23 +16,23 @@ must reproduce: nothing outside the repo, `README_RUN.md` setup, the Claude logi
 | the brief (one or more `.md`; a brief that builds on another is built together with it, list them in the same job) | `hidden/<name>.md` | `final_run.sh` |
 | the tool spec (OpenAPI json) | `hidden/<name>.openapi.json` and a copy `testbed/fake_briefs/<name>/tools.openapi.json` | `final_run.sh`; `final_eval.sh` (mock bank) |
 | the brief again | `testbed/fake_briefs/<name>/brief.md` (a copy; only documentation) | nobody reads it, keep it for the record |
-| the cases (personas, success criteria) | `testbed/fake_briefs/<name>/cases.json` | `final_eval.sh` (same shape as `testbed/fake_briefs/f3-kestrel/cases.json`) |
-| the bank / expected ledger config | `testbed/fake_briefs/<name>/config.json` (same shape as `f3-kestrel/config.json`) | `final_eval.sh` (mock bank and scoring) |
+| cases / bank config (only if you run `final_eval.sh`, which the final does not) | `testbed/fake_briefs/<name>/cases.json` and `config.json` | `final_eval.sh` |
 `mkdir -p hidden testbed/fake_briefs/<name>` first. The builder (`final_run.sh`) reads only the brief(s) and the tool spec, never cases or config.
 
 ### The commands, in order
+The OFFICIAL run command (what the organizers run again for the top-10 re-run) is `python3 builder/build.py <brief> [<more brief files>] <tool-api.json>`; it wraps `scripts/final_run.sh`
+(flags from `FINAL_FLAGS.txt`, patcher mode from `FINAL_MODE.txt`, 3 extractions voted, self-test on Freya, repair rounds, the last-green workflow saved to Freya and exported).
 ```bash
 cd <repo>      # the checkout at the tag final-submit (git describe must say final-submit)
-# 1. build (at most 30 min; ship at minute 26): one job, flags come from FINAL_FLAGS.txt, patcher mode from FINAL_MODE.txt
-FINAL_MODE=$(cat FINAL_MODE.txt) FINAL_VOTES=3 scripts/final_run.sh --budget-min 30 --ship-min 26 \
-  --job "hidden/<name>.md|hidden/<name>.openapi.json|out/final/<name>" 2>&1 | tee out/final/final_run.log
-# 2. evaluation sims on Freya (about 10-15 min; a bank + tunnel of its own on port 8862; no claude calls): the last-green workflow out/final/<name>/workflow.json
-scripts/final_eval.sh <name> 1          # result: out/template_cc/eval/freya/<name>.finalr1.json and the pass table; CASES=<n> to change the number of cases (default 20)
-# 3. package (workflow export from Freya, trace, build report, secret scan, the form fields)
+# 1. build (at most 30 min; shipped by minute 26)
+python3 builder/build.py hidden/<name>.md hidden/<name>.openapi.json --out out/final/<name> 2>&1 | tee out/final/build.log
+# 2. package (workflow export from Freya, trace, build report, secret scan, the form fields)
 scripts/package_submission.sh out/final
 ```
-Check after 1: `<out>/final_run.log` ends with `final_run: done`, `build_report.json` has `"status": "ok"` and lint 0. Check after 2: the pass table; do not re-run with changed code.
-Never edit the compiler or policy during the run.
+Results: `out/final/<name>/workflow.json` (last-green), the Freya export copied to `workflows/<slot>.workflow.json` (the committed path), the trace under `traces/tcc-final-*/` (trace.txt + events.jsonl), and the last line of
+the build prints `{"status": "ok", "slot": ..., "saved": "workflows/...", "trace": "traces/..."}`. A brief that builds on another is built with it automatically (the referenced brief comes from the call or from `briefs/`).
+**The evaluation sims are NOT part of the final**: the organizers score the exported agents, we do not submit sim results. `scripts/final_eval.sh` stays in the repo but is not run (the 19:20 rehearsal is cancelled).
+Check after 1: `build_report.json` has `"status": "ok"`, lint 0; the build.py line says ok. Do not re-run with changed code. Never edit the compiler or policy during the run.
 
 ## 0. Before 20:00 (5 min)
 - `git status` clean on the commit that will be submitted (`git rev-parse HEAD`; S0 merges, so check this is the merged hash).
