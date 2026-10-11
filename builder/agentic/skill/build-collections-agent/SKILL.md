@@ -165,5 +165,14 @@ Any tool that lists or looks up records can return more than one. Design for it:
   asked for (read-out, change, send) and call that tool, then say the result. A route that ends the turn on the
   selection, or returns to the opening question, loses the request: keep the original intent in a variable and
   resume it right after the choice.
+- If the first distinguishing field still matches several records, ask the next, more specific one (a longer part of
+  the identifier); only a unique match selects. Never fall back to the first match.
+- The selection step must advance by state, not by the model: when the customer's answer identifies a record, a code
+  node or a route sets the chosen key and moves on in the same turn. A selection node that can only wait (a filler
+  line such as "one moment", no route on the answer, no turn_target at its max turns) loops until the turn limit and
+  ends the call with nothing read out. Give it a route on the answer and an exit that continues to the action.
+- Every figure, date and amount said about the chosen record comes from that record's own tool result (read it
+  after the choice, with the chosen key). Never say a figure from memory or from another record; if the lookup
+  failed, say so.
 - Add a unit test with a list of several records, two of them sharing a label, and one test that the action tool is
   called with the chosen record's key.
