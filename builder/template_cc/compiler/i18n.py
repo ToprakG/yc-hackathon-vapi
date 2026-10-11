@@ -4,6 +4,8 @@ Lines taken from the brief are never touched. Values (names, amounts, dates) are
 
 from __future__ import annotations
 
+import re
+
 SUPPORTED = ("tr",)
 
 TR_WEEKDAYS = "['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar']"
@@ -36,11 +38,6 @@ TR = [
     ("' or '.join(parts)", "' veya '.join(parts)"),
     ("rel = 'today' if d == today else ('tomorrow' if", "rel = 'bugün' if d == today else ('yarın' if"),
     ("', from ' + a['start'] + ' to ' + a['end']", "', ' + a['start'] + ' ile ' + a['end'] + ' arası'"),
-    # setup: the form of address (title after the surname)
-    ("vars['debt_statement'] = ''\n        vars['first_ask_line'] = CFG['lines'].get('first_ask', '')",
-     "vars['addr_name'] = tr_addr(vars)\n        vars['debt_statement'] = ''\n        vars['first_ask_line'] = CFG['lines'].get('first_ask', '')"),
-    ("vars['debt_statement'] = ''\n        vars['first_ask_line'] = ''",
-     "vars['addr_name'] = (str(vars.get('first_name') or '') + ' ' + str(vars.get('last_name') or '')).strip()\n        vars['debt_statement'] = ''\n        vars['first_ask_line'] = ''"),
     # promise check
     ("'On which day exactly would you like to pay it?'", "'Tam olarak hangi gün ödemek istersiniz?'"),
     ("'The date I can record is ' + spoken(datetime.date.fromisoformat(r['att1'])) + '. Could you pay on that date?'",
@@ -77,6 +74,13 @@ def localize(code: str, lang: str) -> str:
         return code
     for en, tr in sorted(TR, key=lambda p: -len(p[0])):
         code = code.replace(en, tr.replace("money(", "msay("))
+    # setup (and its fallback): the form of address, whatever the indentation
+    if "vars['addr_name'] = tr_addr" not in code:
+        code = re.sub(r"(?m)^([ \t]*)(vars\['first_ask_line'\] = CFG\['lines'\]\.get\('first_ask', ''\))$",
+                      r"\1vars['addr_name'] = tr_addr(vars)\n\1\2", code)
+    if "vars['addr_name'] = (str(" not in code:
+        code = re.sub(r"(?m)^([ \t]*)(vars\['first_ask_line'\] = '')$",
+                      r"\1vars['addr_name'] = (str(vars.get('first_name') or '') + ' ' + str(vars.get('last_name') or '')).strip()\n\1\2", code)
     code = code.replace("CLEAN_STEM = False", "CLEAN_STEM = True")
     code = code.replace("WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']",
                         "WEEKDAYS = " + TR_WEEKDAYS)

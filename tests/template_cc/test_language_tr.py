@@ -203,3 +203,9 @@ def test_tr_phrasing():
         assert good in text, good
     for bad in ("Kalanı gecikmiş", "Bu yanıt eşleşmedi", "gün gecikme."):
         assert bad not in text, bad
+
+
+def test_tr_setup_sets_the_address_in_both_paths():
+    wf, _ = build("tr")
+    setup = json.dumps(wf["nodes"]["setup"], ensure_ascii=False)
+    assert "vars['addr_name'] = tr_addr(vars)" in setup and "vars['addr_name'] = (str(" in setup
