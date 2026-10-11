@@ -763,7 +763,7 @@ def _check_scope_limits(wf, r: Report, scope_limits):
         return
     blob = _norm_text(json.dumps(wf, ensure_ascii=False))
     missing = [x for x in items if _norm_text(x["limit"]) not in blob]
-    for x in missing:
+    for x in ([] if len(missing) == len(items) else missing):
         r.warn("$.system_prompt", f"scope limit not found verbatim in the workflow: {str(x['limit'])[:90]!r} (request: {str(x.get('request') or '')[:60]!r})")
     if len(missing) == len(items):
         r.warn("$.system_prompt", f"none of the {len(items)} policy.scope_limits reaches the agent verbatim: put each limit sentence into the system prompt (or the node that handles the request); a paraphrase is fine, so this is only a warning")
