@@ -75,7 +75,7 @@ Single brief (re-run after a failure): same command with one `--job`.
 ## 4b. Quota (the claude_cli quota is the ONLY path to the final build)
 - **19:45 preflight:** `.venv310/bin/python scripts/llm_preflight.py` (one tiny `claude -p` call, 25 s limit; exit 0 = usable). Run it once at 19:45, by hand. If it fails
   (`LLM preflight FAILED ...`): do not retry in a loop; check `claude` login and the usage-limit message, wait, retry every 5 minutes at most. `final_run.sh` repeats the same check per brief.
-- **No claude_cli call of any kind after 19:15**, except the rehearsal (f3, about 19:00) and the 19:45 preflight. That covers every session (S1-S4): local sims, extractions, patcher runs, evals with the local judge.
+- **No claude_cli call of any kind after 19:15**, except the rehearsal (f3, about 17:00) and the 19:45 preflight. That covers every session (S1-S4): local sims, extractions, patcher runs, evals with the local judge.
 - **local_sim.py enforces it:** it refuses new (normal) conversations from 18:30, the `--sealed` check until 19:15, and makes no claude call at all after 19:15 (`LOCALSIM_CUTOFF=1830`, `LOCALSIM_HARD_STOP=1915`). The first usage / rate-limit warning in any run writes `out/template_cc/localsim/_budget/STOP` and stops all local sim runs.
 - Budget today (all sessions): local_sim 300 conversations in total, 4 concurrent; the 18:45 sealed check is 4 briefs (brief-b, f3, f5, f7) x m1 and m2 = 80 conversations.
 - If a usage warning appears at any time: stop everything that calls claude, tell S0, and keep the remaining quota for the 20:00 run.

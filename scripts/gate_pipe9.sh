@@ -1,11 +1,11 @@
 #!/bin/bash
 # THE gate (single lane plan): pipe9 = S4's offline final_run builds of all 9 briefs (m1 code + patcher). GATE x1, tag pipe9g1, sealed.
 #   DECISION: ship the pipeline (pipe9) if pipe9g1 >= p6g1 on the briefs that finished, else ship p6.
-#   Rule D: no pipe9g1 result at all by 16:45 (Freya never came back / set missing) -> ship the pipeline.
+#   No new brief is started after GATE_END (17:00), so the lane is free for S4's f3 rehearsal; a running brief finishes. No FINAL_*.txt is written here: the decision line is only a log line.
 # Logs "DECISION ..." to out/template_cc/eval/gate_pipe9.log. Needs out/template_cc/pipe9/<brief>/workflow.json for all 9 briefs.
 cd "$(dirname "$0")/.." || exit 1
 SET=${GATE_SET:-pipe9}   # GATE_SET=pipe9fx: the same builds with the right_party / fixups corrections
-GATE_END=1645 scripts/gate_set.sh $SET pipe9g
+GATE_END=${GATE_END:-1700} scripts/gate_set.sh $SET pipe9g
 E=out/template_cc/eval
 python3 - >> $E/gate_pipe9.log <<'PY'
 import glob, json
