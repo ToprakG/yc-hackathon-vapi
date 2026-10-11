@@ -1,7 +1,8 @@
 """Check one final_run.sh --offline call with exactly brief-a + brief-b (the final's shape).   python3 scripts/dress_check.py <out dir> [flags file]
   1. the flags the build used == the flags of FINAL_FLAGS.txt (default M1_FLAGS.txt); f18_opening_fallback off, f28_tool_failure on when named
   2. no opening_resume node; promise_try / promise_error present (f28)
-  3. brief-b resolved its reference to brief-a inside the call (found_in call, path = the call's brief-a file); no DEGENERATE line anywhere
+  3. brief-b (built ALONE with builder/build.py) resolved "Brief A" from briefs/ (or the call); no DEGENERATE line anywhere
+  5. a trace file under traces/ and, in a real run, the Freya export at workflows/<slot>.workflow.json (the committed path)
   4. lint 0 errors
 Prints OK / PROBLEM per line and a final verdict. Reads only the build outputs."""
 import json
@@ -13,7 +14,9 @@ sys.path.insert(0, ".")
 from builder.template_cc import features as F  # noqa: E402
 
 out = Path(sys.argv[1])
-flags_file = Path(sys.argv[2]) if len(sys.argv) > 2 else (Path("FINAL_FLAGS.txt") if Path("FINAL_FLAGS.txt").exists() else Path("M1_FLAGS.txt"))
+OFFLINE = "--offline" in sys.argv
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+flags_file = Path(args[1]) if len(args) > 1 else (Path("FINAL_FLAGS.txt") if Path("FINAL_FLAGS.txt").exists() else Path("M1_FLAGS.txt"))
 want = F.parse(flags_file.read_text().replace("\n", "").strip())
 problems = []
 
@@ -51,6 +54,17 @@ for b in ("brief-a", "brief-b"):
     lint = (rep.get("lint") or {}).get("errors")
     line(lint == 0, f"{b}: lint errors {lint}")
     line(rep.get("status") == "ok", f"{b}: build status {rep.get('status')}")
+    bp = out / f"{b}.build_py.json"
+    try:
+        info = json.loads(bp.read_text().strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError):
+        info = {}
+    line(info.get("status") == "ok", f"{b}: builder/build.py reported status {info.get('status')} ({info.get('message') or ''})".strip())
+    tr = Path(info.get("trace") or rep.get("trace") or "")
+    line(bool(str(tr)) and (tr / "trace.txt").exists() and "traces" in tr.parts, f"{b}: trace file under traces/ ({tr / 'trace.txt'})")
+    if not OFFLINE:
+        sv = Path(info.get("saved") or "x")
+        line(sv.exists() and sv.parent.name == "workflows", f"{b}: Freya export at the committed path ({info.get('saved')})")
     logs = " ".join(p.read_text(errors="ignore") for p in list(out.glob(f"{b}/**/*.log")) + list(out.glob(f"{b}/**/trace.txt")) + list(out.glob(f"{b}/*.out"))[:3])
     line("DEGENERATE" not in logs, f"{b}: no DEGENERATE line")
 res = None
@@ -61,7 +75,7 @@ if res is None:
     line(False, "brief-b: no brief_resolution.json")
 else:
     entries = [e for e in res.get("log", []) if e.get("ref") == "A"]
-    ok = bool(entries) and all(e.get("status") == "resolved" and e.get("found_in") == "call" and "brief-a" in e.get("path", "") for e in entries)
+    ok = bool(entries) and all(e.get("status") == "resolved" and e.get("found_in") in ("call", "repo") and "brief-a" in e.get("path", "") for e in entries)
     line(ok, f"brief-b: reference 'Brief A' resolved {[(e.get('status'), e.get('found_in'), e.get('path')) for e in entries]}")
 print("\nVERDICT:", "ALL OK" if not problems else f"{len(problems)} PROBLEM(S)")
 sys.exit(0 if not problems else 1)
