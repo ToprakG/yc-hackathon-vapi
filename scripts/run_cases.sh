@@ -21,10 +21,23 @@ fi
 LOCKS=$MAIN/out/template_cc/eval
 take() { l=$LOCKS/lane$1.lock
   if [ -d "$l" ] && ! kill -0 "$(cat "$l/pid" 2>/dev/null)" 2>/dev/null; then rm -rf "$l"; fi   # stale lock
-  mkdir "$l" 2>/dev/null && echo $$ > "$l/pid"; }
+  mkdir "$l" 2>/dev/null || return 1
+  echo $$ > "$l/pid"; echo "$PREFIX" > "$l/tag"; [ -n "${BACKGROUND:-}" ] && touch "$l/background"; return 0; }
+# a targeted run always gets a lane first: a BACKGROUND run (the p6 GATE) on a busy lane is stopped after its running brief
+preempt() { for n in 1 2; do l=$LOCKS/lane$n.lock
+    [ -e "$l/background" ] || continue
+    chain=$(pgrep -P "$(cat "$l/pid")" -f "eval_chain\.sh" | head -1)
+    echo "lane $n holds a background run (tag $(cat "$l/tag" 2>/dev/null)): stopping it after its running brief"
+    [ -n "$chain" ] && LOG=/dev/stdout "$MAIN/scripts/stop_chain_gracefully.sh" "$chain"
+    for i in $(seq 1 300); do [ -d "$l" ] || { echo $n; return 0; }; sleep 5; kill -0 "$(cat "$l/pid" 2>/dev/null)" 2>/dev/null || { rm -rf "$l"; echo $n; return 0; }; done
+  done; return 1; }
 LANE=${LANE:-}
 if [ -n "$LANE" ]; then take "$LANE" || { echo "lane $LANE is busy"; exit 3; }
-else take 1 && LANE=1 || { take 2 && LANE=2; } || { echo "both lanes are busy"; exit 3; }; fi
+else
+  take 1 && LANE=1 || { take 2 && LANE=2; } || {
+    if [ -z "${BACKGROUND:-}" ]; then n=$(preempt | tail -1); [[ "$n" =~ ^[12]$ ]] && take "$n" && LANE=$n; fi; }
+  [ -n "$LANE" ] || { echo "both lanes are busy"; exit 3; }
+fi
 trap 'rm -rf "$LOCKS/lane$LANE.lock"' EXIT
 echo "lane $LANE, worktree $WT, set $SET, tag $PREFIX x$REPS, args: ${EVAL_ARGS:-<none>}"
 if [ "$LANE" = 1 ]; then
