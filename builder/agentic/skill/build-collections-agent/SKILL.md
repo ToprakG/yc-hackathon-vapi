@@ -62,7 +62,7 @@ Your tools (MCP server `fb`): `openapi_summary`, `lint_workflow`, `run_snippet`,
 
 ### 3. Design (at most 2 minutes)
 
-List the nodes, the global nodes and the close strategy. For every rule decide **where it lives**: a code node, a
+Decide the stages from the documents, not from habit (see 4.1). List the nodes, the global nodes and the close strategy. For every rule decide **where it lives**: a code node, a
 hook, a route, a fixed tts line, or a prompt. Prefer, in this order: code > hook > route > fixed line > prompt.
 Decide the variables each code node and hook writes, and their fallbacks.
 
@@ -70,7 +70,11 @@ Decide the variables each code node and hook writes, and their fallbacks.
 
 1. Write `out/workflow.json`, building from `templates/fragments/` and the cookbook patterns:
    - `test_variables`: every call variable the brief lists, with invented sample values and a `now`.
-   - setup code node first, then opening, identity, account, facts, negotiation, side routes, endings.
+   - setup code node first, then opening, then ONLY the stages the brief and the documents require, then the side routes and endings.
+     Typical stages are identity check, account read, facts, negotiation or promise; include none of them by habit. An identity step (and any
+     "verify before disclosing" rule) exists only if the documents ask for it; if they say the caller was already verified upstream (for example
+     by a phone menu) or the customer is identified by a call variable, there is no identity step and no verify-before-disclose rule: go from
+     the opening to the account/facts. The same holds for promises, negotiation, callbacks and any other stage.
    - `close_call` as a workflow-level lifecycle tool (`alwaysRunsAt: ["end_of_call"]`) with values baked from
      state variables and a pre-hook that applies the brief's closing precedence, unless the brief forces another form.
    - A post-hook with `what_to_do_next` on every tool the model calls.
@@ -128,4 +132,4 @@ coverage 0 errors`. Never end your turn before these files exist and the last `l
 - A final node with no `end_call` tool: one wrong flag and the agent says goodbye forever.
 - A close record that depends on the model's memory of the call.
 - A fixed sentence paraphrased instead of quoted.
-- A pre-verification line that names the debt, the product or a forbidden word.
+- When (and only when) the documents require an identity check: a pre-verification line that names the debt, the product or a forbidden word.

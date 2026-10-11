@@ -14,6 +14,8 @@ Inputs: the brief material is {files}, in override order (a later file overrides
 
 Tools: use ONLY the operations of input/tools.openapi.json (names, URLs, fields, enums as given there). Never add a tool, endpoint or field that API does not define, and do not assume the usual banking tools exist: if the brief describes an operation the API lacks, record that in rules.json and do not invent it.
 
+Stages: build only the stages the documents require. Do not add an identity check, a promise or negotiation stage, or a "verify before disclosing" rule unless the documents ask for it; if they say the caller is already verified upstream, go from the opening to the work the call is for.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:

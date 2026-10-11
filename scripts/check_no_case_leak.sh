@@ -3,7 +3,7 @@
 #   scripts/check_no_case_leak.sh [base-ref]      base default: final-submit.  Exit 1 + the offending added lines (file:line) on a hit. Prints counts + the first 20 hits only.
 # Static patterns: ekstre, statement date / statement debt / card statement / e-mailed statement (the bare word 'statement' is also a generic collections term: 'debt statement'), customerNumber, "Freya Bank", currency lists (TRY/USD/EUR/GBP), e-posta / e-mail-statement wording.
 # Dynamic patterns (when the files exist): every tool / endpoint name of case/*/ OpenAPI-like files and of mock/spec.freyabank.json that is NOT in the practice tools/openapi.json,
-# and every string value (>= 6 chars) of the case's test customers (case/*/test-environment/test-customers.json).
+# and every identifier-like value (digit or @, or a full name; >= 6 chars) of the case's test customers (case/*/test-environment/test-customers.json).
 cd "$(dirname "$0")/.." || exit 1
 BASE=${1:-final-submit}
 git rev-parse -q --verify "$BASE" > /dev/null || { echo "check_no_case_leak: base '$BASE' not found"; exit 2; }
@@ -42,7 +42,7 @@ for f in cands:
                 for v in o.values(): yield from strs(v)
             elif isinstance(o, list):
                 for v in o: yield from strs(v)
-            elif isinstance(o, str) and len(o) >= 6:
+            elif isinstance(o, str) and len(o) >= 6 and (re.search(r"\d|@", o) or re.fullmatch(r"[A-ZÇĞİÖŞÜ][\w'-]+( [A-ZÇĞİÖŞÜ][\w'-]+)+", o)):   # ids, numbers, e-mails, full names — not generic words
                 yield o
         for s in strs(d):
             dyn["test customer value"] = dyn.get("test customer value", set()) | {re.escape(s)}
