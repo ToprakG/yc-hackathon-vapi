@@ -2,7 +2,7 @@
 # Single-lane plan: from 12:45 (and once out/template_cc/m1 exists) run the m1 GATE x1 (tag m1g1) on the same 9 briefs as p6g1, one brief
 # at a time, as normal (non-background) runs on lane 1. Finished briefs are skipped.
 #   Rule G (gate):   all 9 briefs done        -> ship m1 if m1g1 >= p6g1 over all 9 briefs, else p6.
-#   Rule C (canary): the gate cannot complete by 14:00 (API errors) -> as soon as the Freya API answers, run the full scripts/canary.txt
+#   Rule C (canary): the gate cannot complete by 15:30 (API errors) -> as soon as the Freya API answers, run the full scripts/canary.txt
 #                    (20 cases, tag m1c1) on m1 -> ship m1 if canary >= 19/20, else p6.
 #   Rule D (default): neither rule could decide by 16:30 (the API outage blocks both) -> ship m1: it led on the finished GATE briefs and the targeted
 #                     runs / canary_small showed no loss ("DECISION m1 (no further data)").
@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.." || exit 1
 E=out/template_cc/eval; LOG=$E/gate_m1.log; ST=$E/gate_m1.state; mkdir -p $ST
 BRIEFS="brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"
 log() { echo "$(date +%H:%M) $*" >> $LOG; }
-now() { date +%H%M | sed 's/^0*//'; }          # 1245, 1400 ... (numeric)
+now() { date +%H%M | sed 's/^0*//'; }          # 1245, 1530 ... (numeric)
 n_done() { ls $E/freya/*.m1g1.json 2>/dev/null | wc -l | tr -d ' '; }
 api_ok() { (set -a; . ./.env; set +a; .venv310/bin/python -c "import freya; freya.api('GET', '/api/v2/workspaces')" >/dev/null 2>&1); }
 tot() { python3 - "$1" <<'PY'
@@ -54,12 +54,12 @@ if bad:
     print("\n".join(bad)); sys.exit(1)
 PY
 
-# --- phase 1: the gate, brief by brief, until all 9 are done or it is 14:00 ---
-while [ "$(n_done)" -lt 9 ] && [ "$(now)" -lt 1400 ]; do
+# --- phase 1: the gate, brief by brief, until all 9 are done or it is 15:30 (moved from 14:00: Freya analysis takes 5-8 min per brief) ---
+while [ "$(n_done)" -lt 9 ] && [ "$(now)" -lt 1530 ]; do
   progressed=0
   for b in $BRIEFS; do
     [ -f $E/freya/$b.m1g1.json ] && continue
-    [ "$(now)" -ge 1400 ] && break
+    [ "$(now)" -ge 1530 ] && break
     [ -f $ST/$b.abandoned ] && continue
     tries=$(cat $ST/$b.tries 2>/dev/null || echo 0)
     log "m1g1 $b (try $((tries + 1)))"
