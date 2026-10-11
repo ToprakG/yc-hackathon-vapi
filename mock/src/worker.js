@@ -40,7 +40,14 @@ export class BankDO extends DurableObject {
     const tenant = parts[0];
     const rest = "/" + parts.slice(1).join("/");
     const spec = await this.spec(tenant);
-    if (!spec) return J({ ok: false, error: "unknown tenant" }, 404);
+    if (!spec) {   // a new tenant is created by uploading its spec
+      if (rest === "/admin/spec" && req.method === "PUT" && this.env.ADMIN_TOKEN && bearer(req, url) === this.env.ADMIN_TOKEN) {
+        const ns = await req.json(); const a = adapt(ns);
+        if (!a?.endpoints) return J({ ok: false, error: "not a spec" }, 400);
+        await this.ctx.storage.put("spec", ns); return J({ ok: true, tenant, customers: (ns.customers || []).length });
+      }
+      return J({ ok: false, error: "unknown tenant" }, 404);
+    }
     spec.tenant = tenant;   // the URL decides the tenant name
     const bank = new Bank(spec, this.store);
     const token = bearer(req, url);
