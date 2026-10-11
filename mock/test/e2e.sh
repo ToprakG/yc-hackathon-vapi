@@ -1,8 +1,8 @@
 #!/bin/sh
 # usage: test/e2e.sh <base-url> [admin-token]   — hits every endpoint, then checks the ledger
-SPEC=${SPEC:-$(cd $(dirname $0)/.. && pwd)/specs/spec.brief-a.json}; B=${1:-http://localhost:8799}/$(node -p "require('$SPEC').id"); T=$2; fail=0
+SPEC=${SPEC:-$(cd $(dirname $0)/.. && pwd)/specs/spec.brief-a.json}; B=${1:-http://localhost:8799}/${TENANT:-$(node -p "require('$SPEC').id")}; T=$2; fail=0
 C=$(node -p "require('$SPEC').customers[0].customer_id"); DOB=$(node -p "require('$SPEC').customers[0].identity.date_of_birth"); PH=$(node -p "require('$SPEC').customers[0].identity.phone_last4")
-C2=$(node -p "require('$SPEC').customers[1].customer_id")
+C2=$(node -p "const c=require('$SPEC').customers;(c[1]||c[0]).customer_id")
 post(){ body=$(printf '%s' "$2" | sed "s/CID/$C/; s/\$DOB/$DOB/; s/\$PH/$PH/"); curl -s -X POST "$B/v1/$1" -H 'content-type: application/json' -d "$body"; echo; }
 chk(){ echo "$2" | grep -q "$3" && echo "ok   $1" || { echo "FAIL $1: $2"; fail=1; }; }
 [ -n "$T" ] && chk put-spec "$(curl -s -X PUT -H "Authorization: Bearer $T" --data-binary @$SPEC $B/admin/spec)" '"ok":true'
