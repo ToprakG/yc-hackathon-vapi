@@ -54,12 +54,42 @@ def load_env(path: Path | None = None) -> None:
             os.environ[k] = v
 
 
+PROVIDERS = ("anthropic", "openrouter", "claude_cli", "openai")
+
+
+ALIASES = {"sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5"}  # Claude Code aliases -> API ids
+
+
+def _openrouter_slug(name: str) -> str:
+    """claude-sonnet-5-5 -> anthropic/claude-sonnet-5.5 (OpenRouter's spelling); a name with a "/" is already a slug."""
+    if "/" in name:
+        return name
+    m = re.fullmatch(r"(claude-(?:opus|sonnet|haiku))-(\d+)-(\d+)", name)
+    return f"anthropic/{m[1]}-{m[2]}.{m[3]}" if m else f"anthropic/{name}"
+
+
 def split_model(model: str) -> tuple[str, str]:
-    """(provider, name) for "openai:gpt-x", "anthropic:claude-x", or a bare name (claude* -> anthropic)."""
+    """(provider, name) for "openai:gpt-x", "anthropic:claude-x", or a bare name (claude* -> anthropic).
+
+    TCC_LLM_PROVIDER=anthropic|openrouter|claude_cli (the README's one switch) overrides the provider of every model string; the
+    model name is kept (claude-sonnet-5-5), and is spelled the way the chosen provider wants it."""
     if ":" in model:
         provider, name = model.split(":", 1)
-        return provider.strip().lower(), name.strip()
-    return ("anthropic", model) if model.lower().startswith("claude") else ("openai", model)
+        provider, name = provider.strip().lower(), name.strip()
+    else:
+        provider, name = ("anthropic", model) if model.lower().startswith("claude") else ("openai", model)
+    forced = os.environ.get("TCC_LLM_PROVIDER", "").strip().lower()
+    if forced:
+        if forced not in PROVIDERS:
+            raise ValueError(f"TCC_LLM_PROVIDER={forced!r}: use one of {', '.join(PROVIDERS)}")
+        if forced in ("anthropic", "openrouter"):
+            name = ALIASES.get(name, name)  # "sonnet" (the default alias for claude -p) is not an API model id
+        if forced == "openrouter" and provider != "openrouter":
+            name = _openrouter_slug(name)
+        elif forced in ("anthropic", "claude_cli") and "/" in name:  # an OpenRouter slug -> the provider's own name
+            name = re.sub(r"^anthropic/", "", name).replace(".", "-")
+        provider = forced
+    return provider, name
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: float) -> dict:
