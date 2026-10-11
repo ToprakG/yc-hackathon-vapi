@@ -39,7 +39,7 @@ if [ "$VOTES" -gt 1 ]; then
   echo "final vote: $VOTES independent extractions"
   PIDS=(); for i in $(seq 1 "$VOTES"); do
     env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
-      --slot "final-$(basename "$OUT")-e$i" --out "$OUT/ext$i" > "$OUT/ext$i.log" 2>&1 & PIDS+=($!)
+      --slot "${FINAL_SLOT:-final-$(basename "$OUT")}-e$i" --out "$OUT/ext$i" > "$OUT/ext$i.log" 2>&1 & PIDS+=($!)
   done; for p in "${PIDS[@]}"; do wait "$p"; done
   POLS=(); for i in $(seq 1 "$VOTES"); do [ -f "$OUT/ext$i/policy.json" ] && POLS+=("$OUT/ext$i/policy.json"); done
   BARGS=(); for b in "${BRIEFS[@]}"; do BARGS+=(--brief "$b"); done
