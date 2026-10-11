@@ -157,7 +157,7 @@ def _claude_cli(system: str, user: str, model: str, max_tokens: int, timeout: fl
 
     The empty working directory keeps this repo's CLAUDE.md and skills out of the call; the cleaned environment lets it nest
     inside a Claude Code session. temperature and max_tokens are not options of the CLI and are ignored."""
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith("CLAUDE_CODE_")
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE" and (k == "CLAUDE_CODE_OAUTH_TOKEN" or not k.startswith("CLAUDE_CODE_"))   # the long-lived login token must reach claude -p
            and not (k == "ANTHROPIC_API_KEY" and not v)}
     # no MCP servers, skills or user/project settings: they cost ~270k tokens per call otherwise (measured), ~600 with these flags
     cmd = ["claude", "-p", "--model", model, "--output-format", "json", "--system-prompt", system, "--tools", "",

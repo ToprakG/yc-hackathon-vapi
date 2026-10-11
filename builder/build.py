@@ -39,11 +39,18 @@ def default_builder_model() -> str:
 def run_agentic(args, briefs, api) -> dict:
     from builder.agentic.run import BuildOptions, run  # noqa: PLC0415
 
-    return run(BuildOptions(briefs=briefs, api=api, slot=args.slot, out_dir=Path(args.out), save=args.save,
+    report = run(BuildOptions(briefs=briefs, api=api, slot=args.slot, out_dir=Path(args.out), save=args.save,
                             max_minutes=args.max_minutes, model=args.model, max_usd=args.max_usd,
                             review=args.review == "on", review_minutes=args.review_minutes, fix_minutes=args.fix_minutes,
                             unit=args.unit == "on", localsim=args.localsim == "on",
                             keep_workspace=args.keep_workspace, self_test=args.self_test))
+    try:   # the Claude Code session log of the builder run goes next to our trace (organizers read it), secrets redacted
+        from builder.common.session_log import copy_session_logs  # noqa: PLC0415
+        if report.get("workspace_path") and report.get("trace"):
+            report["claude_session_logs"] = copy_session_logs(report["workspace_path"], report["trace"])
+    except Exception as e:  # noqa: BLE001
+        report["claude_session_logs_error"] = repr(e)[:200]
+    return report
 
 
 def tcc_command(args, briefs, api) -> tuple[list[str], dict]:

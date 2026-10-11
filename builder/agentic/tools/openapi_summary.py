@@ -76,7 +76,7 @@ def _security(spec: dict) -> dict:
     schemes = {}
     for name, sch in ((spec.get("components") or {}).get("securitySchemes") or {}).items():
         sch = _resolve(spec, sch)
-        schemes[name] = {k: sch[k] for k in ("type", "scheme", "bearerFormat", "in", "name", "description") if k in sch}
+        schemes[name] = {k: sch[k] for k in ("type", "scheme", "bearerFormat", "in", "name", "description", "flows") if k in sch}
     return {"schemes": schemes, "global": spec.get("security") or []}
 
 

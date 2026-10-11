@@ -479,6 +479,7 @@ def run(opts: BuildOptions, query_fn=None, freya_mod=None, validate_fn=validate.
     finally:
         report["trace"] = str(trace.dir)
         report["model"] = opts.model
+        report["workspace_path"] = str(ws)
         if opts.keep_workspace:
             report["workspace"] = str(ws)
         Path(opts.out_dir).mkdir(parents=True, exist_ok=True)
