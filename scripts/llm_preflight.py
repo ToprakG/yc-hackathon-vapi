@@ -26,7 +26,7 @@ def preflight(model=None, limit=LIMIT_S):
         text = llm.call_llm("Reply with the single word OK.", "ping", model, max_tokens=16, purpose="preflight",
                             deadline=t0 + limit, attempts=1)
     except Exception as e:  # noqa: BLE001  (LLMError, OutOfTime, subprocess errors: all mean "do not start the build")
-        hint = {"claude_cli": "is `claude` logged in and under its usage limit? (or set TCC_LLM_PROVIDER=anthropic with ANTHROPIC_API_KEY)",
+        hint = {"claude_cli": "is `claude` logged in and under its usage limit? (the final setup has no other provider: wait for the limit to reset, do not loop)",
                 "anthropic": "is ANTHROPIC_API_KEY set and valid?",
                 "openrouter": "is OPENROUTER_API_KEY set and valid?"}.get(provider, "check the provider settings")
         return False, f"LLM preflight FAILED: provider {provider}, model {name}: {str(e)[:300]}. {hint}"

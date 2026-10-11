@@ -12,6 +12,17 @@ lint -> Freya self-test and repair rounds (patcher mode in `FINAL_MODE.txt`, `pa
 
 Package for the submission form: `scripts/package_submission.sh <out dir>`.
 
+## Setup (from a fresh clone; checked on Python 3.14 with no API keys set: `python -m pytest tests/template_cc -q` -> 536 passed, 1 skipped)
+
+    python3 -m venv .venv310 && .venv310/bin/python -m pip install pydantic httpx python-dotenv fastapi uvicorn pyyaml rich anthropic openai pytest claude-agent-sdk
+    git clone https://github.com/ToprakG/build-the-builder vendor/build-the-builder     # the hackathon kit; gitignored, see below
+
+- `claude-agent-sdk` (the patcher) is not listed in `pyproject.toml`; the packages above are everything the builder, the tests and the mock bank import.
+- `vendor/build-the-builder` is the hackathon kit repo (we used commit `4fb4849`). The builder itself (extraction, compile, lint) does not
+  need it. The Freya self-test, the mock bank and the evaluation scripts do (they import its chat driver, mock bank and scorer), and the
+  tests run without it. It is not committed (`.gitignore`), so clone it as above.
+- `.env` is never committed. Put the names from the table below in it, or export them.
+
 ## Environment (names only; set them in the shell or in a `.env` next to the repo, never commit values)
 
 | name | needed for |

@@ -71,8 +71,11 @@ Keys
 - multi_product (bool), max_products (int).
 - retries: {{tool name: extra attempts after a failure}} as the brief or the API allows.
 - ask_limits: {{"right_party", "id_decline", "callback_reask", "vague_date", "stop_talking", "human_offer"}} counts.
-  id_decline = how many times the agent re-asks after the FIRST refusal of an identity question (the explanation is said once
-  on the first refusal); the call closes on refusal number id_decline + 1 ("a second refusal closes" -> 1).
+  Each count has its OWN meaning, do not mix them: right_party = the TOTAL number of times the agent asks the right-person question
+  (the first ask plus every repeat: "ask once more" -> 2; a brief that never repeats it -> 1). id_decline = how many times the agent
+  re-asks after the FIRST refusal of an identity question (the explanation is said once on the first refusal); the call closes on
+  refusal number id_decline + 1 ("a second refusal closes" -> 1). callback_reask, vague_date = how many times the agent asks again
+  for a callback time / for the exact day ("ask once for another time" -> 1).
 - routes: {{"human_before_verify": false}} only when the brief says a request for a person must not be honoured before identity is verified (quote it in extra_rules).
 - vague_date_offer: "deadline" | "attempt1" | "other": which date to offer when the customer gives no exact day (null if the brief is silent).
 - unused_tools: tools the brief never uses.

@@ -266,7 +266,7 @@ def test_llm_preflight_ok_and_fails_clearly(monkeypatch):
         raise llm.LLMError("claude usage limit reached", status=429)
     monkeypatch.setattr(llm, "_claude_cli", down)
     ok, msg = P.preflight()
-    assert not ok and "FAILED" in msg and "usage limit" in msg and "ANTHROPIC_API_KEY" in msg
+    assert not ok and "FAILED" in msg and "usage limit" in msg and "no other provider" in msg and "do not loop" in msg
 
     monkeypatch.setenv("TCC_LLM_PROVIDER", "anthropic")   # variant B: needs a key
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")

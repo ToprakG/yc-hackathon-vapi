@@ -84,6 +84,35 @@ def id_decline(brief: str):
 
 
 _REFUSE_RE = re.compile(_REFUSE, re.I)
+
+# ask_limits.right_party = the TOTAL number of times the agent asks "am I speaking with X?" (the first ask plus the repeats):
+# "ask once more" -> 2, "if it is still unclear after the second ask, close" -> 2. (Not a count of repeats, unlike id_decline.)
+_RP_CTX = re.compile(r"\b(speaking with|confirm\w*|right person|is that you|who is (speaking|this)|the customer\b.*\bidentity)\b", re.I)
+_RP_MORE = re.compile(r"\bask\w*\s+(?:(?:it|them|the question)\s+)?(once|twice|thrice|one time|two times)\s+more\b|\bask\s+again\b|\bre-?ask\b", re.I)
+_RP_NTH = re.compile(r"\b(second|third|fourth)\s+ask\b", re.I)
+
+
+def right_party(brief: str):
+    """(total asks, quote) from an explicit repeat of the right-party question in the opening; None when the brief is silent / disagrees."""
+    found: dict[int, str] = {}
+    for line in (brief or "").splitlines():
+        text = " ".join(re.sub(r"[*`|]", " ", line).split())
+        if not _RP_CTX.search(text):
+            continue
+        sents = [x for x in re.split(r"(?<=[.!?])\s+", text) if x]
+        for x in sents:
+            m = _RP_MORE.search(x)
+            if m and not _REFUSE_RE.search(x):
+                n = 1 + (COUNTS.get((m.group(1) or "once").lower(), 1) if m.group(1) else 1)
+                found.setdefault(n, x)
+            m = _RP_NTH.search(x)
+            if m:
+                found.setdefault(ORD[m.group(1).lower()], x)
+    if len(found) == 1:
+        v, q = next(iter(found.items()))
+        return v, q
+    return None
+
 _CAP_TRUE = re.compile(r"\b(no later than|not later than|not after|never after|never later than|capped at|must not be after|may not be after)\b[^.]{0,30}\bdeadline\b|"
                        r"\bafter the deadline[,;]? (then )?(propose|offer|use|take|name)\w* the deadline\b|"
                        r"\b(is|falls|would be|lands) after the deadline[,;]? (then )?(propose|offer|use|take|name)\w* the deadline\b", re.I)
@@ -124,6 +153,9 @@ def apply(policy: dict, brief: str) -> list[dict]:
     before = (policy.get("ask_limits") or {}).get("id_decline")
     put("ask_limits.id_decline", "/ask_limits/id_decline", lambda v: policy.setdefault("ask_limits", {}).__setitem__("id_decline", v),
         before, id_decline(brief))
+    rp = (policy.get("ask_limits") or {}).get("right_party")
+    put("ask_limits.right_party", "/ask_limits/right_party", lambda v: policy.setdefault("ask_limits", {}).__setitem__("right_party", v),
+        rp, right_party(brief))
     for i, step in enumerate(policy.get("attempt_plan") or []):
         put(f"attempt_plan[{i}].cap_at_deadline", f"/attempt_plan/{i}/cap_at_deadline",
             lambda v, st=step: st.__setitem__("cap_at_deadline", v), step.get("cap_at_deadline"), cap_at_deadline(brief, i + 1))

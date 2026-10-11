@@ -166,7 +166,8 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, seal
             ledger = bank(runner.origin, "/v1/practice/ledger/" + sessions[c["id"]]["customer_id"])
             scored = score_ledger(c, ledger)
             v = verdicts.get(ids[c["id"]], {})
-            if v.get("outcome") in (None, "queued", "running"):  # the analysis never arrived: not a failure, not retried in this run
+            if v.get("outcome") in (None, "queued", "running") or (v.get("outcome") == "error" and "analysis never arrived" in str(v.get("reason"))):
+                # the analysis never arrived (Freya's analysis service, seen 'Call ended but analysis never arrived (300s)'): not a failure
                 missing.append(c["id"])
                 continue
             freya_ok = v.get("outcome") == "pass"
@@ -187,7 +188,7 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, seal
                          "call_id": v.get("callId"), "tools": [x["tool"] for x in ledger.get("calls") or []]})
     finally:
         runner.close()
-    if freya_retry.is_outage(rows):  # no customer made any tool call: a Freya outage, not an agent failure -> every case MISSING, no result file
+    if freya_retry.is_outage(rows) or (not rows and missing):  # (also: every case without a verdict, e.g. a cancelled queue that never started)  # no customer made any tool call: a Freya outage, not an agent failure -> every case MISSING, no result file
         missing, rows = [c["id"] for c in chosen], []
         print(f"{brief}: FREYA OUTAGE signature (no tool call in any of {len(chosen)} cases): all MISSING, not counted", flush=True)
         (OUT).mkdir(parents=True, exist_ok=True)

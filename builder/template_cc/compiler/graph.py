@@ -465,7 +465,8 @@ ID_INIT        vars['cb_state'] = 'none'
         ai_ask = "f1_id_complete" in self.f and bool(P.line(self.p, "ai"))
         # F18: a first reply that gets no decision (extraction did not fire: a death, a robot question, chatter) is not left to a
         # free model turn: the robot answer is kept as the side line and the second ask is the policy's fixed line
-        f18_open = ("f18_side_resume" in self.f and "f1_id_complete" in self.f and second and bool(P.line(self.p, "ask_again")))
+        f18_open = ("f18_side_resume" in self.f and "f18_opening_fallback" in self.f and "f1_id_complete" in self.f and second
+                    and bool(P.line(self.p, "ask_again")))
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
                   extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])
                                              + ([("ai_asked", ["yes", "no"])] if ai_ask else [])),
