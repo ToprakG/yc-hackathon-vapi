@@ -41,3 +41,6 @@ policies of brief-a, f2, f3 are corrected to 1 (what a correct extraction gives)
 ## Folded into f18: a side intent in the first reply
 Deceased / third party / robot question in the first reply when extraction does not fire (B-010, B-015): the opening has an
 `always` fallback; the robot answer is kept (`aside_open`) and the second ask is the policy's `ask_again` line, fixed.
+
+## f19 extension: chatter is a non-answer
+An identity turn that is neither an answer, a refusal nor a side question (`id_intent` other) is a non-answer. It is re-asked once; the second non-answer in a row is a refusal and goes through the same counter (explain once, close on refusal `id_decline` + 1). This no longer depends on the policy having robot/scam lines (the `id_resume` node is built for f19 alone).
