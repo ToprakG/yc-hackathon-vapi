@@ -15,6 +15,9 @@ for f in $(.venv310/bin/python scripts/ablation_gains.py 2>> $E/ablation_gains.l
   scripts/recompile_set.sh m2b abl_$f "-$f" f5-halden-email
   GATE_BRIEFS="f5-halden-email" GATE_END=1815 scripts/gate_set.sh abl_$f abl_${f}_g
 done
+# idle window until 18:15: the first m2b measurement on f3, then the brief-b repeat (m2bg2)
+GATE_BRIEFS="f3-kestrel" GATE_END=1815 scripts/gate_set.sh m2b m2bg
+REP=2 GATE_BRIEFS="brief-b" GATE_END=1815 scripts/gate_set.sh m2b m2bg
 while [ "$(now)" -lt 1815 ]; do sleep 15; done
 slots=0
 while [ "$(now)" -lt 1840 ] && [ $slots -lt 3 ]; do
