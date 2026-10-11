@@ -53,9 +53,9 @@ git push origin <branch>
 git tag final-submit && git push origin final-submit && git rev-parse final-submit
 ```
 
-## Gaps found (not fixed; decide before 19:10)
+## Gaps found and how they were closed
 
-- **G1 (critical): `builder/build.py` only copies `out/<slot>/*.workflow.json` to `workflows/`, but `final_trace.py` writes that export only when the last-green build differs from the first build (a repair changed something) or nothing was saved.** In the f3 rehearsal the patcher took no action, `out/rehearsal/f3` has no `*.workflow.json`, so build.py would print `"saved": null` and leave `workflows/` empty. Workaround above (step 1 `cp` from the package). Proper fix: in `scripts/final_trace.py`, in the `elif saved:` branch also call `retry_5xx(freya.export_workflow, saved["workflow_id"], str(out / f"{slot}.workflow.json"))` (3 lines + a mocked test).
-- **G2: pair that refers to each other.** `build.py` runs `final_run.sh` once per brief, without the other hidden brief as a pool. If hidden brief 2 builds on hidden brief 1, call `python3 builder/build.py hidden1.md hidden2.md api2.json` for brief 2 (base first), as in the table above. The two-`--job` form of `final_run.sh` in `RUNBOOK_FINAL.md` is an alternative, but then the form's run command differs.
-- **G3:** `scripts/package_submission.sh` printed the old run command (`scripts/final_run.sh ...`); changed in this commit to the official one.
-- README_RUN gaps: see the report (no `build.py`, `cloudflared`, `env.sh`, `workflows/`/`traces/` mentions; `FREYA_BANK_TEAM_KEY` marked "not needed to build" but the self-test needs it).
+- **G1 (fixed, `84266d7`):** `final_trace.py` now also exports the unchanged first build to `<out>/<slot>.workflow.json`, so `build.py` copies it to `workflows/<slot>.workflow.json`. The `cp` workaround in step 1 above stays as a safety net (it only copies when the file is missing).
+- **G2 (docs only):** at 20:00 save BOTH hidden briefs into `briefs/` as `00-<name>.md` first (file placement; the `00-` prefix makes them sort before our dev `brief-a.md`/`brief-b.md`), then run `build.py` per brief. The resolver finds the referenced brief in `briefs/`. See `RUNBOOK_FINAL.md`.
+- **G3 (fixed):** `package_submission.sh` prints the official run command.
+- **README_RUN.md (fixed):** `build.py` as the command, the `workflows/` and `traces/` paths, Claude Code install + login, `cloudflared`, `.env` vs `env.sh`, `FREYA_BANK_TEAM_KEY` needed for the self-test.
