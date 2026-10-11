@@ -93,5 +93,14 @@ try:
     line(bool(sr) and not json.dumps(sr).count("outage\": true"), f"trace has the self-test result: {json.dumps({k: v for k, v in sr.items() if k not in ('type', 't')})[:200]}")
 except (OSError, KeyError, ValueError, NameError) as e:
     line(False, f"trace not readable ({e})")
+# 8 live mock: did the self-test's calls reach the Worker?  (informational: the self-test runs against its OWN kit-shaped bank + tunnel, see NOTE)
+if mode == "live-mock":
+    import urllib.request
+    try:
+        mu = json.load(open(b / "submission.json"))["mock_url"].rstrip("/")
+        recs = json.load(urllib.request.urlopen(urllib.request.Request(mu + "/records", headers={"user-agent": "Mozilla/5.0"}), timeout=20)).get("records", [])
+        print(f"NOTE    GET {mu}/records: {len(recs)} record(s), tools {sorted({r.get('tool') for r in recs})} (self-test calls reach the Worker only if the self-test is pointed at it)")
+    except Exception as e:  # noqa: BLE001
+        print(f"NOTE    GET /records failed: {e}")
 print("\nVERDICT:", "ALL OK" if not problems else f"{len(problems)} PROBLEM(S)")
 sys.exit(0 if not problems else 1)
