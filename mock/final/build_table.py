@@ -3,7 +3,7 @@
 
     python3 mock/final/build_table.py <test-customers.json> [-e mock/final/endpoints.json] [-o mock/final/table.freyabank.json] [--openapi bank.openapi.json]
 
-One rule per customer / card / week from the pack, answered with exactly the listed status and body ('response' or 'yanit', 'http', 'gecikmeSaniye' = delay).
+One rule per customer / card / week from the pack, answered with exactly the listed status and body ('response' or 'yanit', 'http', 'gecikmeSaniye' / 'delaySeconds' = delay_seconds).
 Section 6 changes only endpoints.json (method, path, aliases, which fields select the answer).
 """
 import argparse, json, pathlib, re
@@ -27,8 +27,9 @@ def walk(svc_value, levels):
 
 def out_of(lf):
     o = {"status": lf["http"], "body": lf.get("response", lf.get("yanit", {}))}
-    if lf.get("gecikmeSaniye"):
-        o["delay"] = lf["gecikmeSaniye"]
+    d = lf.get("gecikmeSaniye", lf.get("delaySeconds", lf.get("delay_seconds")))
+    if d:
+        o["delay_seconds"] = d
     return o
 
 

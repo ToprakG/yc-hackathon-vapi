@@ -59,7 +59,7 @@ test("fault header and missing optional parts degrade", async () => {
 
 test("endsWith/startsWith, header inputs as ledger key, delay (capped)", async () => {
   const sp = { mode: "table", id: "h", ledger_key: ["header.x-cust", "cust"], max_delay: 0.05, endpoints: [{ name: "e", method: "POST", path: "/e", rules: [
-    { when: { card: { $startsWith: "5400", $endsWith: "1234" }, "header.x-cust": "C1" }, status: 200, body: { who: "{{header.x-cust}}" }, delay: 99 },
+    { when: { card: { $startsWith: "5400", $endsWith: "1234" }, "header.x-cust": "C1" }, status: 200, body: { who: "{{header.x-cust}}" }, delay_seconds: 99 },
     { when: { card: { $endsWith: "9999" } }, status: 201, body: {} }] }] };
   const b = new TableBank(sp, mem());
   const t0 = Date.now();

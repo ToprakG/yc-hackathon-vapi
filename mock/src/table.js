@@ -103,7 +103,7 @@ export class TableBank {
       out = rule.sequence[Math.min(n, rule.sequence.length - 1)];
     }
     const status = out.status ?? 200, resp = fill(out.body ?? {}, ctx);
-    const delay = Math.min(Number(out.delay ?? rule?.delay ?? 0) || 0, this.spec.max_delay ?? 25);   // seconds; a slow service
+    const delay = Math.min(Number(out.delay_seconds ?? out.delay ?? rule?.delay_seconds ?? rule?.delay ?? 0) || 0, this.spec.max_delay ?? 25);   // seconds; a slow service
     if (delay > 0) await new Promise((r) => setTimeout(r, delay * 1000));
     const recs = [];
     for (const rec of [].concat(rule?.record ?? [], out !== rule ? out.record ?? [] : [])) {
