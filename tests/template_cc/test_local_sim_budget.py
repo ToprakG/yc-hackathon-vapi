@@ -52,3 +52,14 @@ def test_the_stop_file_stops_every_process_and_blocks_slots(ls):
     with pytest.raises(ls.LimitHit):
         with ls.Slot():
             pass
+
+
+def test_time_cutoffs_normal_at_1830_sealed_until_1915_nothing_after(ls, monkeypatch):
+    monkeypatch.setattr(ls, "TOTAL_CAP", 100)
+    for now, normal, sealed in ((1829, True, True), (1830, False, True), (1845, False, True), (1914, False, True), (1915, False, False)):
+        monkeypatch.setattr(ls, "hhmm", lambda n=now: n)
+        assert (ls.budget_claim(False) is not None) == normal, now
+        assert (ls.budget_claim(True) is not None) == sealed, now
+    monkeypatch.setattr(ls, "hhmm", lambda: 1916)
+    with pytest.raises(ls.Cutoff):
+        ls.claude_json("s", "u", None, "test")

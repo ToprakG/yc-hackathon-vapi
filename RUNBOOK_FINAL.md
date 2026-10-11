@@ -7,8 +7,8 @@ Times below assume start at 20:00: brief 1 20:00 to 20:30, brief 2 20:30 to 21:0
 
 ## 0. Before 20:00 (5 min)
 - `git status` clean on the commit that will be submitted (`git rev-parse HEAD`; S0 merges, so check this is the merged hash).
-- `.env` keys present (**names only**): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_WORKSPACE_ID`, `FREYA_API_URL` (default staging URL),
-  `ANTHROPIC_API_KEY` (only for variant B below), `OPENROUTER_API_KEY` (only if `TCC_LLM_PROVIDER=openrouter`).
+- `.env` keys present (**names only**): `FREYA_API_KEY`, `FREYA_BANK_TEAM_KEY`, `FREYA_WORKSPACE_ID`, `FREYA_API_URL` (default staging URL).
+  There is **no** Anthropic / OpenRouter key in the final setup: the only LLM path is the local `claude` login (`claude_cli`).
   `FREYA_API_KEY_W2` is never used (final_run unsets it).
 - One read-only Freya check (no loop). If it 5xx's, see section 4.
 - `cloudflared` is installed (`cloudflared --version`); `.venv310/bin/python` exists; no other eval holds `out/template_cc/eval/lane1.lock`.
@@ -19,7 +19,7 @@ Times below assume start at 20:00: brief 1 20:00 to 20:30, brief 2 20:30 to 21:0
 
 ```bash
 cd <repo>   # the checkout that holds the submitted commit
-# LLM provider: pick ONE variant, see below
+# LLM provider: claude_cli only (leave TCC_LLM_PROVIDER unset), see "LLM provider" below
 FINAL_MODE=$(cat FINAL_MODE.txt) FINAL_VOTES=3 \
 scripts/final_run.sh --budget-min 30 --ship-min 26 \
   --job "hidden/b1.md|hidden/b1.openapi.json|out/final/b1" \
@@ -27,9 +27,9 @@ scripts/final_run.sh --budget-min 30 --ship-min 26 \
   2>&1 | tee out/final/final_run.all.log
 ```
 
-### LLM provider
-- **(A) claude_cli: the default.** Set nothing (`TCC_LLM_PROVIDER` unset or `claude_cli`). The builder calls `claude -p` with model `sonnet`; needs the Claude login on this machine and no usage limit.
-- **(B) anthropic: only if an `ANTHROPIC_API_KEY` exists.** Put it in `.env` (name only here), then `export TCC_LLM_PROVIDER=anthropic` before the command. Same prompts, same model (claude-sonnet-5-5), through the API.
+### LLM provider: variant A (claude_cli) is the ONLY path
+- Set nothing (`TCC_LLM_PROVIDER` unset or `claude_cli`). The builder calls `claude -p` with model `sonnet`; needs the Claude login on this machine and no usage limit.
+- There is no switch-to-anthropic / openrouter fallback in the final setup (no keys). If the preflight stops, see "Quota" below.
 - **Preflight (automatic):** `final_run.sh` starts every brief with one tiny call to the chosen provider (`scripts/llm_preflight.py`, 25 s limit). It logs `LLM preflight ok: provider X ...` or `STOP: no usable LLM provider` with the reason and exits 1 for that brief within 30 s. Run it by hand first: `.venv310/bin/python scripts/llm_preflight.py`. `SKIP_PREFLIGHT=1` turns it off.
 
 Currently `FINAL_MODE.txt` = `patcher_on`. Flags are not passed: `final_run.sh` reads them itself via `scripts/final_flags.sh` = `FINAL_FLAGS.txt` if it exists, else `M1_FLAGS.txt` (17 flags now). **Switching to m2 = write the m2 list into `FINAL_FLAGS.txt`** (one line, comma-separated, committed). Check what will be used: `bash scripts/final_flags.sh . <main checkout>`; the log line `final_run: ... flags: ...` shows it per brief. An explicit `--set-flags` still overrides.
@@ -70,7 +70,15 @@ Single brief (re-run after a failure): same command with one `--job`.
 - While it is down, brief 1 and 2 still build (build is offline). Run with `FINAL_SAVE=none` if even saving fails; the submission then has no workflow id, so tell S0 and re-save with `scripts/final_build.sh` once Freya answers.
 - Outage guard is automatic (see section 3).
 
-**Claude usage limit / LLM errors (preflight STOP)**: switch from variant A to B (`export TCC_LLM_PROVIDER=anthropic`, key in `.env`; or `openrouter` with `OPENROUTER_API_KEY`). The model strings stay the same. Re-run the failed brief.
+**Claude usage limit / LLM errors (preflight STOP)**: there is no other provider. Do not start the build; see "Quota" (below): wait for the limit to reset or tell S0. Re-run the failed brief when `scripts/llm_preflight.py` says ok.
+
+## 4b. Quota (the claude_cli quota is the ONLY path to the final build)
+- **19:45 preflight:** `.venv310/bin/python scripts/llm_preflight.py` (one tiny `claude -p` call, 25 s limit; exit 0 = usable). Run it once at 19:45, by hand. If it fails
+  (`LLM preflight FAILED ...`): do not retry in a loop; check `claude` login and the usage-limit message, wait, retry every 5 minutes at most. `final_run.sh` repeats the same check per brief.
+- **No claude_cli call of any kind after 19:15**, except the rehearsal (f3, about 19:00) and the 19:45 preflight. That covers every session (S1-S4): local sims, extractions, patcher runs, evals with the local judge.
+- **local_sim.py enforces it:** it refuses new (normal) conversations from 18:30, the `--sealed` check until 19:15, and makes no claude call at all after 19:15 (`LOCALSIM_CUTOFF=1830`, `LOCALSIM_HARD_STOP=1915`). The first usage / rate-limit warning in any run writes `out/template_cc/localsim/_budget/STOP` and stops all local sim runs.
+- Budget today (all sessions): local_sim 300 conversations in total, 4 concurrent; the 18:45 sealed check is 4 briefs (brief-b, f3, f5, f7) x m1 and m2 = 80 conversations.
+- If a usage warning appears at any time: stop everything that calls claude, tell S0, and keep the remaining quota for the 20:00 run.
 
 ## 5. Packaging and submission
 1. After both briefs finished (about 21:00):

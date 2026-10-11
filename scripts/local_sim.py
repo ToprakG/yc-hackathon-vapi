@@ -61,9 +61,25 @@ class _Stop:
 
 STOP = _Stop()
 
+# Quota protection (the claude_cli quota is the only path to the 20:00 final build):
+#   normal conversations are refused from LOCALSIM_CUTOFF (18:30); the --sealed check may still run until LOCALSIM_HARD_STOP (19:15);
+#   no claude call of this script happens after 19:15 at all.
+CUTOFF = int(os.environ.get("LOCALSIM_CUTOFF", "1830"))
+HARD_STOP = int(os.environ.get("LOCALSIM_HARD_STOP", "1915"))
 
-def budget_claim() -> int | None:
-    """Count one more conversation against the shared cap; returns the new total, or None when the cap is reached."""
+
+def hhmm() -> int:
+    return int(time.strftime("%H%M"))
+
+
+class Cutoff(Exception):
+    pass
+
+
+def budget_claim(sealed: bool = False) -> int | None:
+    """Count one more conversation against the shared cap; returns the new total, or None when the cap or the time cutoff is reached."""
+    if hhmm() >= (HARD_STOP if sealed else CUTOFF):
+        return None
     BUDGET.mkdir(parents=True, exist_ok=True)
     with open(BUDGET / "count.json", "a+") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
@@ -149,6 +165,8 @@ def claude_json(system: str, user: str, schema: dict | None, purpose: str) -> di
     """One `claude -p` call (Sonnet). No retry on a limit warning: it stops the whole run. One retry on a timeout."""
     if STOP.is_set():
         raise LimitHit("stopped after a limit warning")
+    if hhmm() >= HARD_STOP:
+        raise Cutoff(f"no claude call of local_sim after {HARD_STOP}")
     if schema is not None:
         system = (f"{system}\n\nReply with ONE JSON object only, no prose. It must match this JSON Schema (return an instance with real "
                   f"values, not the schema):\n{json.dumps(schema)}")
@@ -410,11 +428,15 @@ def main(argv=None) -> int:
             return None
         try:
             with Slot():
-                n_used = budget_claim()
+                n_used = budget_claim(a.sealed)
                 if n_used is None:
-                    print(f"cap reached: {TOTAL_CAP} conversations used in total (all sessions)", flush=True)
+                    why = f"time cutoff ({HARD_STOP if a.sealed else CUTOFF})" if hhmm() >= (HARD_STOP if a.sealed else CUTOFF) else f"cap reached: {TOTAL_CAP} conversations used in total (all sessions)"
+                    print(f"not started: {why}", flush=True)
                     return None
                 r = run_conversation(wf, case, config, bank, a.rep)
+        except Cutoff as e:
+            print("not finished:", e, flush=True)
+            return None
         except LimitHit as e:
             STOP.set(str(e)[:120])
             print("STOP: claude limit warning (all local sim runs stop):", e, flush=True)
