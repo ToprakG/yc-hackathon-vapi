@@ -139,6 +139,15 @@ def main():
     elif saved:
         ev("freya", what="save_workflow (run.py, first build; last-green is the same build)", slot=slot, **{k: v for k, v in saved.items() if k in ("workflow_id", "agent_id", "version")})
         lines.append(f"freya: workflow saved by the build: {saved}")
+        if os.environ.get("FINAL_SAVE", "freya") == "freya" and os.environ.get("FREYA_API_KEY") and saved.get("workflow_id"):
+            # the first build is the last-green one: export it too, builder/build.py copies <out>/<slot>.workflow.json to workflows/
+            try:
+                import freya  # noqa: PLC0415
+                retry_5xx(freya.export_workflow, saved["workflow_id"], str(out / f"{slot}.workflow.json"))
+                lines.append(f"freya: exported workflow {saved['workflow_id']} to {out / (slot + '.workflow.json')}")
+            except Exception as e:  # noqa: BLE001
+                ev("freya_error", error=repr(e)[:300])
+                lines.append(f"freya: exporting the workflow failed: {e!r}"[:300])
     if tdir.is_dir():
         with (tdir / "events.jsonl").open("a", encoding="utf-8") as f:
             for e in events:

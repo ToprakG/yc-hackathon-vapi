@@ -307,3 +307,59 @@ def test_infra_error_transcript_is_missing_and_half_infra_is_an_outage():
     assert C.infra_error(dead) and not C.infra_error(fine)
     src = (REPO / "scripts" / "selftest_run.py").read_text()
     assert "infra_error(transcript)" in src and "2 * len(infra) >= len(chosen)" in src   # wired: infra rows are MISSING, half of them = outage
+
+
+# --- the export of an unchanged first build (builder/build.py copies <out>/<slot>.workflow.json to workflows/) ------------------------------
+def _run_final_trace(tmp_path, monkeypatch, env, export):
+    import importlib.util
+    import types
+    out = tmp_path / "out"
+    base = out / "r0"
+    (tmp_path / "trace").mkdir()
+    base.mkdir(parents=True)
+    (base / "workflow.json").write_text("{}")
+    (base / "build_report.json").write_text(json.dumps({"slot": "s", "trace": str(tmp_path / "trace"), "saved": {"workflow_id": "w1", "agent_id": "a1"}}))
+    fake = types.ModuleType("freya")
+    fake.export_workflow = export
+    monkeypatch.setitem(sys.modules, "freya", fake)
+    for k in ("FINAL_SAVE", "FREYA_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    spec = importlib.util.spec_from_file_location("final_trace", REPO / "scripts" / "final_trace.py")
+    ft = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ft)
+    monkeypatch.setattr(sys, "argv", ["final_trace.py", "--out", str(out), "--base", str(base), "--green", str(base), "--slot", "tcc-x"])
+    monkeypatch.setattr(ft.time, "sleep", lambda s: None) if hasattr(ft, "time") else None
+    ft.main()
+    return out, tmp_path / "trace"
+
+
+def test_unchanged_first_build_is_exported_for_build_py(tmp_path, monkeypatch):
+    got = []
+
+    def export(wid, path):
+        got.append(wid)
+        Path(path).write_text('{"exported": true}')
+    out, tdir = _run_final_trace(tmp_path, monkeypatch, {"FINAL_SAVE": "freya", "FREYA_API_KEY": "k"}, export)
+    assert got == ["w1"] and (out / "tcc-x.workflow.json").exists()
+    assert "exported workflow w1" in (tdir / "trace.txt").read_text()
+
+
+def test_no_export_when_not_saving_or_when_the_export_keeps_failing(tmp_path, monkeypatch):
+    def export(wid, path):
+        raise AssertionError("must not be called")
+    out, _ = _run_final_trace(tmp_path, monkeypatch, {"FINAL_SAVE": "none", "FREYA_API_KEY": "k"}, export)
+    assert not list(out.glob("*.workflow.json"))
+    n = {"c": 0}
+
+    def down(wid, path):
+        n["c"] += 1
+        raise RuntimeError("502 Bad Gateway")
+    import selftest_common
+    monkeypatch.setattr(selftest_common.time, "sleep", lambda s: None)
+    tmp2 = tmp_path / "second"
+    tmp2.mkdir()
+    out2, t2 = _run_final_trace(tmp2, monkeypatch, {"FINAL_SAVE": "freya", "FREYA_API_KEY": "k"}, down)
+    assert n["c"] == 3 and not list(out2.glob("*.workflow.json"))                    # 3 tries, then a freya_error event, the run goes on
+    assert "freya_error" in (t2 / "events.jsonl").read_text() and (out2 / "build_report.json").exists()
