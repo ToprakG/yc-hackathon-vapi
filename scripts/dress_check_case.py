@@ -55,6 +55,7 @@ try:
     heads = re.findall(r"(?m)^=== FILE: (.+) ===$", txt)
     line(heads[:2] == ["BRIEF.md", "README.md"] and "ek_kurallar.docx" in heads and "tablo.xlsx" in heads, f"ingest order {heads}")
     line("ş" in txt and "| Gün | Kural |" in txt, "docx/xlsx converted, Turkish letters intact")
+    line("FAILED" not in (b / "ingest" / "ingest_notes.txt").read_text(), "no file conversion failed")
     line(bool(json.loads((b / "ingest" / "tools.openapi.json").read_text()).get("paths")), "tool API found with paths")
 except OSError as e:
     line(False, f"ingest output missing ({e})")

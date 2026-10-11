@@ -113,7 +113,18 @@ def write_submission(args, report: dict, mock_url: str) -> Path:
     return REPO / "submission.json"
 
 
+def _reexec_in_venv():
+    """`python3 builder/build.py ...` may run on a Python without the converters (python-docx, openpyxl, pypdf): run under .venv310 when it exists."""
+    venv = REPO / ".venv310"
+    py = venv / "bin" / "python"
+    if py.exists() and Path(sys.prefix).resolve() != venv.resolve() and not os.environ.get("BUILD_PY_REEXEC"):
+        os.environ["BUILD_PY_REEXEC"] = "1"
+        os.execv(str(py), [str(py), *sys.argv])
+
+
 def main(argv=None) -> int:
+    if argv is None:
+        _reexec_in_venv()
     args = parse(argv)
     mock_url = ""
     if Path(args.inputs[0]).is_dir():   # final format: <case_folder> <mock_url>
@@ -129,6 +140,9 @@ def main(argv=None) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"error: ingest failed: {e}", file=sys.stderr)
             return 2
+        for n in ing["notes"]:
+            if "FAILED" in n:
+                print(f"WARNING ingest: {n}", file=sys.stderr)
         print(f"ingest: {ing['files']} file(s), {ing['chars']} chars, tool API from {ing['api_source']}", file=sys.stderr)
         briefs, api = [Path(ing["brief"])], Path(ing["api"])
     else:
