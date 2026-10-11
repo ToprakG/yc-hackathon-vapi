@@ -349,6 +349,12 @@ def main():
         print("OK" if not bad else "\n".join(bad)); return 1 if bad else 0
     openapi = json.loads(Path(a.openapi).read_text()) if a.openapi else {}
     contract = "\n\n".join(f"## {Path(f).name}\n" + read_text(Path(f)) for f in a.contract or [])
+    if not openapi:   # no openapi file in the case folder: the LLM writes it from the contract (paths and field names exactly as the contract states them)
+        openapi = json_out(llm("You write OpenAPI 3.0 documents.", "Write the OpenAPI 3.0 JSON of this service contract: every endpoint (servers/paths/methods), request and response "
+                               "schemas with the contract's own field names and enums, descriptions in the contract's language. If the contract already contains an OpenAPI "
+                               "document or JSON schemas, reproduce them exactly. Output ONLY the JSON.\n\n" + contract[:60000], 16000))
+        if not openapi.get("paths"):
+            raise SystemExit("FAILED: no openapi given and none could be derived from the contract")
     spec = {"spec_version": 1, "id": a.id, "name": a.name or a.id, "config": load_config(a.config_from, contract, openapi),
             "openapi": openapi, "customers": load_customers(Path(a.customers), a.only_brief)}
     out = Path(a.out or REPO / "mock" / f"spec.{a.id}.json")
