@@ -27,6 +27,15 @@ def is_tool_api(path: Path) -> bool:
     return isinstance(data, dict) and "openapi" in data
 
 
+def api_operations(path: Path) -> list[str]:
+    """The operation names (last path segment) of a tool API file; empty when it declares none."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+        return []
+    return [p.strip("/").split("/")[-1] for p in (data.get("paths") or {})] if isinstance(data, dict) else []
+
+
 def split_inputs(paths) -> tuple[list[Path], Path]:
     """Positional arguments -> (brief files in the given order, the one tool API file)."""
     paths = [Path(p) for p in paths]
@@ -37,6 +46,8 @@ def split_inputs(paths) -> tuple[list[Path], Path]:
     if len(apis) != 1:
         raise InputError(f"need exactly one tool API file (JSON with a top-level 'openapi' key), got {len(apis)}: "
                          + ", ".join(map(str, apis)))
+    if not api_operations(apis[0]):
+        raise InputError(f"the tool API {apis[0]} declares no operations (paths is empty): the agent may use only the operations of the API it is given")
     briefs = [p for p in paths if p != apis[0]]
     if not briefs:
         raise InputError("need at least one brief file")

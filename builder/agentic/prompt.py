@@ -12,6 +12,8 @@ def task_prompt(n_briefs: int, minutes: float, skill: str = "build-collections-a
 
 Inputs: the brief material is {files}, in override order (a later file overrides an earlier one). The tool API is input/tools.openapi.json.
 
+Tools: use ONLY the operations of input/tools.openapi.json (names, URLs, fields, enums as given there). Never add a tool, endpoint or field that API does not define, and do not assume the usual banking tools exist: if the brief describes an operation the API lacks, record that in rules.json and do not invent it.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:

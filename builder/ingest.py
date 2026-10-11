@@ -126,7 +126,7 @@ def _openapi_of(p: Path):
             return None
     except Exception:  # noqa: BLE001
         return None
-    return d if isinstance(d, dict) and "openapi" in d else None
+    return d if isinstance(d, dict) and "openapi" in d and d.get("paths") else None   # an empty spec is no tool API
 
 
 def fetch_openapi(mock_url: str):
