@@ -2,7 +2,7 @@
 name = "agentforge"
 version = "0.1.0"
 description = "Builds, attacks, scores and patches voice agents for insurance and banking."
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2",
     "httpx",

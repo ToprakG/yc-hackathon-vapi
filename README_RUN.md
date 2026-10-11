@@ -32,8 +32,14 @@ Reproducing without a Claude Code login:
 
 ## Runtime and Python
 
-- Python: developed and tested on 3.10.20 (`.venv310`); `pyproject.toml` declares `>=3.11`. Standard library plus the packages in `pyproject.toml`; the patcher
+- Python: 3.10 or newer (`requires-python = ">=3.10"` in `pyproject.toml`); developed and tested on 3.10.20 (`.venv310`). Standard library plus the packages in `pyproject.toml`; the patcher
   uses the Claude Agent SDK (`claude_agent_sdk`).
 - Expected runtime: at most 30 minutes per brief (`--budget-min 30 --ship-min 26`; the build ships the last green workflow by minute 26 at the latest).
   Extraction takes about 2-4 minutes per brief, compile and lint seconds, the rest is the Freya self-test and repair rounds.
 - Tests (offline, no network): `python -m pytest tests/template_cc -q`.
+
+## Known behaviour worth knowing
+
+- Amounts: the first persuasion attempt asks for the full past-due amount (or the floor when the customer already said the full amount is too
+  much). If the customer names their own amount between the floor and the full amount, both included, the agent accepts it as the brief's rules say;
+  it does not push for the full amount, so a promised total can be below the maximum. This is deliberate and was not changed.
