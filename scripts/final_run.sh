@@ -39,7 +39,7 @@ set -- "${POS[@]}"
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); API=$(cd "$(dirname "$API")" && pwd)/$(basename "$API")
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}")
-FEATURES=${FLAGS_ARG:-${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || cat "$MAIN/FINAL_FLAGS.txt" 2>/dev/null || cat "$MAIN/M1_FLAGS.txt" 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
+FEATURES=${FLAGS_ARG:-${FEATURES:-$(bash scripts/final_flags.sh . "$MAIN" || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
 export FEATURES SELFTEST_API=$API SELFTEST_SLOT="st-$(echo "$OUT" | shasum | cut -c1-6)"  # one Freya workflow slot per brief run, updated in place (preference; a new one is fine if that fails)
 T_START=$(date +%s); MAX_ROUNDS=${MAX_ROUNDS:-3}; FINAL_MODE=${FINAL_MODE:-patcher_on}
 if [ -n "$BUDGET_MIN" ]; then END=$((T_START + BUDGET_MIN * 60)); CUT=$((T_START + SHIP_MIN * 60)); ROUND_S=${ROUND_S:-720}

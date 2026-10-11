@@ -17,7 +17,7 @@ while [ $# -gt 0 ]; do case "$1" in --disable) DISABLE="$2"; shift 2;; --disable
 set -- "${REST[@]}"
 [ $# -ge 3 ] || { echo "usage: $0 [--disable flag,flag] <brief files...> <tool-api.json> <out-dir>"; exit 2; }
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
-FEATURES=${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
+FEATURES=${FEATURES:-$(bash scripts/final_flags.sh . 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
 {
   FEATURES=$(python3 - "$FEATURES" "$DISABLE" <<'PY'
 import sys

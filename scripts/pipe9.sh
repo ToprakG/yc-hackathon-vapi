@@ -4,7 +4,7 @@
 # 3 briefs at a time = 9 concurrent claude_cli extractions (3 votes each). No Freya call. Then a summary table.
 cd "$(dirname "$0")/.." || exit 2
 P=${1:-3}; SET=${2:-pipe9}; MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
-FLAGS=$(cat FINAL_FLAGS.txt 2>/dev/null || cat "$MAIN/FINAL_FLAGS.txt" 2>/dev/null || cat "$MAIN/M1_FLAGS.txt")
+FLAGS=$(bash scripts/final_flags.sh . "$MAIN")
 BASE=out/template_cc/$SET; mkdir -p "$BASE"
 run_one() { b=$1
   case $b in brief-a|brief-b) BR=briefs/$b.md; API=tools/openapi.json;; *) BR=testbed/fake_briefs/$b/brief.md; API=testbed/fake_briefs/$b/tools.openapi.json;; esac

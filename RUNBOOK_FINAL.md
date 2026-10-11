@@ -22,7 +22,6 @@ cd <repo>   # the checkout that holds the submitted commit
 # LLM provider: pick ONE variant, see below
 FINAL_MODE=$(cat FINAL_MODE.txt) FINAL_VOTES=3 \
 scripts/final_run.sh --budget-min 30 --ship-min 26 \
-  --set-flags "$(cat M1_FLAGS.txt)" \
   --job "hidden/b1.md|hidden/b1.openapi.json|out/final/b1" \
   --job "hidden/b2.md|hidden/b2.openapi.json|out/final/b2" \
   2>&1 | tee out/final/final_run.all.log
@@ -33,7 +32,7 @@ scripts/final_run.sh --budget-min 30 --ship-min 26 \
 - **(B) anthropic: only if an `ANTHROPIC_API_KEY` exists.** Put it in `.env` (name only here), then `export TCC_LLM_PROVIDER=anthropic` before the command. Same prompts, same model (claude-sonnet-5-5), through the API.
 - **Preflight (automatic):** `final_run.sh` starts every brief with one tiny call to the chosen provider (`scripts/llm_preflight.py`, 25 s limit). It logs `LLM preflight ok: provider X ...` or `STOP: no usable LLM provider` with the reason and exits 1 for that brief within 30 s. Run it by hand first: `.venv310/bin/python scripts/llm_preflight.py`. `SKIP_PREFLIGHT=1` turns it off.
 
-Currently `FINAL_MODE.txt` = `patcher_on`. `M1_FLAGS.txt` = `f11_promise_typed,...,f25_dispute_wins` (17 flags, read from the file, do not retype).
+Currently `FINAL_MODE.txt` = `patcher_on`. Flags are not passed: `final_run.sh` reads them itself via `scripts/final_flags.sh` = `FINAL_FLAGS.txt` if it exists, else `M1_FLAGS.txt` (17 flags now). **Switching to m2 = write the m2 list into `FINAL_FLAGS.txt`** (one line, comma-separated, committed). Check what will be used: `bash scripts/final_flags.sh . <main checkout>`; the log line `final_run: ... flags: ...` shows it per brief. An explicit `--set-flags` still overrides.
 If a brief has several files, put them space-separated in the first field: `--job "a.md b.md|tools.json|out/final/b1"`.
 Run it in `tmux`/`nohup` so a closed terminal does not kill it.
 

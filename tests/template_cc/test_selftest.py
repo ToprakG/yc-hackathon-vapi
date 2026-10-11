@@ -281,3 +281,20 @@ def test_llm_preflight_ok_and_fails_clearly(monkeypatch):
     monkeypatch.setenv("TCC_LLM_PROVIDER", "bogus")
     ok, msg = P.preflight()
     assert not ok and "bogus" in msg
+
+
+def test_final_flags_file_precedence(tmp_path):
+    import subprocess
+    sh = str(REPO / "scripts" / "final_flags.sh")
+    root, main = tmp_path / "r", tmp_path / "m"
+    root.mkdir(); main.mkdir()
+    run = lambda: subprocess.run(["bash", sh, str(root), str(main)], capture_output=True, text=True)
+    assert run().returncode == 1                                   # nothing there: no output, exit 1
+    (main / "M1_FLAGS.txt").write_text("f1, f2\n")
+    assert run().stdout.strip() == "f1,f2"                         # default: M1_FLAGS.txt, spaces and newline stripped
+    (root / "M1_FLAGS.txt").write_text("f1,f2,f3\n")
+    assert run().stdout.strip() == "f1,f2,f3"
+    (main / "FINAL_FLAGS.txt").write_text("m2a,m2b\n")
+    assert run().stdout.strip() == "m2a,m2b"                       # FINAL_FLAGS.txt (m2) beats every M1 file
+    (root / "FINAL_FLAGS.txt").write_text("\n")                    # an empty override is ignored
+    assert run().stdout.strip() == "m2a,m2b"
