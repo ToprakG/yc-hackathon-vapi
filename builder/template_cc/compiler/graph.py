@@ -704,7 +704,21 @@ ID_INIT        vars['cb_state'] = 'none'
                 SAY_EXPLAIN
             else:
                 vars['id_route'] = 'decline'
-        """.replace("PEND", pend).replace("EXPLAIN_N", str(limit if f19 else min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
+        """
+        if f19:
+            # id_decline = the number of re-asks after the FIRST refusal; the explanation is said once, on refusal 1; the call
+            # closes (the outcome of the refusal path) on refusal number id_decline + 1 ("explain once, close after the second refusal" -> id_decline = 1)
+            body = body.replace("""            if n <= EXPLAIN_N:
+                vars['id_route'] = 'explain'
+                SAY_EXPLAIN
+            else:""", """            if n <= EXPLAIN_N:
+                if n == 1:
+                    vars['id_route'] = 'explain'
+                    SAY_EXPLAIN
+                else:
+                    vars['id_say'] = prompt
+            else:""")
+        body = body.replace("PEND", pend).replace("EXPLAIN_N", str(limit if f19 else min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
            .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
         body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
         uses = ("num",)

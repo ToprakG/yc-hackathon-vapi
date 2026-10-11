@@ -128,13 +128,22 @@ def test_a_first_reply_without_a_decision_gets_the_fixed_second_ask():
     assert "opening_resume" not in off["nodes"] and off["nodes"]["opening_ask2"]["on_enter"] == {"type": "llm"}
 
 
-def test_the_explanation_count_is_the_policy_limit_not_a_constant():
-    def two(p):
-        p["ask_limits"]["id_decline"] = 2
-    wf, pol = build(BASE + ",f19", two)
-    v = start(wf, pol, id_intent="refuses")
-    routes = []
-    for _ in range(3):
-        v = run_code(wf, "id_refusal_count", v)
-        routes.append(v["id_route"])
-    assert routes == ["explain", "explain", "decline"]
+def test_id_decline_is_the_number_of_re_asks_after_the_first_refusal():
+    """id_decline=1: refusal 1 -> explanation once + re-ask; refusal 2 -> close as declined; never a third ask."""
+    def lim(n):
+        def f(p):
+            p["ask_limits"]["id_decline"] = n
+        return f
+    for n, expect in ((0, ["decline"]), (1, ["explain", "decline"]), (2, ["explain", "ask", "decline"])):
+        wf, pol = build(BASE + ",f19", lim(n))
+        v = start(wf, pol, id_intent="refuses", id_q="date_of_birth")
+        got = []
+        for _ in range(len(expect)):
+            v = run_code(wf, "id_refusal_count", dict(v, id_intent="refuses"))
+            got.append(v["id_route"])
+            if got[-1] == "explain":
+                assert v["id_say"].startswith(pol["lines"]["id_reason"]["text"])  # the explanation, said once
+            if got[-1] == "ask":
+                assert v["id_say"] == pol["identity"]["prompts"]["date_of_birth"]  # a re-ask has no second explanation
+        assert got == expect
+        assert ("identity_explain" in wf["nodes"]) == (n >= 1)
