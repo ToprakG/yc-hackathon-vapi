@@ -42,3 +42,12 @@ the flag does nothing and the p6 prompt sentence stays (one test per rule).
   side=none; the model said "disputed" but the code status stayed refused, so the note and the outcome were refused.
 - Fix: the side description says the dispute value wins. Parameter: outcome_map.np_dispute (verified). Missing -> p6 text.
 - F7-009 (restructuring transfer for "any way to pay a smaller amount?"): passes on p10 (s1b1); not changed.
+
+## G. Spoken amounts are assembled and corrected in code (f26_amount_assembly)
+- Rule: when a brief gives a floor and a past-due amount, an amount that arrives in pieces over turns ("twelve" ... "thirty") is joined,
+  and the last stated amount wins; an amount cut off in the middle of a self-correction is not taken, it is asked again.
+- Join is conservative: two sub-floor integer fragments, no correction marker (no, sorry, I mean, actually, wait, rather) in the
+  second, joined value within [floor, past due]; otherwise the last amount stays. Cut-off: offer_amount_text keeps the tail words
+  (extraction description) and a trailing correction marker clears the amount.
+- Parameter: verified /product_types (floor), needs f9 and f11. Missing -> p6 workflow (tested).
+- B-015 (p6r2) failed on the robot question, not on the amount; F5-018 is the cut-off correction (1200 then 1245).

@@ -1031,6 +1031,7 @@ ID_INIT        vars['cb_state'] = 'none'
         row = [r for r in rows if r['pid'] == pid]
         at = str(vars.get('offer_amount_text') or '').strip() or str(vars.get('pend_amt') or '')
         dt = str(vars.get('offer_date_text') or '').strip() or str(vars.get('pend_date') or '')
+        AMTCUT
         if at:
             vars['said_amount'] = at[:40]
         if dt:
@@ -1056,6 +1057,7 @@ ID_INIT        vars['cb_state'] = 'none'
             amt, ac = amount_from_speech(at) if at else (None, False)
             if ac == 'full':
                 amt = past
+            AMTJOIN
             d_iso, dc = date_from_speech(dt, vars.get('now')) if dt else (None, False)
             if not d_iso and dt:
                 d_iso = to_iso(dt, today)
@@ -1108,6 +1110,25 @@ ID_INIT        vars['cb_state'] = 'none'
             vars['pend_date'] = dt if (keep and ok_d) else ''
         vars['say_line'] = say
         """
+        if self.amount_assembly:
+            check = check.replace("        AMTCUT\n", (
+                "        frag = str(vars.get('amt_frag') or '')\n"
+                "        vars['amt_frag'] = ''\n"
+                "        raw_at = str(vars.get('offer_amount_text') or '').strip()\n"
+                "        if raw_at and re.search(r'(?:sorry|i mean|no wait|wait no|actually|rather|make that|correction)\\W*(?:i\\W*)?$', raw_at.lower()):\n"
+                "            at = ''  # cut off in the middle of a self-correction: the amount is not settled\n"
+                "            vars['pend_amt'] = ''\n")).replace("            AMTJOIN\n", (
+                "            if frag and amt is not None and ac is True and amt < floor - 0.005 and not re.search(r'\\b(?:no|sorry|i mean|actually|wait|rather)\\b', at.lower()):\n"
+                "                fa = amount_from_speech(frag)[0]\n"
+                "                if fa and float(fa).is_integer() and float(amt).is_integer():\n"
+                "                    cand = float(str(int(fa)) + str(int(amt)))\n"
+                "                    if floor - 0.005 <= cand <= past + 0.005:\n"
+                "                        amt = cand\n"
+                "                        at = str(int(cand))\n"
+                "            if amt is not None and ac is True and amt < floor - 0.005 and float(amt).is_integer() and amt < 1000:\n"
+                "                vars['amt_frag'] = str(int(amt))\n"))
+        else:
+            check = check.replace("        AMTCUT\n", "").replace("            AMTJOIN\n", "")
         check = (check.replace("DAYOFF", "vars['day_asked'] = '0'").replace("DAYON", "vars['day_asked'] = '1'") if self.day_once
                  else check.replace("        DAYOFF\n", "").replace("                    DAYON\n", ""))
         self.code("promise_check", check, [eq("promise_confirm", "a valid promise to read back", "cp_route", "confirm"),
@@ -1267,6 +1288,12 @@ ID_INIT        vars['cb_state'] = 'none'
             and verified(self.p, "/outcome_map/np_dispute")
 
     @property
+    def amount_assembly(self) -> bool:
+        """F26: amount fragments are joined and a cut-off self-correction is not taken; needs the F9 helpers and a verified floor."""
+        return ("f26_amount_assembly" in self.f and "f11_promise_typed" in self.f and "f9_number_input" in self.f
+                and verified(self.p, "/product_types"))
+
+    @property
     def day_once(self) -> bool:
         """F24 (rule E): "ask the exact day once" is counted in code. Needs the router (turn_intent) and a verified limit."""
         return ("f24_day_once" in self.f and "f11_promise_typed" in self.f and "f7_router" in self.f
@@ -1292,6 +1319,8 @@ ID_INIT        vars['cb_state'] = 'none'
                                 dispute_first=self.dispute_first)
         side_descs = {"side": side_text} if (f4 or f7 or f16 or self.dispute_first) else None
         side_budget = {"side": len(side_text) + 300} if f16 else None
+        if self.amount_assembly:  # the tail of a cut-off self-correction must reach the code
+            side_descs = dict(side_descs or {}, offer_amount_text=P.EXTRACT["offer_amount_text"] + P.AMOUNT_TAIL)
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]
                            + (["none"] if "f11_promise_typed" in self.f else [])))

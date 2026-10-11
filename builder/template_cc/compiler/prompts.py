@@ -302,6 +302,9 @@ GOODBYE_INTENT = ("The person says goodbye or thanks you to end the call, after 
 
 # --- extraction descriptions -----------------------------------------------------------------------------------------
 
+AMOUNT_TAIL = (" Copy it with any self-correction exactly as said, also when the message stops in the middle of it "
+               "(for example 'twelve hundred, sorry, I'): never drop the words after the number.")
+
 EXTRACT = {
     "who1": "Who answered: customer = the person confirms they are the customer; someone_else = another person "
             "(a relative, a colleague); not_their_number = the number is not the customer's; customer_died = the customer has "

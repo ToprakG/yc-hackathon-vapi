@@ -7,7 +7,7 @@ import os
 ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discount",
        "f5_vague_date_policy", "f6_counters", "f8_fixed_lines", "f9_number_input", "f10_extract_vote", "f7_router",
        "f11_promise_typed", "f12_slot_summary", "f13_verifier", "f14_rules_ifthen", "f15_hardship_terms", "f16_intents",
-       "f24_day_once", "f25_dispute_wins"]
+       "f24_day_once", "f25_dispute_wins", "f26_amount_assembly"]
 _SHORT: dict = {}
 for _n in ALL:
     _SHORT.setdefault(_n.split("_", 1)[0], _n)  # a short id names the first flag that has it (f16 = f16_intents)
