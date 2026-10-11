@@ -304,7 +304,8 @@ def test_infra_error_transcript_is_missing_and_half_infra_is_an_outage():
     import selftest_common as C
     dead = [{"role": "user", "content": "hi"}, {"role": "tool", "content": "function_call_error close_call: Error code: 530 - cloudflare"}]
     fine = [{"role": "assistant", "content": "Thanks, I have noted that."}]
-    assert C.infra_error(dead) and not C.infra_error(fine)
+    ok_call = [{"role": "assistant", "tool_calls": [{"function": {"name": "get_account", "arguments": "{\"url\": \"https://x-y.trycloudflare.com/v1/get_account\"}"}}]}]
+    assert C.infra_error(dead) and not C.infra_error(fine) and not C.infra_error(ok_call)   # a tunnel URL in a good tool call is not an error
     src = (REPO / "scripts" / "selftest_run.py").read_text()
     assert "infra_error(transcript)" in src and "2 * len(infra) >= len(chosen)" in src   # wired: infra rows are MISSING, half of them = outage
 

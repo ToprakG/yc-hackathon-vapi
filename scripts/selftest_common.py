@@ -39,7 +39,7 @@ def outage_signature(rows, missing=()):
     return (not rows) or all(not r.get("tools") for r in rows)
 
 
-_INFRA = re.compile(r"function_call_error|Error code: 5\d\d|HTTP/?\s*5\d\d|cloudflare|trycloudflare|ECONNREFUSED|Connection refused|Bad gateway|Gateway Time-?out", re.I)
+_INFRA = re.compile(r"function_call_error|Error code: 5\d\d|\bHTTP/?\s*5\d\d\b|Bad gateway|Gateway Time-?out|ECONNREFUSED|Connection refused|error code: 10\d\d", re.I)   # NOT the word cloudflare: every tool call carries the tunnel URL
 
 
 def infra_error(messages) -> bool:
