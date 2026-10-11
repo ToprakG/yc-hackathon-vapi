@@ -274,6 +274,16 @@ def refresh_close(vars, cfg):
     return key
 
 
+def said_once(vars, line_id):
+    """Once-rules in code ("once", "only once", "exactly once", "one sentence"): True the first time the line is due,
+    False every time after. The flag is vars['said_<line_id>'] (the verifier reads the same key)."""
+    key = 'said_' + str(line_id)
+    if str(vars.get(key)) == '1':
+        return False
+    vars[key] = '1'
+    return True
+
+
 def open_pids(vars):
     pst = jget(vars, 'pstate', dict())
     return [p for p in jget(vars, 'pids', []) if pst.get(p, 'open') == 'open']

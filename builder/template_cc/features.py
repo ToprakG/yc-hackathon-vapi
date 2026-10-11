@@ -6,7 +6,8 @@ import os
 
 ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discount",
        "f5_vague_date_policy", "f6_counters", "f8_fixed_lines", "f9_number_input", "f10_extract_vote", "f7_router",
-       "f11_promise_typed", "f12_slot_summary", "f13_verifier", "f14_rules_ifthen", "f15_hardship_terms", "f16_intents"]
+       "f11_promise_typed", "f12_slot_summary", "f13_verifier", "f14_rules_ifthen", "f15_hardship_terms", "f16_intents",
+       "f18_side_resume", "f19_refusal_rule", "f20_once_flags", "f21_spoken_answers"]
 _SHORT = {n.split("_", 1)[0]: n for n in ALL}
 
 
