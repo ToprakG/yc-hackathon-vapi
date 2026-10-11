@@ -1,0 +1,44 @@
+{
+  "mode": "table",
+  "id": "dummy-table",
+  "info": {"title": "Dummy table bank", "version": "1"},
+  "base_path": "/api",
+  "ledger_key": ["account", "id"],
+  "state_note": "toy content only; the real table is written from the bank's integration document",
+  "endpoints": [
+    {"name": "lookup", "method": "GET", "path": "/accounts/{id}",
+     "rules": [
+       {"when": {"id": "A1"}, "status": 200, "body": {"id": "{{id}}", "balance": 120.5, "currency": "EUR", "due": "2026-11-05"}},
+       {"when": {"id": {"$in": ["A2", "A3"]}, "currency": {"$exists": false}}, "status": 200, "body": {"id": "{{id}}", "balance": 0}},
+       {"when": {"id": {"$regex": "^X"}}, "status": 503, "sequence": [{"status": 503, "body": {"error": "try again"}}, {"status": 200, "body": {"id": "{{id}}", "balance": 7}}]}
+     ],
+     "default": {"status": 404, "body": {"error": "unknown account", "id": "{{id}}"}}},
+    {"name": "move_date", "method": "POST", "path": "/accounts/{id}/due-date",
+     "rules": [
+       {"when": {"id": "A1", "day": {"$in": [5, 15, 25]}}, "status": 200, "body": {"ok": true, "id": "{{id}}", "day": "{{day}}"},
+        "record": {"kind": "due_date_change", "data": {"id": "{{id}}", "day": "{{day}}"}}, "set": {"day_A1": "{{day}}"}},
+       {"when": {"id": "A1"}, "status": 422, "body": {"ok": false, "error": "invalid day", "day": "{{day}}"}}
+     ],
+     "default": {"status": 404, "body": {"error": "unknown account"}}},
+    {"name": "send_mail", "method": "POST", "path": "/accounts/{id}/mail",
+     "rules": [
+       {"when": {"id": "A1", "email": {"$regex": "^[^@]+@[^@]+$"}}, "status": 202, "body": {"queued": true}, "record": {"kind": "email_sent", "data": {"id": "{{id}}", "to": "{{email}}"}}},
+       {"when": {"id": "A1"}, "status": 400, "body": {"error": "bad email"}}
+     ]},
+    {"name": "current_day", "method": "GET", "path": "/accounts/{id}/due-day",
+     "rules": [{"when": {"id": "A1", "state.day_A1": {"$exists": true}}, "status": 200, "body": {"day": "{{state.day_A1}}"}}],
+     "default": {"status": 200, "body": {"day": 1}}}
+  ],
+  "checks": [
+    {"name": "lookup A1", "request": {"method": "GET", "path": "/accounts/A1"}, "expect": {"status": 200, "body": {"balance": 120.5, "currency": "EUR"}}},
+    {"name": "unknown", "request": {"method": "GET", "path": "/accounts/ZZ"}, "expect": {"status": 404, "body": {"id": "ZZ"}}},
+    {"name": "bad day", "request": {"method": "POST", "path": "/accounts/A1/due-date", "body": {"day": 7}}, "expect": {"status": 422}},
+    {"name": "move day", "request": {"method": "POST", "path": "/accounts/A1/due-date", "body": {"day": 15}}, "expect": {"status": 200, "body": {"ok": true}}},
+    {"name": "day persists", "request": {"method": "GET", "path": "/accounts/A1/due-day"}, "expect": {"status": 200, "body": {"day": 15}}},
+    {"name": "mail", "request": {"method": "POST", "path": "/accounts/A1/mail", "body": {"email": "a@b.co"}}, "expect": {"status": 202}},
+    {"name": "mail bad", "request": {"method": "POST", "path": "/accounts/A1/mail", "body": {"email": "nope"}}, "expect": {"status": 400}},
+    {"name": "flaky first", "request": {"method": "GET", "path": "/accounts/X9"}, "expect": {"status": 503}},
+    {"name": "flaky second", "request": {"method": "GET", "path": "/accounts/X9"}, "expect": {"status": 200, "body": {"balance": 7}}}
+  ],
+  "expect_writes": [{"kind": "due_date_change", "data": {"day": 15}}, {"kind": "email_sent", "data": {"to": "a@b.co"}}]
+}

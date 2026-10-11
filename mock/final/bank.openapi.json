@@ -1,0 +1,3218 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "Freya Bank voice statement services",
+  "version": "2026-10-01",
+  "description": "Seven POST services, JSON in/out, UTF-8. Request {data, call}; answer {data, result}. Dates dd.MM.yyyy, amounts JSON numbers. Get a bearer token first (client-credentials at tokenUrl; the test environment does not check it, send it anyway). Service names contain dots."
+ },
+ "servers": [
+  {
+   "url": "https://api.freyabank.example/voice/v1"
+  }
+ ],
+ "components": {
+  "securitySchemes": {
+   "bankOAuth": {
+    "type": "oauth2",
+    "flows": {
+     "clientCredentials": {
+      "tokenUrl": "{{mock_url}}/oauth2/token",
+      "scopes": {
+       "voice.statement": "statement services"
+      }
+     }
+    }
+   }
+  }
+ },
+ "security": [
+  {
+   "bankOAuth": [
+    "voice.statement"
+   ]
+  }
+ ],
+ "paths": {
+  "/cards.list": {
+   "post": {
+    "operationId": "cards.list",
+    "summary": "The customer's cards the assistant may talk about",
+    "description": "Start here: the phone menu hands over the customer number, there is no customer search. Only active cards (status 'A') come back; isMainCard=false for a card that is not the customer's own main card, still listed. Two cards can share productName AND cardNumberLast4 - do not assume the last four are unique. cardNumber is masked in test (first 6, last 4); send it unchanged to the other services.",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "customerNo": {
+            "oneOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "type": "string"
+             }
+            ],
+            "description": "8-digit customer number; string or number"
+           },
+           "aiFlow": {
+            "type": "string",
+            "description": "use case; 'CardOps' for this one (not validated in test)"
+           }
+          },
+          "required": [
+           "customerNo"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "cards": {
+             "type": "array",
+             "items": {
+              "type": "object",
+              "properties": {
+               "cardNumber": {
+                "type": "string",
+                "description": "exactly this value goes into the other services"
+               },
+               "cardNumberLast4": {
+                "type": "string"
+               },
+               "productName": {
+                "type": "string",
+                "description": "free text from the card system"
+               },
+               "status": {
+                "type": "string",
+                "enum": [
+                 "A"
+                ]
+               },
+               "isMainCard": {
+                "type": "boolean"
+               }
+              }
+             }
+            },
+            "validCardsCount": {
+             "type": "integer"
+            },
+            "exitState": {
+             "type": "string",
+             "enum": [
+              "1_CARD",
+              "MULTI_CARD"
+             ]
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "FB_IVR_CHANNEL_102 (WARNING): the customer has no valid card. Not a service failure, different from a 500.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/cards.balance": {
+   "post": {
+    "operationId": "cards.balance",
+    "summary": "Statement and due dates, debt per currency for one card",
+    "description": "Send cardNumber exactly as cards.list returned it. The answer's own cardNumber is masked differently (first 4 + last 4): do not match it against the list, use cardNumberLast4 or keep the number you sent. Dates dd.MM.yyyy, amounts are numbers (dot decimal, never rounded). debtTL/debtUSD/debtEUR/debtGBP: a block can be missing.",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "cardNumber": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "cardNumber"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "cardNumber": {
+             "type": "string"
+            },
+            "cardNumberLast4": {
+             "type": "string"
+            },
+            "productName": {
+             "type": "string"
+            },
+            "statementDate": {
+             "type": "string",
+             "description": "last issued statement, dd.MM.yyyy"
+            },
+            "lastPayDate": {
+             "type": "string",
+             "description": "its due date, dd.MM.yyyy"
+            },
+            "nextStatementDate": {
+             "type": "string"
+            },
+            "nextLastPayDate": {
+             "type": "string"
+            },
+            "debtTL": {
+             "type": "object",
+             "properties": {
+              "statementPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "transferAmount": {
+               "type": "number"
+              },
+              "statementDebt": {
+               "type": "number",
+               "description": "statement debt"
+              },
+              "minPayment": {
+               "type": "number",
+               "description": "minimum payment on the statement"
+              },
+              "remainingDebt": {
+               "type": "number",
+               "description": "statement debt left after payments"
+              },
+              "remainingMinPayment": {
+               "type": "number",
+               "description": "minimum payment left"
+              },
+              "currentPeriodExpense": {
+               "type": "number",
+               "description": "spending after the statement"
+              },
+              "totalDebt": {
+               "type": "number",
+               "description": "includes spending after the statement; negative = credit balance (status NO_DEBT)"
+              },
+              "totalDebtPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "remainAutomaticPaymentAmount": {
+               "type": "number",
+               "description": "only meaningful when automaticPaymentFlag is 'Y'"
+              }
+             },
+             "description": "One currency. The whole block can be MISSING for a currency (not the same as NO_DEBT): never invent zeros."
+            },
+            "debtUSD": {
+             "type": "object",
+             "properties": {
+              "statementPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "transferAmount": {
+               "type": "number"
+              },
+              "statementDebt": {
+               "type": "number",
+               "description": "statement debt"
+              },
+              "minPayment": {
+               "type": "number",
+               "description": "minimum payment on the statement"
+              },
+              "remainingDebt": {
+               "type": "number",
+               "description": "statement debt left after payments"
+              },
+              "remainingMinPayment": {
+               "type": "number",
+               "description": "minimum payment left"
+              },
+              "currentPeriodExpense": {
+               "type": "number",
+               "description": "spending after the statement"
+              },
+              "totalDebt": {
+               "type": "number",
+               "description": "includes spending after the statement; negative = credit balance (status NO_DEBT)"
+              },
+              "totalDebtPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "remainAutomaticPaymentAmount": {
+               "type": "number",
+               "description": "only meaningful when automaticPaymentFlag is 'Y'"
+              }
+             },
+             "description": "One currency. The whole block can be MISSING for a currency (not the same as NO_DEBT): never invent zeros."
+            },
+            "debtEUR": {
+             "type": "object",
+             "properties": {
+              "statementPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "transferAmount": {
+               "type": "number"
+              },
+              "statementDebt": {
+               "type": "number",
+               "description": "statement debt"
+              },
+              "minPayment": {
+               "type": "number",
+               "description": "minimum payment on the statement"
+              },
+              "remainingDebt": {
+               "type": "number",
+               "description": "statement debt left after payments"
+              },
+              "remainingMinPayment": {
+               "type": "number",
+               "description": "minimum payment left"
+              },
+              "currentPeriodExpense": {
+               "type": "number",
+               "description": "spending after the statement"
+              },
+              "totalDebt": {
+               "type": "number",
+               "description": "includes spending after the statement; negative = credit balance (status NO_DEBT)"
+              },
+              "totalDebtPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "remainAutomaticPaymentAmount": {
+               "type": "number",
+               "description": "only meaningful when automaticPaymentFlag is 'Y'"
+              }
+             },
+             "description": "One currency. The whole block can be MISSING for a currency (not the same as NO_DEBT): never invent zeros."
+            },
+            "debtGBP": {
+             "type": "object",
+             "properties": {
+              "statementPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "transferAmount": {
+               "type": "number"
+              },
+              "statementDebt": {
+               "type": "number",
+               "description": "statement debt"
+              },
+              "minPayment": {
+               "type": "number",
+               "description": "minimum payment on the statement"
+              },
+              "remainingDebt": {
+               "type": "number",
+               "description": "statement debt left after payments"
+              },
+              "remainingMinPayment": {
+               "type": "number",
+               "description": "minimum payment left"
+              },
+              "currentPeriodExpense": {
+               "type": "number",
+               "description": "spending after the statement"
+              },
+              "totalDebt": {
+               "type": "number",
+               "description": "includes spending after the statement; negative = credit balance (status NO_DEBT)"
+              },
+              "totalDebtPaymentStatus": {
+               "type": "string",
+               "enum": [
+                "HAS_DEBT",
+                "NO_DEBT"
+               ]
+              },
+              "remainAutomaticPaymentAmount": {
+               "type": "number",
+               "description": "only meaningful when automaticPaymentFlag is 'Y'"
+              }
+             },
+             "description": "One currency. The whole block can be MISSING for a currency (not the same as NO_DEBT): never invent zeros."
+            },
+            "statementPaymentStatus": {
+             "type": "string",
+             "enum": [
+              "HAS_DEBT",
+              "NO_DEBT"
+             ]
+            },
+            "totalDebtPaymentStatus": {
+             "type": "string",
+             "enum": [
+              "HAS_DEBT",
+              "NO_DEBT"
+             ]
+            },
+            "automaticPaymentFlag": {
+             "type": "string",
+             "enum": [
+              "Y",
+              "N"
+             ]
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "FB_IVR_CHANNEL_120 (WARNING): card not found.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/statement.week.get": {
+   "post": {
+    "operationId": "statement.week.get",
+    "summary": "The card's current statement week and day, joint statement info",
+    "description": "statementWeek 1-4 and statementDay are numbers here. relationType '' = own statement; 'M' = main card of a pair sharing one statement, 'C' = the linked card; relatedCardNumber/relatedCardProductName name the other card. Changing the week on either card moves both. No field says whether the customer may still change the week.",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "cardNumber": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "cardNumber"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "cardNumber": {
+             "type": "string"
+            },
+            "cardNumberLast4": {
+             "type": "string"
+            },
+            "productName": {
+             "type": "string"
+            },
+            "statementWeek": {
+             "type": "integer"
+            },
+            "statementDay": {
+             "type": "integer"
+            },
+            "statementDate": {
+             "type": "string"
+            },
+            "lastPayDate": {
+             "type": "string"
+            },
+            "nextStatementDate": {
+             "type": "string"
+            },
+            "nextLastPayDate": {
+             "type": "string"
+            },
+            "relationType": {
+             "type": "string",
+             "enum": [
+              "",
+              "M",
+              "C"
+             ]
+            },
+            "relatedCardNumber": {
+             "type": "string"
+            },
+            "relatedCardProductName": {
+             "type": "string"
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "FB_IVR_CHANNEL_121 (WARNING): card not found.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/statement.week.decide": {
+   "post": {
+    "operationId": "statement.week.decide",
+    "summary": "Preview the dates a new statement week would give (changes nothing)",
+    "description": "newStatementWeek 1-4 (number or string). statementDay = the card's current statementDay from statement.week.get. Do not call it for the week the card already has (error). The due date is called statementDueDate here (not lastPayDate).",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "cardNumber": {
+            "type": "string"
+           },
+           "newStatementWeek": {
+            "oneOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "type": "string"
+             }
+            ],
+            "description": "1-4"
+           },
+           "statementDay": {
+            "type": "integer",
+            "description": "current statementDay"
+           }
+          },
+          "required": [
+           "cardNumber",
+           "newStatementWeek",
+           "statementDay"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "statementDate": {
+             "type": "string",
+             "description": "dd.MM.yyyy"
+            },
+            "statementDueDate": {
+             "type": "string",
+             "description": "dd.MM.yyyy"
+            },
+            "statementDay": {
+             "type": "integer"
+            },
+            "responseCode": {
+             "type": "integer",
+             "description": "0 = fine"
+            },
+            "responseMessage": {
+             "type": "string"
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/statement.week.change": {
+   "post": {
+    "operationId": "statement.week.change",
+    "summary": "Change the card's statement week (side effect)",
+    "description": "Call only after the caller agreed to the dates from statement.week.decide. statementDay is required (send the current day). NOTE: statementWeek and statementDay come back as STRINGS here; ignore statementDay in the answer and tell the caller the dates from decide. Success = exitState 'OK' and responseCode 0. No automatic retry.",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "cardNumber": {
+            "type": "string"
+           },
+           "newStatementWeek": {
+            "oneOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "type": "string"
+             }
+            ],
+            "description": "1-4"
+           },
+           "statementDay": {
+            "type": "integer",
+            "description": "current statementDay"
+           }
+          },
+          "required": [
+           "cardNumber",
+           "newStatementWeek",
+           "statementDay"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "responseCode": {
+             "type": "integer"
+            },
+            "responseMessage": {
+             "type": "string"
+            },
+            "statementWeek": {
+             "type": "string"
+            },
+            "statementDay": {
+             "type": "string"
+            },
+            "exitState": {
+             "type": "string",
+             "enum": [
+              "OK"
+             ]
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/contact.email.get": {
+   "post": {
+    "operationId": "contact.email.get",
+    "summary": "The registered e-mail / phone of the customer",
+    "description": "intAddressInfoType: 'E' e-mail, 'P' phone, 'B' both (empty = 400). The registered e-mail is ibanEmail (the iban prefix is historical); ttsEmail is the same prepared for reading aloud. No registered e-mail = communicationType 'Phone' and/or empty ibanEmail: check the field, not only the type.",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "customerNo": {
+            "oneOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "type": "string"
+             }
+            ]
+           },
+           "intAddressInfoType": {
+            "type": "string",
+            "enum": [
+             "E",
+             "P",
+             "B"
+            ]
+           }
+          },
+          "required": [
+           "customerNo",
+           "intAddressInfoType"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "communicationType": {
+             "type": "string"
+            },
+            "ibanCountryCode": {
+             "type": "string"
+            },
+            "ibanAreaCode": {
+             "type": "string"
+            },
+            "ibanPhoneNum": {
+             "type": "string"
+            },
+            "ibanEmail": {
+             "type": "string",
+             "description": "registered e-mail, '' if none"
+            },
+            "ttsEmail": {
+             "type": "string"
+            },
+            "commGramType": {
+             "type": "string"
+            },
+            "exitState": {
+             "type": "string"
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/statement.pdf.send": {
+   "post": {
+    "operationId": "statement.pdf.send",
+    "summary": "E-mail the statement PDF (side effect)",
+    "description": "The backend sends to whatever is in emailAddress and does NOT check it against the registered address (a business rule for the assistant). statementDate = statementDate from cards.balance. currencyType TL|USD|EUR|GBP. No automatic retry.",
+    "security": [
+     {
+      "bankOAuth": [
+       "voice.statement"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "data": {
+          "type": "object",
+          "properties": {
+           "customerNo": {
+            "oneOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "type": "string"
+             }
+            ]
+           },
+           "cardNumber": {
+            "type": "string"
+           },
+           "currencyType": {
+            "type": "string",
+            "enum": [
+             "TL",
+             "USD",
+             "EUR",
+             "GBP"
+            ]
+           },
+           "statementDate": {
+            "type": "string",
+            "description": "dd.MM.yyyy"
+           },
+           "emailAddress": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "customerNo",
+           "cardNumber",
+           "currencyType",
+           "statementDate",
+           "emailAddress"
+          ]
+         },
+         "call": {
+          "type": "object",
+          "properties": {
+           "ani": {
+            "type": "string",
+            "description": "the caller's number"
+           },
+           "lang": {
+            "type": "string",
+            "description": "language, 'tr'"
+           }
+          },
+          "description": "Call metadata, logged by the bank; nothing depends on it."
+         }
+        },
+        "required": [
+         "data"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Success (HTTP 200 and result.returnCode '1').",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "exitState": {
+             "type": "string",
+             "enum": [
+              "DONE"
+             ]
+            }
+           },
+           "description": "Service fields."
+          },
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "required": [
+          "data",
+          "result"
+         ]
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "A required field is missing or empty: result.code INVALID_ARGUMENTS_ERROR, message names the field.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Token missing or expired (not checked in the test environment): get a new token and retry once.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "FB_IVR_CHANNEL_107 (WARNING): no PDF for that statement.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     },
+     "500": {
+      "description": "Technical error: result.code FBE00099 (type ERROR). The call may be repeated except for the two services with side effects (statement.week.change, statement.pdf.send): no automatic retry there.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "result": {
+           "type": "object",
+           "properties": {
+            "guid": {
+             "type": "string",
+             "description": "trace id; give it when opening a ticket"
+            },
+            "returnCode": {
+             "type": "string",
+             "description": "'1' = success; otherwise an error code"
+            },
+            "messageText": {
+             "type": "string",
+             "description": "for logs, never read to the caller"
+            },
+            "code": {
+             "type": "string",
+             "description": "same value as returnCode"
+            },
+            "message": {
+             "type": "string",
+             "description": "same as messageText"
+            },
+            "type": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "enum": [
+              "ERROR",
+              "WARNING",
+              null
+             ]
+            },
+            "details": {
+             "type": "object",
+             "properties": {
+              "guid": {
+               "type": "string"
+              },
+              "rootCause": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "errorOrigin": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             }
+            }
+           },
+           "description": "Present in every answer. Success = HTTP 200 and returnCode '1'."
+          }
+         },
+         "description": "Error answer: no `data`, only `result` (code, type ERROR|WARNING)."
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

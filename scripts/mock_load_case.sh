@@ -12,7 +12,12 @@ case "$TENANT" in *[!a-z0-9-]*|"") echo "tenant must be [a-z0-9-]" >&2; exit 2;;
 A="Authorization: Bearer $MOCK_ADMIN_TOKEN"
 r=$(curl -s -X PUT -H "$A" --data-binary @"$SPEC" "$URL/admin/spec"); echo "put spec: $r"; echo "$r" | grep -q '"ok":true' || exit 1
 export SPEC TENANT
-"$ROOT/mock/test/e2e.sh" "$HOST" "$MOCK_ADMIN_TOKEN"        # also resets the tenant at its end
+if grep -q '"mode" *: *"table"' "$SPEC"; then     # table mode: run the table's own checks (spec.checks / spec.expect_writes)
+  curl -s -X POST -H "$A" "$URL/admin/reset" >/dev/null
+  node "$ROOT/mock/test/table_check.mjs" "$URL" "$SPEC"
+else
+  "$ROOT/mock/test/e2e.sh" "$HOST" "$MOCK_ADMIN_TOKEN"        # also resets the tenant at its end
+fi
 r=$(curl -s -X POST -H "$A" "$URL/admin/reset"); echo "final reset: $r"
 echo "openapi servers: $(curl -s "$URL/openapi.json" | python3 -c "import json,sys;print(json.load(sys.stdin)['servers'])")"
 echo "mock_url=$URL"

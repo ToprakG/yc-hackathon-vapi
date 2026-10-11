@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
-    "test": "node --test test/engine.test.js",
+    "test": "node --test test/engine.test.js test/table.test.js",
     "dev": "npm run bundle && wrangler dev",
     "deploy": "npm run bundle && wrangler deploy"
   },
