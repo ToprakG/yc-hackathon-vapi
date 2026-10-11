@@ -56,6 +56,13 @@ stage() { local n=$1; shift; local t=$(date +%s)
 say "mode $FINAL_MODE, budget ${BUDGET_MIN:-window} min, ship at $(date -r "$CUT" +%H:%M:%S)"
 say "final_run: briefs ${BRIEFS_CSV}, window ends $(date -r "$END" +%H:%M), flags: $FEATURES${FROM_SET:+, from set $FROM_SET}"
 
+# 0. one tiny LLM call with the provider the build will use: fail fast (< 30 s) instead of failing inside the extraction
+if [ -z "$FROM_SET" ] && [ -z "${SKIP_PREFLIGHT:-}" ]; then
+  PF=$(timeout 40 .venv310/bin/python scripts/llm_preflight.py 2>&1); PRC=$?
+  say "$(echo "$PF" | tail -1)"
+  [ $PRC -eq 0 ] || { say "STOP: no usable LLM provider. Fix it (see RUNBOOK_FINAL.md, section LLM provider) and re-run this brief."; exit 1; }
+fi
+
 # 1. build (fresh extraction + compile), or an already built set
 GREEN=$OUT/r0; export FINAL_SLOT="final-$(basename "$OUT")"
 if [ -n "$FROM_SET" ]; then
