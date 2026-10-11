@@ -5,10 +5,12 @@
 set -e
 cd "$(dirname "$0")/.."
 SET=${1:?set name}; F=${2:?features}
+# STANDING RULE: sets m1* use the flags in M1_FLAGS.txt (the argument is ignored for them); S2 may remove a dropped flag from that file.
+case $SET in m1*) [ -f M1_FLAGS.txt ] || { echo "M1_FLAGS.txt missing"; exit 1; }; F=$(tr -d ' \n' < M1_FLAGS.txt); echo "set $SET: flags from M1_FLAGS.txt";; esac
 PY=${PY:-.venv310/bin/python}
 # STANDING RULE: sets m1* (m1, m1x) are built ONLY from out/template_cc/policies_fixed/ (policy_fixups applied), never from cached policies.
 fx() { case $SET in m1*) f=out/template_cc/policies_fixed/$1/policy.json; [ -f "$f" ] || { echo "m1 needs $f (scripts/make_policies_fixed.py)" >&2; exit 1; }; echo "$f";; *) echo "$2";; esac; }
-mkdir -p out/template_cc/$SET
+mkdir -p out/template_cc/$SET; rm -f out/template_cc/$SET/.built
 b() { n=$1; pol=$2; api=$3; shift 3
   if ! $PY -m builder.template_cc.run "$@" "$api" --save none --audit off --policy "$pol" --features "$F" --out out/template_cc/$SET/$n > out/template_cc/$SET/$n.log 2>&1; then
     echo "$n BUILD FAILED (see out/template_cc/$SET/$n.log)"; fi; }
@@ -29,3 +31,4 @@ for p in sorted(glob.glob(f'out/template_cc/{S}/*/workflow.json')):
     print(f"{b:<16} lint errors {len(e)}" + (f"   first: {e[0]}" if e else ""))
 print("ALL CLEAN" if not bad else f"{bad} LINT ERRORS")
 E
+touch out/template_cc/$SET/.built   # the set is complete (build + lint done)

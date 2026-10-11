@@ -7,6 +7,7 @@
 #   Rule D (default): neither rule could decide by 16:30 -> ship p6.
 # A brief that fails (API error, timeout, no result) is retried ONCE after 5 minutes, never in a tight loop; after that it is left for rule C.
 # Each decision line says which rule decided: out/template_cc/eval/gate_m1.log (last line: DECISION ...).
+# FLAGS: m1 is built with the flags in M1_FLAGS.txt; this script refuses to run unless out/template_cc/m1/brief-a/build_report.json lists all of them.
 # STANDING RULE: m1 (and m1x) are built ONLY from out/template_cc/policies_fixed/ (scripts/make_policies_fixed.py; build_set.sh and
 # build_set_x.sh enforce it for set names m1*). This script refuses to run on a set whose id_decline / cap_at_deadline differ from it.
 cd "$(dirname "$0")/.." || exit 1
@@ -26,11 +27,18 @@ PY
 }
 
 log "waiting for 12:45 and set m1"
-while [ "$(now)" -lt 1245 ] || [ ! -d out/template_cc/m1 ]; do sleep 60; done
+while [ "$(now)" -lt 1245 ] || [ ! -f out/template_cc/m1/.built ]; do sleep 60; done   # .built: written by build_set.sh when the m1 build + lint are done
 
 python3 - >> $LOG <<'PY' || { log "REFUSED: set m1 was not built from policies_fixed (rebuild: scripts/build_set.sh m1 <features>)"; exit 3; }
 import json, sys
 bad = []
+want = [x for x in open("M1_FLAGS.txt").read().replace("\n", "").split(",") if x]
+try:
+    have = json.load(open("out/template_cc/m1/brief-a/build_report.json")).get("features") or []
+except OSError as e:
+    have = []; bad.append(f"build_report.json: {e}")
+if set(want) - set(have):
+    bad.append(f"m1 build lacks flags from M1_FLAGS.txt: {sorted(set(want) - set(have))}")
 for b in ["brief-a", "brief-b", "f1-nordhavn", "f2-ostral", "f3-kestrel", "f4-brightwell", "f5-halden-email", "f6-corvid-memo", "f7-lumen-codes"]:
     try:
         f = json.load(open(f"out/template_cc/policies_fixed/{b}/policy.json")); m = json.load(open(f"out/template_cc/m1/{b}/policy.json"))
