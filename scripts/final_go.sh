@@ -12,6 +12,7 @@ cd "$(dirname "$0")/.." || exit 1
 CASE=${CASE:?CASE=case/<folder>}; MOCK_URL=${MOCK_URL:-https://bank-mock.tccbank2026-yc.workers.dev/freyabank}; SPEC=${SPEC:-freyabank}
 MEMBERS_ARGS=(); IFS=';' read -ra MM <<< "${MEMBERS:-}"; for m in "${MM[@]}"; do MEMBERS_ARGS+=(--member "$m"); done
 names() { echo "${MEMBERS:-}" | tr ';' '\n' | sed 's/:.*//' | paste -sd, -; }
+case ${1:-} in freeze|build|rerun) scripts/check_no_case_leak.sh || { echo "NO-HARDCODE GUARD FAILED: fix the builder diff first (generic only)"; exit 3; };; esac
 case ${1:?stage} in
   mock)   mock/convert_case.sh "$CASE" "$SPEC" && scripts/mock_load_case.sh "mock/spec.$SPEC.json" "$SPEC";;
   freeze) FREEZE_RETAG=1 scripts/freeze.sh;;
