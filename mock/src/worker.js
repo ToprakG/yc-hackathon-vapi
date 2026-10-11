@@ -87,7 +87,7 @@ export class BankDO extends DurableObject {
       const raw = await req.text();
       if (raw.trim() || !table) { try { body = JSON.parse(raw); } catch { return J({ ok: false, error: "invalid JSON body" }, 400); } }
     } else body = table ? {} : query;
-    const headers = { "x-mock-fail": req.headers.get("x-mock-fail") || "" };
+    const headers = Object.fromEntries([...req.headers.entries()]);
     const r = await bank.call(req.method, rest, body, headers, query);
     return r ? J(r.json, r.status) : J({ ok: false, error: "not found" }, 404);
   }

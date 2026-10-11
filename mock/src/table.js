@@ -20,6 +20,8 @@ export function matches(cond, v) {
       else if (op === "$ne") { if (loose(arg, v)) return false; }
       else if (op === "$exists") { if ((v !== undefined && v !== null) !== !!arg) return false; }
       else if (op === "$regex") { if (v == null || !new RegExp(arg, cond.$flags || "").test(String(v))) return false; }
+      else if (op === "$endsWith") { if (v == null || !String(v).endsWith(String(arg))) return false; }
+      else if (op === "$startsWith") { if (v == null || !String(v).startsWith(String(arg))) return false; }
       else if (op === "$ci") { if (v == null || String(v).toLowerCase() !== String(arg).toLowerCase()) return false; }
       else if (op === "$gt") { if (!(Number(v) > Number(arg))) return false; }
       else if (op === "$lt") { if (!(Number(v) < Number(arg))) return false; }
@@ -79,11 +81,12 @@ export class TableBank {
     const inputs = { ...query, ...(body && typeof body === "object" && !Array.isArray(body) ? body : {}), ...params };
     const name = ep.name || `${method} ${ep.path}`;
     const state = await this.state();
-    const ctx = { ...inputs, in: inputs, path: params, query, body, state, now: this.now().toISOString() };
+    const header = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    const ctx = { ...inputs, in: inputs, path: params, query, body, header, state, now: this.now().toISOString() };
 
     if (headers["x-mock-fail"] === "1") {
       const r = { status: 500, body: { error: "service error" } };
-      await this.log({ tool: name, key: this.key(inputs), args: inputs, result: r, fault: true });
+      await this.log({ tool: name, key: this.key(ctx), args: inputs, result: r, fault: true });
       return { status: 500, json: r.body };
     }
     let rule = null, ri = -1;
@@ -98,20 +101,21 @@ export class TableBank {
       out = rule.sequence[Math.min(n, rule.sequence.length - 1)];
     }
     const status = out.status ?? 200, resp = fill(out.body ?? {}, ctx);
+    const delay = Math.min(Number(out.delay ?? rule?.delay ?? 0) || 0, this.spec.max_delay ?? 25);   // seconds; a slow service
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay * 1000));
     const recs = [];
     for (const rec of [].concat(rule?.record ?? [], out !== rule ? out.record ?? [] : [])) {
-      const r = { kind: fill(rec.kind, ctx), data: fill(rec.data ?? inputs, ctx), key: this.key(inputs) };
+      const r = { kind: fill(rec.kind, ctx), data: fill(rec.data ?? inputs, ctx), key: this.key(ctx) };
       recs.push(r); await this.store.put("W:" + pad(((await this.store.get("seq")) || 0) + 1) + ":" + recs.length, { ...r, ts: this.now().toISOString() });
     }
     const set = { ...(rule?.set ?? {}), ...(out.set ?? {}) };
     if (Object.keys(set).length) await this.store.put("S", { ...state, ...fill(set, ctx) });
-    await this.log({ tool: name, key: this.key(inputs), args: inputs, result: { status, body: resp }, matched: rule ? ri : null, writes: recs.length || undefined });
+    await this.log({ tool: name, key: this.key(ctx), args: inputs, result: { status, body: resp }, matched: rule ? ri : null, writes: recs.length || undefined });
     return { status, json: resp };
   }
 
-  key(inputs) {
-    const ks = [].concat(this.spec.ledger_key ?? []);
-    for (const k of ks) if (inputs[k] != null) return String(inputs[k]);
+  key(ctx) {   // ledger_key entries are input names, or "header.<name>" (lower case)
+    for (const k of [].concat(this.spec.ledger_key ?? [])) { const v = get(ctx, k); if (v != null && v !== "") return String(v); }
     return null;
   }
   async ledger({ customer_id, limit } = {}) {

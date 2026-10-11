@@ -56,3 +56,16 @@ test("fault header and missing optional parts degrade", async () => {
   const o = tableOpenapi({ ...spec, tenant: "t" }, "https://w"); assert.equal(o.servers[0].url, "https://w/t/api"); assert.ok(o.paths["/accounts/{id}"].get);
   const o2 = tableOpenapi({ tenant: "t", base_path: "/v9", openapi: { openapi: "3.0.0", servers: [{ url: "https://x" }], paths: { "/q": {} } } }, "https://w"); assert.deepEqual([o2.servers[0].url, Object.keys(o2.paths)], ["https://w/t/v9", ["/q"]]);
 });
+
+test("endsWith/startsWith, header inputs as ledger key, delay (capped)", async () => {
+  const sp = { mode: "table", id: "h", ledger_key: ["header.x-cust", "cust"], max_delay: 0.05, endpoints: [{ name: "e", method: "POST", path: "/e", rules: [
+    { when: { card: { $startsWith: "5400", $endsWith: "1234" }, "header.x-cust": "C1" }, status: 200, body: { who: "{{header.x-cust}}" }, delay: 99 },
+    { when: { card: { $endsWith: "9999" } }, status: 201, body: {} }] }] };
+  const b = new TableBank(sp, mem());
+  const t0 = Date.now();
+  const r = await b.call("POST", "/e", { card: "5400**1234" }, { "X-Cust": "C1" }, {});
+  assert.deepEqual([r.status, r.json], [200, { who: "C1" }]); assert.ok(Date.now() - t0 < 1000);   // 99 s capped to 0.05 s
+  assert.equal((await b.call("POST", "/e", { card: "x9999" }, {}, {})).status, 201);
+  assert.equal((await b.call("POST", "/e", { card: "5400**1234" }, {}, {})).status, 404);   // header missing -> no rule
+  assert.equal((await b.scorerLedger("C1")).calls.length, 1);
+});
