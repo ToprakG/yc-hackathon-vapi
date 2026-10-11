@@ -51,7 +51,7 @@ def build(args, base):
         trace = trace.rstrip("/") + "/trace.txt"
     sub = {"team": args.team, "members": members,
            "repo": re.sub(r"//[^/@]*@", "//", git("remote", "get-url", "origin")),
-           "commit": git("rev-parse", "--short", "HEAD"),
+           "commit": getattr(args, "commit", "") or git("rev-parse", "--short", "HEAD"),
            "run_command": "python3 builder/build.py {case_folder} {mock_url}",
            "workflow": rel(base.get("workflow") or ""), "trace": trace, "mock_url": base.get("mock_url") or ""}
     return sub
@@ -100,6 +100,7 @@ def main(argv=None):
     ap.add_argument("--in", dest="inp", default=str(REPO / "submission.json"))
     ap.add_argument("--out", default=str(REPO / "submission.json"))
     ap.add_argument("--check-only", action="store_true")
+    ap.add_argument("--commit", default="", help="the commit the builder was run from (default: HEAD)")
     a = ap.parse_args(argv)
     base = json.loads(Path(a.inp).read_text())
     sub = build(a, base)

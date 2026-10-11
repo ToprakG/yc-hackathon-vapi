@@ -24,7 +24,7 @@ case ${1:?stage} in
           if [ "${VARIANT:-agentic}" = agentic ]; then .venv310/bin/python scripts/check_agentic_build.py "$D" "$MOCK_URL" | tee "$D/check.txt"
           else .venv310/bin/python scripts/dress_check_tr.py "$D" FINAL_FLAGS.txt live-mock "${MOCK_URL%/}/v1/" | tee "$D/check.txt"; fi;;
   commit) S=$(python3 -c "import json;print(json.load(open('submission.json'))['workflow'])"); T=$(python3 -c "import json;print(json.load(open('submission.json'))['trace'])")
-          git add -f "$S" "$T"; .venv310/bin/python scripts/finish_submission.py --team "${TEAM:?TEAM}" "${MEMBERS_ARGS[@]}" --out submission.json && git add submission.json
+          git add -f "$S" "$T"; .venv310/bin/python scripts/finish_submission.py --team "${TEAM:?TEAM}" ${RUN_COMMIT:+--commit "$RUN_COMMIT"} "${MEMBERS_ARGS[@]}" --out submission.json && git add submission.json
           git commit -q -m "submission: workflow + trace + submission.json (real build)" && .venv310/bin/python scripts/secret_scan.py origin/main..main | tail -1 && git push origin main;;
   rerun)  rm -rf out/final2; mkdir -p out/final2
           python3 builder/build.py "$CASE" "$MOCK_URL" --variant "${VARIANT:-agentic}" --localsim off --max-minutes "${BUILD_MIN:-25}" ${SLOT:+--slot "$SLOT"} --members "$(names)" --out out/final2/build 2>&1 | tee out/final2/build.out; tail -1 out/final2/build.out > out/final2/build_py.json
