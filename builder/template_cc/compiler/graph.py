@@ -409,6 +409,7 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['id_declines'] = '0'
         vars['id_q_pending'] = '0'
         vars['aside_line'] = ''
+        vars['aside_open'] = ''
         vars['resume_step'] = 'identity'
 """)
         elif "f2_question_not_refusal" in self.f:
@@ -455,15 +456,22 @@ ID_INIT        vars['cb_state'] = 'none'
         hf = self.human_first
         # F1: the identity questions are spoken by the system, so a robot question in the first reply is answered with the brief's line
         ai_ask = "f1_id_complete" in self.f and bool(P.line(self.p, "ai"))
+        # F18: a first reply that gets no decision (extraction did not fire: a death, a robot question, chatter) is not left to a
+        # free model turn: the robot answer is kept as the side line and the second ask is the policy's fixed line
+        f18_open = ("f18_side_resume" in self.f and "f1_id_complete" in self.f and second and bool(P.line(self.p, "ask_again")))
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
                   extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])
                                              + ([("ai_asked", ["yes", "no"])] if ai_ask else [])),
                   transitions=([eq("human_offer", "asks for a person", "who_wants_human", "yes")] if hf else [])
-                  + [any_of("setup", "the person answered", [leaf("who1", "is_set")])],
+                  + [any_of("setup", "the person answered", [leaf("who1", "is_set")])]
+                  + ([always("opening_resume")] if f18_open else []),
                   max_turns=4, turn_target="setup")
+        if f18_open:
+            self.code("opening_resume", "vars['aside_open'] = str(CFG['lines'].get('ai') or '') if str(vars.get('ai_asked')) == 'yes' else ''\n"
+                      "vars['ai_asked'] = 'no'\n", [always("opening_ask2")], fallback="vars['aside_open'] = ''")
         self.task_zones("opening", "opening", P.opening_task(self.p))
         if second:
-            self.conv("opening_ask2", on_enter={"type": "llm"},
+            self.conv("opening_ask2", on_enter=self.tts("opening_ask2", "{{aside_open}} " + P.line(self.p, "ask_again")) if f18_open else {"type": "llm"},
                       extraction=[{"name": "who2", "type": "string", "enum_values": who, "description": P.EXTRACT["who1"],
                                    "min_confidence": MIN_CONF}]
                       + ([{"name": "who_wants_human", "type": "string", "enum_values": ["yes", "no"],
@@ -696,7 +704,7 @@ ID_INIT        vars['cb_state'] = 'none'
                 SAY_EXPLAIN
             else:
                 vars['id_route'] = 'decline'
-        """.replace("PEND", pend).replace("EXPLAIN_N", str(min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
+        """.replace("PEND", pend).replace("EXPLAIN_N", str(limit if f19 else min(limit, 1))).replace("SAY_ASK\n", say_ask or "pass\n") \
            .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
         body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
         uses = ("num",)

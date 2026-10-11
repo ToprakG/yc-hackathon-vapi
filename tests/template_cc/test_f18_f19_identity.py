@@ -44,8 +44,9 @@ def test_a_complete_answer_wins_over_a_refusal_intent():
 
 
 def test_every_refusal_counts_explain_once_then_close():
-    wf, pol = build(BASE + ",f19")
-    assert pol["ask_limits"]["id_decline"] >= 1
+    def one(p):
+        p["ask_limits"]["id_decline"] = 1
+    wf, pol = build(BASE + ",f19", one)
     v = start(wf, pol, id_intent="asks_question")
     v = run_code(wf, "id_refusal_count", v)
     assert v["id_route"] == "explain" and v["id_say"].startswith(pol["lines"]["id_reason"]["text"])
@@ -113,3 +114,27 @@ def test_without_a_policy_line_or_the_flag_nothing_changes():
     for feats in (BASE + ",f18,f19", BASE + ",f18"):
         wf, pol = build(feats)
         assert compiler.lint(wf, pol, api)["errors"] == []
+
+
+def test_a_first_reply_without_a_decision_gets_the_fixed_second_ask():
+    wf, pol = build(BASE + ",f18")
+    n = wf["nodes"]
+    assert n["opening"]["transitions"][-1]["target_node"] == "opening_resume"
+    assert n["opening_ask2"]["on_enter"]["type"] == "tts" and pol["lines"]["ask_again"]["text"].split("{")[0] in n["opening_ask2"]["on_enter"]["text"]
+    v = run_code(wf, "opening_resume", {"ai_asked": "yes"})
+    assert v["aside_open"] == pol["lines"]["ai"]["text"]
+    assert run_code(wf, "opening_resume", {"ai_asked": "no"})["aside_open"] == ""
+    off, _ = build(BASE)
+    assert "opening_resume" not in off["nodes"] and off["nodes"]["opening_ask2"]["on_enter"] == {"type": "llm"}
+
+
+def test_the_explanation_count_is_the_policy_limit_not_a_constant():
+    def two(p):
+        p["ask_limits"]["id_decline"] = 2
+    wf, pol = build(BASE + ",f19", two)
+    v = start(wf, pol, id_intent="refuses")
+    routes = []
+    for _ in range(3):
+        v = run_code(wf, "id_refusal_count", v)
+        routes.append(v["id_route"])
+    assert routes == ["explain", "explain", "decline"]
