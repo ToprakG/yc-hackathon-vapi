@@ -733,9 +733,29 @@ def spoken_forms(kind, text):
     return t
 
 
+MONTH_CARDINAL = re.compile(r"\b(january|february|march|april|may|june|july|august|september|october|november|december)[ ,]+"
+                            r"((?:twenty|thirty)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|one|two|three|four|"
+                            r"five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+                            r"eighteen|nineteen)\b", re.I)
+
+
+def _day_digits(m):
+    v = 0
+    for w in re.split(r"[ -]", m.group(2).lower()):
+        v += ID_TENS.get(w, 0) + (ID_UNITS.get(w, 0) if w in ID_UNITS else 0)
+    return m.group(1) + ' ' + str(v) if 1 <= v <= 31 else m.group(0)
+
+
 def answer_from_spoken(kind, text):
-    """answer_from_speech after spoken_forms (F21)."""
-    return answer_from_speech(kind, spoken_forms(kind, text))
+    """answer_from_speech after spoken_forms (F21). A date said as 'July sixteen' (a cardinal day after the month) is read
+    when the plain reading is incomplete."""
+    t = spoken_forms(kind, text)
+    v, ok = answer_from_speech(kind, t)
+    if not ok and kind == 'date':
+        v2, ok2 = answer_from_speech(kind, MONTH_CARDINAL.sub(_day_digits, t))
+        if ok2:
+            return v2, ok2
+    return v, ok
 
 
 def _id_answer(kind, text):

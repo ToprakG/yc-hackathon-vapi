@@ -22,6 +22,8 @@ GOLD = Path(__file__).resolve().parent / "golden"
     ("year", "one nine nine five", "1995"),
     ("alnum_code", "Mike Golf nine seven, Tango Zulu.", "MG9 7TZ"),
     ("alnum_code", "L S six, two H Q", "LS6 2HQ"),
+    ("date", "July sixteen nineteen sixty two", "1962-07-16"),  # a cardinal day after the month, said in two pieces
+    ("date", "June twenty nineteen sixty two", "1962-06-20"),
     ("date", "the third of June nineteen fifty nine", "1959-06-03"),  # what already worked keeps working
 ])
 def test_spoken_forms_are_complete_answers(kind, text, value):
