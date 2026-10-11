@@ -1381,7 +1381,7 @@ ID_INIT        vars['cb_state'] = 'none'
                   extraction=self.extraction("promise_confirm", "promise_confirm",
                                              [("rb_answer", ["yes", "no", "change", "other"])] + fields,
                                              descs=side_descs, budgets=side_budget),
-                  transitions=[eq("promise_write", "a clear yes", "rb_answer", "yes"),
+                  transitions=[eq("promise_try" if self.tool_fail else "promise_write", "a clear yes", "rb_answer", "yes"),
                                eq("promise_check", "a different amount or date", "rb_answer", "change"),
                                eq("negotiate_resume", "no", "rb_answer", "no")],
                   max_turns=6, turn_target="negotiate_resume")
@@ -1434,9 +1434,33 @@ ID_INIT        vars['cb_state'] = 'none'
                          uses=("truthy", "num", "jget", "jput", "set_status", "neg_flag", "refresh_close")
                          + (("slot_summary",) if "f12_slot_summary" in self.f else ()), msgs=msgs)
         tool = T.api_tool(self.api, "create_promise", body, description="Record one payment promise.", post=post)
-        self.api_node("promise_write", tool, [eq("promise_write", "the call failed once: try again", "cp_state", "retry"),
-                                               always("after_promise")],
-                      response_mapping=[{"path": "data.ok", "variable": "cp_ok"}])
+        pw_trs = [eq("promise_write", "the call failed once: try again", "cp_state", "retry"), always("after_promise")]
+        if self.tool_fail:
+            # F28: on the platform a failed call (5xx) raises function_call_error: the post-process hook does not run and no response
+            # variable is set. cp_state is set to 'none' before the call; if it is still 'none' afterwards the call gave no answer.
+            self.code("promise_try", "vars['cp_state'] = 'none'\nvars['cp_route'] = ''\n", [always("promise_write")],
+                      fallback="vars['cp_state'] = 'none'")
+            pw_trs = [eq("promise_error", "the call gave no answer (service error)", "cp_state", "none")] + pw_trs
+            self.code("promise_error", """
+            pid = str(vars.get('rb_pid') or '')
+            fails = jget(vars, 'cp_fails', dict())
+            n = int(fails.get(pid, 0)) + 1
+            fails[pid] = n
+            jput(vars, 'cp_fails', fails)
+            vars['cp_state'] = 'none'
+            vars['cp_route'] = 'after'
+            if n <= int(CFG['retries'].get('create_promise', 1)):
+                vars['cp_route'] = 'retry'
+            else:
+                set_status(vars, pid, 'service_error')
+                vars['cp_state'] = 'failed'
+                vars['say_line'] = str(CFG['lines'].get('cannot_record') or 'I could not save that because of a technical problem.')
+                neg_flag(vars)
+                refresh_close(vars, CFG)
+            """, [eq("promise_write", "try the call once more", "cp_route", "retry"), always("after_promise")],
+                      uses=("num", "jget", "jput", "set_status", "neg_flag", "refresh_close"),
+                      fallback="vars['cp_route'] = 'after'")
+        self.api_node("promise_write", tool, pw_trs, response_mapping=[{"path": "data.ok", "variable": "cp_ok"}])
         parts = [{"zone": self.book.add(f"hook:create_promise/msg/{k}", v, False, P.BUDGET["hook"], "line said after the call"),
                   "key": k} for k, v in msgs.items()]
         self.book.target("/nodes/promise_write/pre_actions/0/post_process_code", "hook_msgs", parts)
@@ -1538,6 +1562,18 @@ ID_INIT        vars['cb_state'] = 'none'
         return ("f24_day_once" in self.f and "f11_promise_typed" in self.f and "f7_router" in self.f
                 and verified(self.p, "/ask_limits/vague_date") and "vague_limit" in self.cfg)
 
+    @property
+    def tool_fail(self) -> bool:
+        """F28 (opt-in): a create_promise call that gives no answer is counted and retried per the brief's retry rule, then closed as
+        the brief's service error. Needs the brief's retry rule (verified) and a service-error outcome."""
+        return ("f28_tool_failure" in self.f and "f11_promise_typed" in self.f
+                and verified(self.p, "/retries/create_promise") and bool((self.p.get("outcome_map") or {}).get("np_service_error")))
+
+    @property
+    def vague_signal(self) -> bool:
+        """F27 (opt-in, needs f24): only when the brief has the vague-day rule (day_once: the day-ask limit verified against the brief text)."""
+        return "f27_vague_signal" in self.f and self.day_once
+
     def _restructuring_notes(self) -> bool:
         return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]
                     and (self.p.get("note_map") or {}).get(self.p["notes_on_restructuring"]))
@@ -1558,6 +1594,9 @@ ID_INIT        vars['cb_state'] = 'none'
                                 dispute_first=self.dispute_first)
         side_descs = {"side": side_text} if (f4 or f7 or f16 or self.dispute_first) else None
         side_budget = {"side": len(side_text) + 300} if f16 else None
+        if self.vague_signal:  # F24: a "not today, but later" turn is vague, so the exact day is asked instead of a first offer
+            side_descs = dict(side_descs or {}, offer_intent=P.EXTRACT["offer_intent"] + P.VAGUE_SIGNAL)
+            side_budget = dict(side_budget or {}, offer_intent=len(P.EXTRACT["offer_intent"] + P.VAGUE_SIGNAL) + 100)
         if self.amount_assembly:  # the tail of a cut-off self-correction must reach the code
             side_descs = dict(side_descs or {}, offer_amount_text=P.EXTRACT["offer_amount_text"] + P.AMOUNT_TAIL)
         if self.multi:

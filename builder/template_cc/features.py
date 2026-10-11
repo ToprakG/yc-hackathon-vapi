@@ -8,11 +8,9 @@ ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discou
        "f6_counters", "f8_fixed_lines", "f9_number_input", "f10_extract_vote", "f7_router", "f11_promise_typed",
        "f12_slot_summary", "f13_verifier", "f14_rules_ifthen", "f15_hardship_terms", "f16_intents",
        "f18_side_resume", "f19_refusal_rule", "f20_once_flags", "f21_spoken_answers", "f24_day_once",
-       "f25_dispute_wins", "f26_amount_assembly"]
-# f18_opening_fallback is an OPT-IN sub-switch of f18_side_resume (OFF by default since the f3 GATE: 8/10 without, 4/10 with, same policy):
-# when named, a first reply that sets no who1 goes to a fixed second ask (opening_resume); otherwise it stays in `opening` as without f18.
+       "f25_dispute_wins", "f26_amount_assembly", "f18_opening_fallback"]
 # opt-in: never part of "all"; a flag with no verified policy parameter changes nothing for that brief
-OPT_IN = ["f22_forbidden_disclosure", "f18_opening_fallback"]
+OPT_IN = ["f22_forbidden_disclosure", "f18_opening_fallback", "f27_vague_signal", "f28_tool_failure"]
 _SHORT: dict = {}
 for _n in ALL + OPT_IN:
     _SHORT.setdefault(_n.split("_", 1)[0], _n)  # a short id names the first flag that has it (f16 = f16_intents)
