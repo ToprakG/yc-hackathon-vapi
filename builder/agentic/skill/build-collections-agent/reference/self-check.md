@@ -71,3 +71,6 @@ again. A line you cannot satisfy goes into `rules.json` as an `assumption` with 
 - [ ] `run_local_sims`: every structural failure (route, write, values, stuck node) fixed and re-run once.
 - [ ] `validate_workflow`: accepted, or skipped (no key).
 - [ ] `out/workflow.json`, `out/policy.json`, `out/rules.json` all exist.
+- [ ] Every list or lookup tool: what happens with 0, 1 and several records? With several, the agent asks for a field
+      that tells them apart (never the label alone when labels repeat), keeps the chosen record's key, and goes on
+      to the requested action and its tool call after the choice.

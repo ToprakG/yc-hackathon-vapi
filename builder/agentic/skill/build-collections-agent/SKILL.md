@@ -149,3 +149,21 @@ coverage 0 errors`. Never end your turn before these files exist and the last `l
 - A close record that depends on the model's memory of the call.
 - A fixed sentence paraphrased instead of quoted.
 - When (and only when) the documents require an identity check: a pre-verification line that names the debt, the product or a forbidden word.
+- A list tool that can return several records, handled as if it returned one. See "Several records" below.
+
+## Several records from a list or lookup tool (generic rule, applies to any record type)
+
+Any tool that lists or looks up records can return more than one. Design for it:
+- Count the records in a code node (from the flattened keys) and route on the count: none, one, several.
+- With several records, do not guess and do not settle for what the customer said first. Find, from the tool's
+  response schema, a field that tells the records apart (a trailing part of an identifier, an index, a date, an
+  amount) and ask the customer for it. If two or more records share the same display name or label, a name alone
+  never selects one: ask for the distinguishing field, or read the options out with it and let the customer pick.
+- Store the chosen record's own key (not its name) in a state variable, and pass that key to every later tool call.
+- A match that is not unique after the answer: ask again, with that field; never pick the first.
+- Choosing the record is a step, not the goal. After the choice the flow must go on to the action the customer
+  asked for (read-out, change, send) and call that tool, then say the result. A route that ends the turn on the
+  selection, or returns to the opening question, loses the request: keep the original intent in a variable and
+  resume it right after the choice.
+- Add a unit test with a list of several records, two of them sharing a label, and one test that the action tool is
+  called with the chosen record's key.
