@@ -112,3 +112,12 @@ def test_openapi_31_type_lists_do_not_break_the_api_summary():
     assert api["tools"]["a"]["request"]["x"]["type"] == "string" and api["tools"]["a"]["request"]["y"]["type"] == "array"
     text = S.render(api)
     assert "x: string" in text and "q: number" in text
+
+
+def test_claim_handoff_error_and_money_rules_reach_the_agent():
+    from pathlib import Path
+    from builder.agentic import prompt
+    ref = (Path(__file__).resolve().parents[2] / "builder/agentic/skill/build-collections-agent/reference/robustness.md").read_text()
+    for must in ("Never claim what the tool did not confirm", "A request for a person is handed off at once", "Unknown error codes", "spoken completely and by name"):
+        assert must in ref, must
+    assert "reference/robustness.md 4-7" in prompt.task_prompt(1, 10)

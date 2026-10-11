@@ -30,6 +30,8 @@ Robustness (reference/robustness.md): never end the call while the caller's requ
 
 Efficiency: the whole case folder is already ingested into the brief file(s) under input/; read each input file ONCE, write a short index of what you need (policy.json is that index) and work from it instead of re-reading files. Do not write long interim explanations or reports: act, and end with the one-line summary.
 
+Claims and handoffs (reference/robustness.md 4-7): say sent/changed/recorded only after the tool confirmed success in this call, after reading the value back and getting an explicit yes; a request for a person gets the documents' handoff sentence and the handoff at once; every answer that is not the documents' success is a failure, including unlisted error codes (never read codes or service messages to the caller); say each currency by name with every amount the documents ask for, and name every currency with nothing owed in one sentence.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:
