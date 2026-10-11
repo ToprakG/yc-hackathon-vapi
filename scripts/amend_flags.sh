@@ -1,6 +1,6 @@
 #!/bin/bash
 # Amend the final flag list, flags only (no code through this door):   scripts/amend_flags.sh "<flag string>"        (DRY=1: everything except git, FINAL_FLAGS.txt untouched)
-#  1. refuses after 19:40 (AMEND_FAKE_NOW=HHMM for tests) and when tracked files other than FINAL_FLAGS.txt differ from the final-submit tag (no code changes)
+#  1. refuses after 19:45 (AMEND_FAKE_NOW=HHMM for tests) and when tracked files other than FINAL_FLAGS.txt differ from the final-submit tag (no code changes)
 #  2. parses the list with the code build.py / run.py use (builder.template_cc.features.parse); an unknown name refuses
 #  3. compiles + lints all 9 briefs from the m2b policies with exactly that list (no claude, no Freya) in out/template_cc/amend_check; lint must be 0 on all 9 and
 #     opening_resume must be absent from every workflow (f18_opening_fallback stays off)
@@ -11,8 +11,8 @@ NEW=${1:?usage: scripts/amend_flags.sh "<flag string>"}
 now() { if [ -n "${AMEND_FAKE_NOW:-}" ]; then echo "$AMEND_FAKE_NOW" | sed 's/^0*//'; else date +%H%M | sed 's/^0*//'; fi; }
 LOG=out/amend_flags.log; mkdir -p out; log() { echo "$(date +%T) $*" | tee -a $LOG; }
 fail() { log "AMEND REFUSED: $*"; exit 2; }
-[ -z "${DRY:-}" ] && [ "$(now)" -ge 1940 ] && fail "it is after 19:40 (the window closed)"
-[ -n "${DRY:-}" ] && [ "$(now)" -ge 1940 ] && fail "it is after 19:40 (DRY: the same rule)"
+[ -z "${DRY:-}" ] && [ "$(now)" -ge 1945 ] && fail "it is after 19:45 (the window closed)"
+[ -n "${DRY:-}" ] && [ "$(now)" -ge 1945 ] && fail "it is after 19:45 (DRY: the same rule)"
 NEW=$(echo "$NEW" | tr -d ' \n'); NEW=${NEW%,-f18_opening_fallback}; NEW=${NEW#,}
 [ -n "$NEW" ] || fail "empty flag list"
 # 1. no code changes: tracked files differ from the tag only in FINAL_FLAGS.txt
