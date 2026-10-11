@@ -71,3 +71,33 @@ def test_f18_only_adds_the_fallback_when_who1_is_not_set():
     assert ta[:len(tb)] == [(("human_gate" if x[0] == "human_offer" else x[0]), x[1]) for x in tb] or ta[1:len(tb)] == tb[1:]
     assert ta[-1][0] == "opening_resume" and "always" in ta[-1][1]     # last: only reached when who1 is not set
     assert any(c.get("variable") == "who1" for c in [json.loads(ta[1][1])["conditions"][0]])   # the who1 branch comes first
+
+
+def _norm_targets(wf, nid):
+    swap = {"human_gate": "human_offer"}          # the human step is renamed by another flag; not part of this switch
+    return [(swap.get(t["target_node"], t["target_node"]), json.dumps(t["condition"], sort_keys=True)) for t in wf["nodes"][nid]["transitions"]]
+
+
+def test_opening_fallback_off_keeps_an_empty_who1_in_opening_as_without_f18():
+    p6 = build(PREV)
+    off = build(M1 + ",-f18_opening_fallback")
+    on = build(M1)
+    # the empty-who1 case: with the switch OFF the opening node has no always-fallback, exactly the transitions of the pre-f18 build
+    assert _norm_targets(off, "opening") == _norm_targets(p6, "opening")
+    assert "opening_resume" not in off["nodes"]
+    assert off["nodes"]["opening_ask2"].get("on_enter") == p6["nodes"]["opening_ask2"].get("on_enter")
+    # ON (m1): the fallback exists and is the LAST transition, reached only when who1 is not set
+    assert "opening_resume" in on["nodes"]
+    assert _norm_targets(on, "opening")[:-1] == _norm_targets(p6, "opening")
+    assert _norm_targets(on, "opening")[-1][0] == "opening_resume"
+    # the rest of f18 stays on with the switch off: only the opening differs
+    assert sorted(n for n in on["nodes"] if n not in off["nodes"]) == ["opening_resume"]
+
+
+def test_the_switch_defaults_on_with_f18_and_is_off_without_it():
+    from builder.template_cc import features as F
+
+    assert "f18_opening_fallback" in F.parse(M1)
+    assert "f18_opening_fallback" not in F.parse(M1 + ",-f18_opening_fallback")
+    assert "f18_opening_fallback" not in F.parse(PREV)
+    assert "f18_side_resume" in F.parse(M1 + ",-f18_opening_fallback")
