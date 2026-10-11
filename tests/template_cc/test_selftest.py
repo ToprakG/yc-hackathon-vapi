@@ -131,3 +131,38 @@ def test_final_trace_appends_scenarios_and_actions(tmp_path):
     assert pa["reverted"] is True and pa["field"] == "/x"
     assert "REVERTED" in (tdir / "trace.txt").read_text()
     assert json.loads((out / "build_report.json").read_text())["saved"]["workflow_id"] == "w1"
+
+
+def test_final_save_retries_only_on_5xx(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("final_trace", REPO / "scripts" / "final_trace.py")
+    ft = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ft)
+    monkeypatch.setattr(ft.time, "sleep", lambda s: None)
+    n = {"c": 0}
+
+    def flaky():
+        n["c"] += 1
+        if n["c"] < 3:
+            raise RuntimeError("POST /api/v2/workflow -> 502 Bad Gateway")
+        return "ok"
+    assert ft.retry_5xx(flaky) == "ok" and n["c"] == 3
+    n["c"] = 0
+
+    def always():
+        n["c"] += 1
+        raise RuntimeError("503 unavailable")
+    try:
+        ft.retry_5xx(always)
+        raise AssertionError("must fail after 3 tries")
+    except RuntimeError:
+        assert n["c"] == 3
+    n["c"] = 0
+
+    def bad():
+        n["c"] += 1
+        raise RuntimeError("400 invalid workflow")
+    try:
+        ft.retry_5xx(bad)
+    except RuntimeError:
+        assert n["c"] == 1
