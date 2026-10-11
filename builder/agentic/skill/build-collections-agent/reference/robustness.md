@@ -39,6 +39,6 @@
 - The post-hook turns each answer into one of a few states (ok / specific known case / failure) in a variable; routes test that variable, not raw fields.
 
 ## 7. Money and currencies are spoken completely and by name
-- Say each currency by its spoken name as the documents write it (never a code or symbol), every amount the documents ask to read for it (for example statement debt, minimum payment, remaining
+- Say each currency by its spoken name as the documents write it (never a code or symbol), every amount the documents ask to read for it (for example the amount owed, the minimum payment, the remaining
   amounts) with its currency, and, when some currencies have nothing owed, ONE sentence that names each of those currencies. A currency block that is missing in the answer is not the same as a
   block that says nothing is owed: do not invent either; follow the documents.
