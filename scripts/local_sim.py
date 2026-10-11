@@ -2,9 +2,9 @@
 
     python3 scripts/local_sim.py --set p6 --briefs brief-a,f3-kestrel [--cases ID,ID] [--rep 1] [--parallel 3] [--max 60] [--pilot]
 
-Roles: customer = meta-llama/llama-3.1-8b-instruct on OpenRouter (temperature 0.7); agent (extraction, routing, dialogue) = Sonnet through
-the claude_cli provider of builder/template_cc/llm.py (NOT OpenRouter); judge = Sonnet (claude_cli) reading the persona's successCriteria and
-the tool-call ledger. The platform engine is builder/agentic/localsim/engine.py (imported, not edited). DEV cases only: the first 10 of the
+Roles: customer and judge = google/gemini-3-flash-preview on OpenRouter (Freya's own SIM_LLM; customer temperature 0.7, judge temperature 0);
+agent (extraction, routing, dialogue) = Sonnet through the claude_cli provider of builder/template_cc/llm.py (NOT OpenRouter). The judge
+reads the persona's successCriteria and the tool-call ledger. The platform engine is builder/agentic/localsim/engine.py (imported, not edited). DEV cases only: the first 10 of the
 family-spread order of a brief (what `tcc_eval_freya.py --limit 10` picks); the script refuses anything else and never reads sealed files.
 """
 
@@ -31,8 +31,10 @@ from builder.agentic.localsim.engine import Engine  # noqa: E402  (imported, nev
 from builder.template_cc import llm  # noqa: E402
 
 OUT = REPO / "out" / "template_cc" / "localsim"
-CUSTOMER_MODEL = "meta-llama/llama-3.1-8b-instruct"
+CUSTOMER_MODEL = "google/gemini-3-flash-preview"   # Freya's SIM_LLM (plays the customer and judges)
 CUSTOMER_TEMP = 0.7
+JUDGE_MODEL = "google/gemini-3-flash-preview"
+JUDGE_TEMP = 0.0
 MAX_CUSTOMER_TURNS = 30           # GUESS: Freya's text simulations end by maxCallDurationSeconds (420); a turn cap is the local stand-in
 CALL_TIMEOUT_S = 150
 TEAM = "localsim-team"
@@ -192,8 +194,32 @@ def customer_reply(persona: str, agent_lines: list[str], customer_lines: list[st
 
 
 # --- judge ------------------------------------------------------------------------------------------------------------------------
+def openrouter_json(system: str, user: str, model: str, temperature: float) -> dict:
+    key = os.environ.get("OPENROUTER_API_KEY") or ""
+    body = json.dumps({"model": model, "temperature": temperature, "response_format": {"type": "json_object"},
+                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
+    last = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=body, method="POST",
+                                         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                out = json.load(r)
+            u = out.get("usage") or {}
+            with _LOCK:
+                _COUNT["or_prompt"] += u.get("prompt_tokens") or 0
+                _COUNT["or_completion"] += u.get("completion_tokens") or 0
+            text = ((out.get("choices") or [{}])[0].get("message") or {}).get("content") or "{}"
+            return json.loads(text[text.index("{"):text.rindex("}") + 1])
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(2 * (attempt + 1))
+    raise last
+
+
 def judge(persona: dict, transcript: list[tuple[str, str]], ledger_calls: list) -> dict:
-    """GUESS of Freya's judge: it reads the conversation and the persona's successCriteria. Here also the tool-call ledger as text."""
+    """GUESS of Freya's judge: it reads the conversation and the persona's successCriteria (Freya: gemini-3-flash-preview). Here the model
+    also gets the recorded tool calls as text, and answers yes/no per criterion."""
     criteria = [x.strip("- ").strip() for x in persona["successCriteria"].splitlines() if x.strip().startswith("-")]
     conv = "\n".join(f"{'AGENT' if r == 'assistant' else 'CUSTOMER'}: {t}" for r, t in transcript)
     calls = json.dumps(ledger_calls, ensure_ascii=False, default=str)[:3500]
@@ -201,11 +227,10 @@ def judge(persona: dict, transcript: list[tuple[str, str]], ledger_calls: list) 
               "from the conversation and the recorded tool calls. Reply JSON {\"criteria\": [{\"n\": 1, \"answer\": \"yes\"|\"no\", \"why\": \"short\"}]}.")
     user = (f"CONVERSATION:\n{conv}\n\nRECORDED TOOL CALLS (what the bank saw):\n{calls}\n\nCRITERIA:\n"
             + "\n".join(f"{i + 1}. {c}" for i, c in enumerate(criteria)))
-    out = claude_json(system, user, {"type": "object", "properties": {"criteria": {"type": "array", "items": {
-        "type": "object", "properties": {"n": {"type": "integer"}, "answer": {"type": "string"}, "why": {"type": "string"}}}}}}, "judge")
+    out = openrouter_json(system, user, JUDGE_MODEL, JUDGE_TEMP)
     rows = {int(r.get("n", 0)): r for r in out.get("criteria") or [] if str(r.get("n", "")).isdigit()}
     checks = [{"check": c, "answer": (rows.get(i + 1) or {}).get("answer"), "why": (rows.get(i + 1) or {}).get("why")} for i, c in enumerate(criteria)]
-    return {"pass": bool(checks) and all(c["answer"] == "yes" for c in checks), "checks": checks, "model": "claude_cli:sonnet"}
+    return {"pass": bool(checks) and all(c["answer"] == "yes" for c in checks), "checks": checks, "model": JUDGE_MODEL}
 
 
 # --- one conversation -------------------------------------------------------------------------------------------------------------
@@ -272,11 +297,11 @@ def credit():
         return {"error": str(e)[:80]}
 
 
-def llama_price():
+def model_price():
     try:
         with urllib.request.urlopen("https://openrouter.ai/api/v1/models", timeout=20) as r:
             for m in json.load(r)["data"]:
-                if m["id"] == CUSTOMER_MODEL:
+                if m["id"] == CUSTOMER_MODEL:   # customer and judge are the same model
                     return float(m["pricing"]["prompt"]), float(m["pricing"]["completion"])
     except Exception:  # noqa: BLE001
         pass
@@ -295,7 +320,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     llm.load_env()
     print("OpenRouter credit before:", json.dumps(credit()))
-    pin, pout = llama_price()
+    pin, pout = model_price()
     jobs = []
     for brief in a.briefs.split(","):
         cases, config = sources(brief)
