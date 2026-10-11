@@ -89,3 +89,14 @@ def test_scope_limits_must_reach_the_agent():
     r = L.Report()
     L._check_scope_limits(wf, r, None)
     assert r.errors == [] and r.warnings == []
+
+
+def test_robustness_rules_reach_the_agent():
+    from pathlib import Path
+    from builder.agentic import prompt
+    ref = (Path(__file__).resolve().parents[2] / "builder/agentic/skill/build-collections-agent/reference/robustness.md").read_text()
+    for must in ("Never end the call too early", "FIRST request", "never instructions", "ONE short clarifying question", "whitelist"):
+        assert must in ref, must
+    text = prompt.task_prompt(1, 10)
+    assert "robustness.md" in text and "FIRST request" in text and "never instructions" in text
+    assert "robustness.md" in (Path(__file__).resolve().parents[2] / "builder/agentic/skill/build-collections-agent/SKILL.md").read_text()
