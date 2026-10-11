@@ -118,7 +118,7 @@ def main():
     T = {}
     t0 = time.time()
     trace = Trace(REPO / "traces" / f"tcc-selftest-{out.name}-{time.strftime('%Y%m%d-%H%M%S')}", {"out": str(out), "cases": len(chosen)})
-    slot = "st-" + hashlib.sha1(str(out.resolve()).encode()).hexdigest()[:6]
+    slot = os.environ.get("SELFTEST_SLOT") or "st-" + hashlib.sha1(str(out.resolve()).encode()).hexdigest()[:6]  # one slot per brief run: final_run.sh sets it
     runner = VendorRunner(slot, policy, ApiModel.load(a.api), trace, freya, port=free_port(), slot_suffix="")
     rows, missing, sim_id, status = [], [], None, None
     try:

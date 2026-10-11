@@ -21,7 +21,7 @@ ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); API=$(cd "$(dirname "$API")" && pwd)/$(basename "$API")
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}")
 FEATURES=${FLAGS_ARG:-${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || cat "$MAIN/FINAL_FLAGS.txt" 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
-export FEATURES SELFTEST_API=$API
+export FEATURES SELFTEST_API=$API SELFTEST_SLOT="st-$(echo "$OUT" | shasum | cut -c1-6)"  # one Freya workflow slot per brief run, updated in place (preference; a new one is fine if that fails)
 T_START=$(date +%s); END=${FINAL_END:-$((T_START + 10800))}; CUT=$((END - 1800)); MAX_ROUNDS=${MAX_ROUNDS:-3}
 LOG=$OUT/final_run.log; : > "$LOG"
 say() { echo "$(date +%H:%M:%S) $*" | tee -a "$LOG"; }
