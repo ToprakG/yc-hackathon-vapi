@@ -136,6 +136,31 @@ def fetch_openapi(mock_url: str):
     return d if isinstance(d, dict) and "openapi" in d and d.get("paths") else None   # a spec without paths is no tool API
 
 
+MAX_FILE_CHARS = 40000
+
+
+def shrink(rel: str, text: str) -> str:
+    """A very large file (a data dump such as a customer list) would drown the brief: keep its shape and the first records, say what was left out."""
+    if len(text) <= MAX_FILE_CHARS:
+        return text
+    if rel.lower().endswith(".json"):
+        try:
+            d = json.loads(text)
+
+            def shape(o, depth=0):
+                if isinstance(o, dict):
+                    return {k: shape(v, depth + 1) if depth < 2 else type(v).__name__ for k, v in list(o.items())[:12]}
+                if isinstance(o, list):
+                    return [f"{len(o)} items"] + ([shape(o[0], depth + 1)] if o and depth < 3 else [])
+                return o if isinstance(o, (int, float, bool)) or o is None else (o[:120] if isinstance(o, str) else type(o).__name__)
+            head = json.dumps(shape(d), ensure_ascii=False, indent=1)[:6000]
+            first = json.dumps(d, ensure_ascii=False, indent=1)[:12000]
+            return f"[LARGE DATA FILE: {len(text)} chars, shape below, then the first records; the rest is omitted]\nShape:\n{head}\n\nFirst records:\n{first}\n[... {len(text) - 12000} chars omitted]"
+        except ValueError:
+            pass
+    return text[:MAX_FILE_CHARS] + f"\n[... truncated: {len(text) - MAX_FILE_CHARS} more chars omitted]"
+
+
 def ingest(folder: Path, mock_url: str, out: Path) -> dict:
     folder, out = Path(folder), Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -160,7 +185,8 @@ def ingest(folder: Path, mock_url: str, out: Path) -> dict:
         if t is None or not t.strip():
             notes.append(f"{rel}: skipped (binary or empty)")
             continue
-        parts.append(f"=== FILE: {rel} ===\n\n{t.strip()}\n")
+        t = shrink(rel, t.strip())
+        parts.append(f"=== FILE: {rel} ===\n\n{t}\n")
         notes.append(f"{rel}: {len(t)} chars")
     try:
         live = fetch_openapi(mock_url) if mock_url else None

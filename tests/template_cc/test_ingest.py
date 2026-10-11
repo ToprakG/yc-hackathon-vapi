@@ -35,3 +35,11 @@ def test_dated_files_come_oldest_to_newest_after_the_first_two(tmp_path, monkeyp
     heads = [l for l in text.splitlines() if l.startswith("=== FILE:")]
     assert [h.split(": ")[1].split(" ===")[0] for h in heads] == ["BRIEF.md", "README.md", "example.md", "sources/2026-09-02-early.md", "sources/2026-10-09-late.md"]
     assert text.startswith("NOTE:") and "later-dated document overrides" in text
+
+
+def test_a_huge_data_file_keeps_its_shape_and_first_records_only():
+    from builder import ingest as I
+    big = json.dumps({"customers": [{"id": str(i), "name": "N" + str(i), "cards": [{"x": i}]} for i in range(5000)]})
+    out = I.shrink("test-environment/test-customers.json", big)
+    assert len(out) < 20000 and "LARGE DATA FILE" in out and "5000 items" in out and "omitted" in out
+    assert I.shrink("a.md", "short") == "short"
