@@ -38,7 +38,7 @@ from builder.template_cc import features as feat  # noqa: E402
 from builder.template_cc import io as tio  # noqa: E402
 from selftest_cases import SOURCES  # noqa: E402
 
-MODEL = "claude_cli:sonnet"
+MODEL = os.environ.get("TCC_SELFTEST_MODEL") or "claude_cli:sonnet"  # every call goes through llm.call_llm: TCC_LLM_PROVIDER=anthropic needs no Claude login
 FLAG_DOC = {
     "f1_id_complete": "identity answers are collected completely (spoken, in pieces) before they are checked",
     "f2_question_not_refusal": "a question asked during the identity check is not counted as a refusal",
@@ -228,7 +228,7 @@ def active_flags(build_dir):
 
 
 def build(cand, base, policy_path, flags, disable, briefs, api):
-    env = {"FEATURES": ",".join(flags)}
+    env = {"FEATURES": ",".join(flags), "FINAL_SAVE": "none"}  # candidates are tests: nothing is saved to Freya
     if policy_path:
         env["POLICY"] = str(Path(policy_path).resolve())
     cmd = ["bash", str(REPO / "scripts" / "final_build.sh")] + (["--disable", disable] if disable else []) + [*briefs, api, str(cand)]  # disable: "f3,f15"

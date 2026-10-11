@@ -64,3 +64,70 @@ def test_judge_ledger_mode_keeps_only_structural_checks():
     led = {"outcome": "x", "reason": None, "promises": [], "notes": [], "callbacks": [], "transfers": [],
            "calls": [{"tool": "close_call", "result": {}}]}
     assert SR.score_case(case, led)["pass"]
+
+
+# --- LLM calls go through llm.py: TCC_LLM_PROVIDER=anthropic needs no Claude Code login -------------------------------------------------
+def _mock_anthropic(monkeypatch, replies):
+    import subprocess
+    from builder.template_cc import llm
+    calls = []
+
+    def fake(url, headers, payload, timeout):
+        calls.append((url, payload))
+        return {"content": [{"type": "text", "text": json.dumps(replies.pop(0))}], "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+    def no_cli(*a, **k):
+        raise AssertionError("the claude CLI / a subprocess must not be used with TCC_LLM_PROVIDER=anthropic")
+    monkeypatch.setattr(llm, "TRANSPORT", fake)
+    monkeypatch.setattr(llm, "load_env", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "run", no_cli)
+    monkeypatch.setattr(subprocess, "Popen", no_cli)
+    monkeypatch.setenv("TCC_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    return calls
+
+
+def test_patcher_diagnosis_uses_llm_py_only(monkeypatch):
+    import selftest_repair as R
+    calls = _mock_anthropic(monkeypatch, [{"diagnosis": "the agent skipped a rule the brief states", "action": "none"}])
+    row = {"case": "ST-01", "failed": ["conversation (Freya judge): x"], "ledger": {}, "tools": []}
+    case = {"rule": "dispute", "script": "s", "expected": {}, "criteria": []}
+    act = R.diagnose(row, case, policy(), "brief text", ["f7_router"], "/nonexistent", set())
+    assert act["action"] == "none" and len(calls) == 1
+    assert calls[0][0].startswith("https://api.anthropic.com") and calls[0][1]["model"] == "claude-sonnet-5-5"
+
+
+def test_scenario_writer_uses_llm_py_only(monkeypatch):
+    import selftest_cases as S
+    calls = _mock_anthropic(monkeypatch, [{"scenarios": [{"id": "ST-01", "script": "x", "criteria": []}]}])
+    out = S.write_personas("brief", [{"id": "ST-01", "rule": "dispute", "facts": "f", "expected": {"outcome": "o", "reason": None}}], None)
+    assert out["scenarios"][0]["id"] == "ST-01" and calls[0][0].startswith("https://api.anthropic.com")
+
+
+def test_final_trace_appends_scenarios_and_actions(tmp_path):
+    import subprocess
+    out, base = tmp_path / "out", tmp_path / "out" / "r0"
+    (base / "selftest").mkdir(parents=True)
+    tdir = tmp_path / "trace"
+    tdir.mkdir()
+    (tdir / "trace.txt").write_text("start\n")
+    (tdir / "events.jsonl").write_text("")
+    (base / "build_report.json").write_text(json.dumps({"slot": "final-x", "trace": str(tdir), "saved": {"workflow_id": "w1", "agent_id": "a1"}}))
+    (base / "workflow.json").write_text("{}")
+    (out / "selftest").mkdir()
+    (out / "selftest" / "cases.json").write_text(json.dumps([{"id": "ST-01", "title": "t", "rule": "dispute"}]))
+    (base / "selftest" / "results.json").write_text(json.dumps({"passed": 0, "cases": 1, "seconds": {}, "rows": [
+        {"case": "ST-01", "rule": "dispute", "pass": False, "freya_judge": False, "failed": ["outcome (a, b), expected (c, d)", "conversation (Freya judge): bad"]}]}))
+    (out / "patch_report.json").write_text(json.dumps({"start": str(base), "rounds": [{"round": 1, "actions": [
+        {"case": "ST-01", "action": "policy_field", "pointer": "/x", "how": "ledger diff -> R1"}], "used": ["ST-01"], "kept": False, "result": "reverted", "fixed": [], "broken": ["ST-02"]}]}))
+    env = {**__import__("os").environ, "FINAL_SAVE": "none"}
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "final_trace.py"), "--out", str(out), "--base", str(base), "--green", str(base)], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    ev = [json.loads(x) for x in (tdir / "events.jsonl").read_text().splitlines()]
+    assert [e["type"] for e in ev if e["type"] in ("selftest_scenario", "patcher_action")] == ["selftest_scenario", "patcher_action"]
+    sc = next(e for e in ev if e["type"] == "selftest_scenario")
+    assert sc["passed"] is False and "bad" in sc["judge_verdict"] and sc["ledger_diff"].startswith("outcome")
+    pa = next(e for e in ev if e["type"] == "patcher_action")
+    assert pa["reverted"] is True and pa["field"] == "/x"
+    assert "REVERTED" in (tdir / "trace.txt").read_text()
+    assert json.loads((out / "build_report.json").read_text())["saved"]["workflow_id"] == "w1"

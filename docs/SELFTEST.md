@@ -38,6 +38,13 @@ FINAL_MODE=patcher_on scripts/final_run.sh --budget-min 30 --ship-min 26 --set-f
 ```
 Jobs run one after the other (one simulation at a time per workspace), each with its own budget: nothing runs past start+26 min, the last green build is copied to `<out>` at the latest then. A repair round starts only if ROUND_S (720 s in budget mode) fits before the ship time; `FINAL_MODE=patcher_off` skips repair. One Freya workflow slot per brief run (`SELFTEST_SLOT`). Expect no repair round in 30 min unless the first run is short: build ~3 min, scenarios + pre-check ~2 min, first Freya run 10-15 min.
 
+## Trace, Freya save, LLM provider
+
+- `final_run.sh` saves to Freya by default (`FINAL_SAVE=freya`, slot `final-<out name>`, one key, `FREYA_API_KEY_W2` unset): the first build via run.py, and the last-green build (patched or rebuilt) is saved again to the same slot by `final_trace.py`; workflow id and agent id are in the trace and in `<out>/build_report.json["saved"]`. Repair candidates are never saved (`FINAL_SAVE=none` inside the patcher).
+- `final_trace.py` appends to the trace that run.py wrote (`build_report.json["trace"]`: trace.txt + events.jsonl): one `selftest_scenario` event per scenario and round (id, name, rule type, pass/fail, judge verdict summary, ledger diff) and one `patcher_action` event per action (round, action, field, kept/reverted, fixed, broken), plus the Freya save.
+- Budget mode runs the 10 most important rule types (identity refusal/failed, right party, robot, dispute, floor, vague date, hardship, human/transfer, callback; `MAX_SCENARIOS`) so a repair round fits before T+26.
+- Every model call of the self-test tools goes through `llm.call_llm`, so `TCC_LLM_PROVIDER=anthropic` (+ `ANTHROPIC_API_KEY`) works without a Claude Code login (`TCC_SELFTEST_MODEL` overrides the model string). Tested with a mocked transport.
+
 ## Fault tools (patcher development)
 
 `inject_faults.py <set> <brief> [--combo ids]` (clean policy + known faults, compiled), `record_faults.py` (record the self-test of the faulty builds once, in as few simulations as possible), `patcher_eval.py` (offline: detected / action chosen / correct / fixes the field; `--abstain` runs the dev failures, where the right answer is "not patchable").

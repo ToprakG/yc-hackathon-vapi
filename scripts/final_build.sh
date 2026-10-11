@@ -54,8 +54,10 @@ if [ -f "$OUT/policy.voted.json" ]; then
   BARGS2=(); for b in "${BRIEFS[@]}"; do BARGS2+=(--brief "$b"); done
   .venv310/bin/python -m builder.template_cc.policy_fixups "$OUT/policy.voted.json" "${BARGS2[@]}" | tee -a "$OUT/final_vote.log"
 fi
-env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" "${POLICY_ARG[@]}" \
-  --slot "final-$(basename "$OUT")" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
+#   FINAL_SAVE=freya: keep FREYA_API_KEY and save to Freya (slot $FINAL_SLOT, default final-<out dir>): the workflow id and agent id go into the trace
+if [ "${FINAL_SAVE:-none}" = freya ]; then SAVE_ARGS=(--save freya); UNSET=(); else SAVE_ARGS=(--save none); UNSET=(-u FREYA_API_KEY); fi
+env "${UNSET[@]}" .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" "${SAVE_ARGS[@]}" --audit off --features "$FEATURES" "${POLICY_ARG[@]}" \
+  --slot "${FINAL_SLOT:-final-$(basename "$OUT")}" --out "$OUT" > "$OUT/build.log" 2>&1; RC=$?
 WALL=$(( $(date +%s) - T0 ))
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}") python3 - "$OUT" "$RC" "$WALL" "$API" "${CONFIG:-}" <<'PY'
 import json, re, subprocess, sys
