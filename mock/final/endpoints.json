@@ -1,0 +1,18 @@
+{
+  "_note": "PLACEHOLDERS until the integration document (section 6) arrives. Fill method/path/aliases from it and re-run build_table.py. aliases = every request field name accepted for a value (path param, query, body or header all work).",
+  "base_path": "",
+  "tenant": "freyabank",
+  "aliases": {"customer": ["customerNo", "customerNumber", "customer_no", "customer_number", "header.customerno", "header.x-customer-no"],
+              "card": ["cardNumber", "card", "cardNo", "card_number", "maskedCardNumber"],
+              "week": ["newStatementWeek", "statementWeek", "week"]},
+  "services": {
+    "cards.list":            {"method": "POST", "path": "/cards/list",            "by": ["customer"]},
+    "cards.balance":         {"method": "POST", "path": "/cards/balance",         "by": ["card"]},
+    "statement.week.get":    {"method": "POST", "path": "/statement/week/get",    "by": ["card"]},
+    "statement.week.decide": {"method": "POST", "path": "/statement/week/decide", "by": ["card", "week"]},
+    "statement.week.change": {"method": "POST", "path": "/statement/week/change", "by": ["card", "week"], "record": "statement_week_change"},
+    "contact.email.get":     {"method": "POST", "path": "/contact/email/get",     "by": ["customer"]},
+    "statement.pdf.send":    {"method": "POST", "path": "/statement/pdf/send",    "by": ["customer"], "record": "statement_pdf_sent"}
+  },
+  "openapi_file": null
+}

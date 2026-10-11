@@ -69,3 +69,12 @@ test("endsWith/startsWith, header inputs as ledger key, delay (capped)", async (
   assert.equal((await b.call("POST", "/e", { card: "5400**1234" }, {}, {})).status, 404);   // header missing -> no rule
   assert.equal((await b.scorerLedger("C1")).calls.length, 1);
 });
+
+test("alias condition keys and per-rule ledger key", async () => {
+  const sp = { mode: "table", id: "a", endpoints: [{ name: "e", method: "POST", path: "/e", rules: [{ key: "K1", when: { "customerNo|customerNumber": "42" }, status: 200, body: { ok: true }, record: { kind: "w" } }] }] };
+  const b = new TableBank(sp, mem());
+  assert.equal((await b.call("POST", "/e", { customerNumber: "42" }, {}, {})).status, 200);
+  assert.equal((await b.call("POST", "/e", { customerNo: 42 }, {}, {})).status, 200);
+  assert.equal((await b.call("POST", "/e", { other: "42" }, {}, {})).status, 404);
+  const l = await b.scorerLedger("K1"); assert.equal(l.calls.length, 2); assert.equal(l.writes.length, 2);
+});

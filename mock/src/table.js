@@ -11,6 +11,8 @@ function compilePath(p) {
   return { re, names };
 }
 const get = (o, path) => path.split(".").reduce((a, k) => (a == null ? undefined : a[k]), o);
+// a condition key "a|b|c" reads the first of those input names that is present (field names the document leaves open)
+const pick = (ctx, k) => { for (const n of k.split("|")) { const v = get(ctx, n); if (v !== undefined && v !== null) return v; } return undefined; };
 const loose = (a, b) => a === b || (a != null && b != null && typeof a !== "object" && typeof b !== "object" && String(a) === String(b));
 
 export function matches(cond, v) {
@@ -92,7 +94,7 @@ export class TableBank {
     let rule = null, ri = -1;
     for (const [i, r] of (ep.rules || []).entries()) {
       const when = r.when || {};
-      if (Object.entries(when).every(([k, c]) => matches(c, get(ctx, k.startsWith("state.") ? k : k)))) { rule = r; ri = i; break; }
+      if (Object.entries(when).every(([k, c]) => matches(c, pick(ctx, k)))) { rule = r; ri = i; break; }
     }
     let out = rule ?? ep.default ?? this.spec.fallback ?? { status: 404, body: { error: "no matching rule" } };
     if (rule?.sequence?.length) {
@@ -105,12 +107,12 @@ export class TableBank {
     if (delay > 0) await new Promise((r) => setTimeout(r, delay * 1000));
     const recs = [];
     for (const rec of [].concat(rule?.record ?? [], out !== rule ? out.record ?? [] : [])) {
-      const r = { kind: fill(rec.kind, ctx), data: fill(rec.data ?? inputs, ctx), key: this.key(ctx) };
+      const r = { kind: fill(rec.kind, ctx), data: fill(rec.data ?? inputs, ctx), key: rule?.key ?? this.key(ctx) };
       recs.push(r); await this.store.put("W:" + pad(((await this.store.get("seq")) || 0) + 1) + ":" + recs.length, { ...r, ts: this.now().toISOString() });
     }
     const set = { ...(rule?.set ?? {}), ...(out.set ?? {}) };
     if (Object.keys(set).length) await this.store.put("S", { ...state, ...fill(set, ctx) });
-    await this.log({ tool: name, key: this.key(ctx), args: inputs, result: { status, body: resp }, matched: rule ? ri : null, writes: recs.length || undefined });
+    await this.log({ tool: name, key: rule?.key ?? this.key(ctx), args: inputs, result: { status, body: resp }, matched: rule ? ri : null, writes: recs.length || undefined });
     return { status, json: resp };
   }
 
