@@ -6,6 +6,7 @@
 # Lanes: 1 = the main key + bank 8860 (this checkout's .env), 2 = the W2 key + bank 8861 (../yc-w2/w2_env.sh). Lock dirs
 # out/template_cc/eval/lane{1,2}.lock; if both are busy this exits 3 without starting anything. LANE=1|2 forces a lane.
 set -u
+export FREYA_SIM_CONCURRENCY=10  # one wave per 10-case brief; never above 10
 MAIN=$(cd "$(dirname "$0")/.." && pwd)
 [ $# -ge 6 ] || { sed -n 2,9p "$0"; exit 2; }
 WT=$(cd "$1" && pwd); SET=$2; PREFIX=$3; shift 3

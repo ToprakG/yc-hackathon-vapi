@@ -8,6 +8,7 @@
 # Origin: out/template_cc/eval/shared_origin.txt, checked with curl before starting.
 cd "$(dirname "$0")/.." || exit 2
 set -a; [ -f .env ] && . ./.env; [ -n "$LANE_ENV" ] && . "$LANE_ENV"; set +a  # LANE_ENV: another lane's key/state/bank identity wins over .env
+export FREYA_SIM_CONCURRENCY=10  # one wave per 10-case brief; never above 10
 SET=${1:?set or -}; PREFIX=${2:?tag prefix}; REPS=${3:?reps}
 BRIEFS=${CHAIN_BRIEFS:-"brief-a brief-b f1-nordhavn f2-ostral f3-kestrel f4-brightwell f5-halden-email f6-corvid-memo f7-lumen-codes"}  # CHAIN_BRIEFS: only these
 EVAL_ARGS=${EVAL_ARGS:-}  # extra tcc_eval_freya.py arguments, e.g. "--skip 10 --limit 10" or "--cases A-001,F1-004"

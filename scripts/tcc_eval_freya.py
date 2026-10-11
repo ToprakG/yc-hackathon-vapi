@@ -149,13 +149,23 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, seal
         sessions = {c["id"]: bank(runner.origin, "/v1/practice/sessions", {"case": c["id"]})["variables"] for c in chosen}
         sim_id, it_id, status = freya.run_simulation(agent_id, f"tcc eval {brief} {tag}",
                                                      {ids[c["id"]]: sessions[c["id"]] for c in chosen},
-                                                     concurrency=concurrency)
-        verdicts = {r["personaId"]: r for r in freya.get_iteration(sim_id, it_id)["runs"]}
+                                                     concurrency=min(concurrency, 10))
+        # the analysis of a finished run can arrive late: wait at most 120 s; a run without a verdict is MISSING (neither pass nor fail)
+        t_wait = time.time() + 120
+        while True:
+            verdicts = {r["personaId"]: r for r in freya.get_iteration(sim_id, it_id)["runs"]}
+            if all(v.get("outcome") not in (None, "queued", "running") for v in verdicts.values()) or time.time() > t_wait:
+                break
+            time.sleep(10)
+        missing = []
         rows = []
         for c in chosen:
             ledger = bank(runner.origin, "/v1/practice/ledger/" + sessions[c["id"]]["customer_id"])
             scored = score_ledger(c, ledger)
             v = verdicts.get(ids[c["id"]], {})
+            if v.get("outcome") in (None, "queued", "running"):  # the analysis never arrived: not a failure, not retried in this run
+                missing.append(c["id"])
+                continue
             freya_ok = v.get("outcome") == "pass"
             local = None
             if v.get("callId") and budget.left():
@@ -177,7 +187,7 @@ def evaluate(brief, limit, skip, port, budget, concurrency, tag, only=None, seal
     rep = {"brief": brief, "tag": tag, "cases": len(chosen), "passed": sum(r["pass"] for r in rows),
            "local_judged": sum(1 for r in rows if r["local_judge"] and r["local_judge"]["pass"] is not None),
            "local_passed": sum(1 for r in rows if r["local_judge"] and r["local_judge"]["pass"] is True and r["ledger_pass"]),
-           "seconds": round(time.time() - t0), "simulation": sim_id, "status": status, "rows": rows}
+           "seconds": round(time.time() - t0), "simulation": sim_id, "status": status, "missing": missing, "rows": rows}
     OUT.mkdir(parents=True, exist_ok=True)
     if sealed:  # GATE / TEST: the full record stays in sealed/; the shared folder only gets pass/fail and the failed criterion category
         (OUT.parent / "sealed").mkdir(parents=True, exist_ok=True)
@@ -230,7 +240,7 @@ def main():
             sp = budget.spent()
             print(f"{b}: {r['passed']}/{r['cases']} passed (bank records + Freya judge); local judge + records "
                   f"{r['local_passed']}/{r['local_judged']} judged; {r['seconds']}s; OpenRouter spent so far "
-                  f"${sp if sp is None else round(sp, 2)}", flush=True)
+                  f"${sp if sp is None else round(sp, 2)}" + (f"; MISSING {len(r['missing'])}: {','.join(r['missing'])}" if r.get("missing") else ""), flush=True)
         except NoCases:
             print(f"{b}: no matching cases, skipped", flush=True)
         except Exception as e:  # noqa: BLE001 - one brief failing must not stop the others
