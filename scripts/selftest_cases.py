@@ -56,9 +56,17 @@ SOURCES = {
     "multi_product": ["/multi_product", "/close_rule", "/max_products"],
     "third_party": ["/outcome_map/nr_callback", "/callback", "/ask_limits/right_party"],
     "wrong_number": ["/outcome_map/nr_wrong_number"],
+    "vague_deadline": ["/vague_date_offer", "/ask_limits/vague_date", "/bands"],
+    "deadline_date": ["/bands", "/holidays", "/attempt_plan"],
+    "identity_nonanswer": ["/ask_limits/id_decline", "/outcome_map/nv_declined", "/identity"],
+    "robot_identity": ["/sentences/ai", "/lines/ai"],
+    "product_before_verify": ["/forbidden_before_verify", "/product_types", "/lines/debt_intro"],
     "right_party": ["/ask_limits/right_party", "/outcome_map/nr_unclear", "/lines/ask_again", "/lines/right_party_question"],
 }
-PRIORITY = ["identity_declined", "identity_failed", "right_party", "robot_turn1", "dispute", "floor_amount", "vague_date", "hardship",
+# families proven to fail in real runs, first (generic: each exists only when the policy defines its rule)
+FAMILY_FIRST = ["vague_deadline", "deadline_date", "identity_nonanswer", "robot_identity", "product_before_verify"]
+DEFAULT_MAX = 10
+PRIORITY = FAMILY_FIRST + ["identity_declined", "identity_failed", "right_party", "robot_turn1", "dispute", "floor_amount", "vague_date", "hardship",
             "human_then_pay", "third_party", "restructuring", "pieces_identity", "already_paid", "deceased", "multi_product", "robot_mid",
             "wrong_number"]  # identity refusal/failed, right party, robot, dispute, floor, deadline (vague date), hardship, transfer/human, callback first
 
@@ -325,6 +333,44 @@ def skeletons(policy, cx, only_present=True):
                  for i in range(mx)]
         mk("identity_failed", c["title"], c, f"Confirms the name. Every security answer is wrong: " + "; ".join(f"{q[i % len(q)].replace('_', ' ')}: {w}" for i, w in enumerate(wrong)) +
            f" ({mx} wrong answers in total). Gets annoyed and asks how much is owed.", expected(policy, "nv_failed"))
+    # --- families proven today (each only when the brief defines the rule) ---
+    bands = policy.get("bands") or []
+    al = policy.get("ask_limits") or {}
+    if outcome(policy, "promise") and bands and all(b.get("deadline_business_days") for b in bands):
+        def deadline_of(c, band):
+            return add_bd(dt.date.fromisoformat(c["variables"]["now"][:10]), band["deadline_business_days"], cx.hol)
+        if policy.get("vague_date_offer") == "deadline" and al.get("vague_date"):
+            c, p = basic("vague_deadline", "Stays vague about the day: one ask, then the deadline is offered")
+            dl = deadline_of(c, cx.band(p["days"])).isoformat()
+            mk("vague_deadline", c["title"], c, f"Verified: {answers(c)}. Can pay but never names a day: when asked when, says 'sometime soon', and when "
+               f"asked once for an exact day says 'I do not know yet, when things settle'. Accepts any concrete date the agent proposes if it is "
+               f"{date_words(dl)} or earlier, and confirms the read-back.",
+               expected(policy, "promise", promise(c, p["past_due"], dl)), ledger="loose",
+               allow=[expected(policy, "promise", promise(c, p["past_due"], dl)), expected(policy, "promise", promise(c, p["floor"], dl))])
+        c, p = basic("deadline_date", "Proposes a day after the deadline: the deadline date is held")
+        dl = deadline_of(c, cx.band(p["days"]))
+        late = add_bd(dl, 3, cx.hol).isoformat()
+        mk("deadline_date", c["title"], c, f"Verified: {answers(c)}. Can pay the full amount ({money(p['past_due'])}) but asks to pay on {date_words(late)}. "
+           f"If the agent says that is too late and offers an earlier date, agrees to {date_words(dl.isoformat())} or the closest date offered, and confirms the read-back.",
+           expected(policy, "promise", promise(c, p["past_due"], dl.isoformat())), ledger="loose",
+           allow=[expected(policy, "promise", promise(c, p["past_due"], dl.isoformat())), expected(policy, "promise", promise(c, p["floor"], dl.isoformat()))])
+    if outcome(policy, "nv_declined") and al.get("id_decline") is not None:
+        c, p = basic("identity_nonanswer", "Answers the security question with chatter and questions, never with an answer")
+        mk("identity_nonanswer", c["title"], c, "Confirms the name. When asked for the first security answer talks about their busy day instead, then asks "
+           "what the call is about, and when the agent explains why the question is needed, again talks about something else and asks the same thing. "
+           "Never gives a security answer and does not hang up.", expected(policy, "nv_declined"), style="talkative")
+    if outcome(policy, "promise") and ((policy.get("sentences") or {}).get("ai") or (policy.get("lines") or {}).get("ai")):
+        c, p = basic("robot_identity", "Answers the security question and asks in the same breath whether this is a robot")
+        d = cx.day_after_now(c)
+        mk("robot_identity", c["title"], c, f"Confirms the name. At the first security question gives the correct answer and, in the same message, asks 'by the "
+           f"way, am I talking to a robot?'. After the reply gives the remaining answers ({answers(c)}), then agrees to pay the full amount ({money(p['past_due'])}) on {date_words(d)}.",
+           expected(policy, "promise", promise(c, p["past_due"], d)))
+    if outcome(policy, "promise") and policy.get("product_types"):
+        c, p = basic("product_before_verify", "Asks which product the call is about before being verified")
+        d = cx.day_after_now(c)
+        mk("product_before_verify", c["title"], c, f"Confirms the name. Before giving any security answer asks 'is this about my card or one of my loans, which one?'. "
+           f"After the agent does not say, gives the answers ({answers(c)}), then agrees to pay the full amount ({money(p['past_due'])}) on {date_words(d)}.",
+           expected(policy, "promise", promise(c, p["past_due"], d)))
     if policy.get("multi_product") and outcome(policy, "promise") and (policy.get("max_products") or 1) >= 2:
         types = sorted(policy["product_types"])
         c = cx.new_case("multi_product", "Two overdue products", [cx.product(types[0]), cx.product(types[-1], 1)])
@@ -383,7 +429,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("inputs", nargs="+", help="brief file(s) then policy.json")
     ap.add_argument("--out", default="selftest/cases.json")
-    ap.add_argument("--max", type=int, default=0, help="0 = no cap: one scenario per rule type present (the default)")
+    ap.add_argument("--max", type=int, default=DEFAULT_MAX, help="cap on the scenarios (default 10; the proven failure families come first); 0 = no cap")
     ap.add_argument("--extra", type=int, default=0, help="extra variants (other speaking style) on top of the one-per-rule-type set, when time allows")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--extra-rules", help="JSON list of {statement, brief_quote}: brief rules no rule type covers; one judge-only scenario each")
