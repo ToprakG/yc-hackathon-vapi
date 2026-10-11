@@ -110,3 +110,55 @@ def test_turkish_speech_is_read_by_the_parsers():
 def test_english_parsers_are_untouched():
     from builder.template_cc.compiler import snippets as S
     assert "tr_norm" not in S.build("vars['a'] = amount_from_speech('fifty')", {}, ("amount_from_speech",))
+
+
+def _read(lines):
+    body = "".join(f"vars['r{i}'] = {l}\n" for i, l in enumerate(lines))
+    return _run(body, ("answer_from_spoken", "answer_from_speech", "digit_string", "amount_from_speech", "date_from_speech"))
+
+
+NOW = "'2026-10-11T10:00'"
+
+
+def test_tr_suffixes_without_apostrophe():
+    v = _read([f"date_from_speech('ayın on beşinde', {NOW})",
+               f"date_from_speech('yirmisinde', {NOW})",
+               f"date_from_speech('ayın otuzunda', {NOW})",
+               f"date_from_speech('Kasımda ayın yirmisi', {NOW})",
+               f"date_from_speech('Cumaya', {NOW})",
+               f"date_from_speech('Perşembeye', {NOW})",
+               f"date_from_speech('on dört Mart', {NOW})",
+               f"date_from_speech('14 Martta', {NOW})",
+               f"date_from_speech('Aralığında 3', {NOW})"])
+    assert v["r0"][0] == "2026-10-15", v["r0"]
+    assert v["r1"][0] == "2026-10-20", v["r1"]
+    assert v["r2"][0] == "2026-10-30", v["r2"]
+    assert v["r3"][0] == "2026-11-20", v["r3"]
+    assert v["r4"][0] == "2026-10-16", v["r4"]
+    assert v["r5"][0] == "2026-10-15", v["r5"]
+    assert v["r6"][0] == "2027-03-14" or v["r6"][0] == "2026-03-14" or v["r6"][0].endswith("-03-14"), v["r6"]
+    assert v["r7"][0].endswith("-03-14"), v["r7"]
+
+
+def test_tr_ordinals():
+    v = _read([f"date_from_speech('on dördüncü Mart', {NOW})",
+               f"date_from_speech('ayın on beşi', {NOW})",
+               f"date_from_speech('ayın 15\\'i', {NOW})",
+               f"date_from_speech('ayın 22\\'sinde', {NOW})",
+               f"date_from_speech('yirmi üçüncü Ekim', {NOW})",
+               f"date_from_speech('birinci Aralık', {NOW})"])
+    assert v["r0"][0].endswith("-03-14"), v["r0"]
+    assert v["r1"][0] == "2026-10-15", v["r1"]
+    assert v["r2"][0] == "2026-10-15", v["r2"]
+    assert v["r3"][0] == "2026-10-22", v["r3"]
+    assert v["r4"][0] == "2026-10-23", v["r4"]
+    assert v["r5"][0].endswith("-12-01"), v["r5"]
+
+
+def test_tr_half():
+    v = _read(["amount_from_speech('yüz elli buçuk lira')", "amount_from_speech('yarım lira')", "amount_from_speech('iki bin buçuk')",
+               "amount_from_speech('bir buçuk')"])
+    assert v["r0"][0] == 150.5, v["r0"]
+    assert v["r1"][0] == 0.5, v["r1"]
+    assert v["r2"][0] == 2000.5, v["r2"]
+    assert v["r3"][0] == 1.5, v["r3"]
