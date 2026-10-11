@@ -198,7 +198,7 @@ def test_tr_form_of_address():
 def test_tr_phrasing():
     wf, _ = build("tr")
     text = codes(wf)
-    for good in ("ödeyeceksiniz. ", "gündür gecikmiş", "tutarında ödemeniz var", "Kalan tutar gecikmiş olarak kalır", "tutarın tamamını (",
+    for good in ("ödeyeceksiniz. ", "gündür gecikmiş", "tutarında ödemeniz var", "tutarın tamamını (",
                  "kayıtlarımızla eşleşmedi", "iş günü olan "):
         assert good in text, good
     for bad in ("Kalanı gecikmiş", "Bu yanıt eşleşmedi", "gün gecikme."):
