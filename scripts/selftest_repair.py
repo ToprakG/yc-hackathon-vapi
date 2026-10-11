@@ -37,6 +37,7 @@ from builder.template_cc.testgen import persona_tokens  # noqa: E402
 from builder.template_cc import features as feat  # noqa: E402
 from builder.template_cc import io as tio  # noqa: E402
 from selftest_cases import SOURCES  # noqa: E402
+from selftest_common import is_outage  # noqa: E402
 
 MODEL = os.environ.get("TCC_SELFTEST_MODEL") or "claude_cli:sonnet"  # every call goes through llm.call_llm: TCC_LLM_PROVIDER=anthropic needs no Claude login
 FLAG_DOC = {
@@ -408,6 +409,9 @@ def main():
         if rep is None:
             print("no selftest/results.json in", green)
             return 2
+        if is_outage(rep):  # outage signature: never repair from it
+            report["outage"] = f"round {rno}: the results of {green} show the outage signature (no tool call in any scenario): MISSING, no action, build kept"
+            return finish("outage")
         fails = [r for r in rep["rows"] if not r["pass"] and r["case"] not in (rep.get("missing") or [])]
         if not fails:
             return finish("green")
@@ -476,6 +480,17 @@ def main():
         (d / "selftest").mkdir(exist_ok=True)
         run_tests(d, cases_file, api, sub, "results.json", wait=1800).wait()
         sr = results(d)
+        if sr and is_outage(sr):  # an outage run decides nothing: wait 60 s, re-run once if time allows, else drop the round
+            rr["outage_first_run"] = True
+            if room(a.round_s // 2):
+                time.sleep(60)
+                run_tests(d, cases_file, api, sub, "results.json", wait=1800).wait()
+                sr = results(d)
+                rr["outage_rerun"] = True
+            if sr and is_outage(sr):
+                rr.update({"result": "MISSING (outage signature): round discarded, last green build kept, no action taken from it", "outage": True,
+                           "subset": sub, "stages_s": st})
+                break
         st["test"] = round(time.time() - t2)
         if not sr:
             rr["result"] = "the test run produced no results"

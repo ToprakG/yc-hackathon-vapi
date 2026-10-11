@@ -14,19 +14,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-
-
-def retry_5xx(fn, *args, tries=3, wait=30, **kw):
-    """Call fn; on a 5xx answer wait `wait` s and retry, at most `tries` calls in all. Any other error is raised at once."""
-    import re
-    for i in range(tries):
-        try:
-            return fn(*args, **kw)
-        except Exception as e:  # noqa: BLE001
-            if i == tries - 1 or not re.search(r"(?<!\d)5\d\d(?!\d)", str(e)):
-                raise
-            print(f"final_trace: {fn.__name__} got a 5xx ({str(e)[:80]}); retry {i + 1}/{tries - 1} in {wait} s", flush=True)
-            time.sleep(wait)
+sys.path.insert(0, str(REPO / "scripts"))
+from selftest_common import retry_5xx  # noqa: E402  (3 tries, 10 s apart, on a 5xx)
 
 
 def summary(row):
@@ -65,6 +54,9 @@ def main():
     if first.exists():
         r = json.loads(first.read_text())
         lines.append(f"selftest first run: {r['passed']}/{r['cases']} passed, seconds {r.get('seconds')}")
+        if r.get("outage"):
+            ev("outage", round=0, note="outage signature in the first self-test run (no tool call in any scenario): MISSING, nothing repaired from it")
+            lines.append("selftest first run: OUTAGE SIGNATURE (no tool call in any scenario): MISSING, nothing repaired from it")
         ev("selftest_run", round=0, passed=r["passed"], cases=r["cases"], missing=r.get("missing"), seconds=r.get("seconds"), simulation=r.get("simulation"))
         for row in r["rows"]:
             scen(0, row, "round0")
@@ -73,6 +65,9 @@ def main():
         p = json.loads(pr.read_text())
         for rd in p.get("rounds", []):
             n = rd["round"]
+            if rd.get("outage") or rd.get("outage_first_run"):
+                ev("outage", round=n, rerun=bool(rd.get("outage_rerun")), result=rd.get("result"))
+                lines.append(f"patcher round {n}: outage signature (rerun after 60 s: {bool(rd.get('outage_rerun'))}) -> {rd.get('result') or 'run repeated'}")
             d = Path(p["start"]).parent if False else None
             for fn in (out / "repair" / f"round{n}" / "selftest" / "results.json", ):
                 if fn.exists():

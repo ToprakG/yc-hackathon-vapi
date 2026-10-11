@@ -27,6 +27,9 @@ for p in (str(REPO), str(VENDOR / "tools" / "driver"), str(VENDOR / "tools"), st
     sys.path.insert(0, p)
 
 import freya  # noqa: E402  (vendor freya.py: simulations + personas)
+from selftest_common import install as _retry_freya, outage_signature  # noqa: E402
+
+_retry_freya(freya)  # every Freya call: 3 tries, 10 s apart, on a 5xx
 from run_cases import persona_for  # noqa: E402
 from score import score_ledger  # noqa: E402
 
@@ -164,10 +167,12 @@ def main():
     finally:
         runner.close()
         T["total_s"] = round(time.time() - t0)
-        rep = {"tag": a.tag, "cases": len(chosen), "passed": sum(r["pass"] for r in rows), "missing": missing, "simulation": sim_id,
+        rep = {"outage": outage_signature(rows, missing), "tag": a.tag, "cases": len(chosen), "passed": sum(r["pass"] for r in rows), "missing": missing, "simulation": sim_id,
                "status": status, "seconds": T, "rows": rows}
         (sd / a.results).write_text(json.dumps(rep, indent=1, ensure_ascii=False))
         trace.close("ok", passed=rep["passed"], cases=rep["cases"])
+    if rep["outage"]:
+        print("selftest_run: OUTAGE SIGNATURE (no tool call in any scenario): this run is MISSING, not a result", flush=True)
     print(f"selftest_run: {rep['passed']}/{rep['cases']} passed, missing {len(missing)}, {T}")
     for r in rows:
         print(f"  {r['case']} {r['rule']:18s} {'PASS' if r['pass'] else 'FAIL'}" + ("" if r["pass"] else "  " + " | ".join(r["failed"])[:240]))

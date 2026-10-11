@@ -90,6 +90,16 @@ else
   export LANE_WAIT=${LANE_WAIT:-$(( S < 1800 ? S / 3 : 1800 ))} SELFTEST_TIMEOUT=$(( S < 1800 ? S : 1800 ))
   stage run_r0 bash scripts/selftest_run.sh "$GREEN" --cases "$OUT/selftest/cases.json" --api "$API"
   [ -f "$GREEN/selftest/results.json" ] || { say "the first test run produced no results: delivering the build untested"; STATUS=untested; }
+  isout() { python3 -c "import json,sys;print(1 if json.load(open(sys.argv[1])).get('outage') else 0)" "$GREEN/selftest/results.json" 2>/dev/null; }
+  if [ "$STATUS" = tested ] && [ "$(isout)" = 1 ]; then   # outage signature: no repair from it; one re-run after 60 s if time allows
+    say "OUTAGE SIGNATURE in the first run (no tool call in any scenario): MISSING, nothing will be repaired from it"
+    if [ "$(secs_left)" -gt 900 ]; then sleep 60; mv "$GREEN/selftest/results.json" "$GREEN/selftest/results.outage.json"
+      S=$(secs_left); export SELFTEST_TIMEOUT=$(( S < 1800 ? S : 1800 ))
+      stage run_r0_again bash scripts/selftest_run.sh "$GREEN" --cases "$OUT/selftest/cases.json" --api "$API"
+      [ -f "$GREEN/selftest/results.json" ] || mv "$GREEN/selftest/results.outage.json" "$GREEN/selftest/results.json"
+    fi
+    [ "$(isout)" = 1 ] && { say "still the outage signature: the build is delivered as built (no repair)"; STATUS=outage; }
+  fi
 fi
 
 # 3. repair rounds (inside selftest_repair.py: <= MAX_ROUNDS, a round starts only if ROUND_S fits before the ship time, reverts a round that breaks anything)
