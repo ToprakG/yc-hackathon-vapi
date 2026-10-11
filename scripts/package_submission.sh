@@ -78,7 +78,7 @@ print("\n=== submission form ===")
 print("team name:    <TEAM NAME>")
 print(f"repo URL:     {remote}")
 print(f"commit:       {git('rev-parse', 'HEAD')}" + ("   (WARNING: uncommitted changes in tracked files)" if dirty else ""))
-print("run command:  see README_RUN.md ('The one command'):  scripts/final_run.sh <brief files> <tool-api.json> <out dir>")
+print("run command:  python3 builder/build.py {brief_path} {tool_api_path}      (a brief that builds on another: python3 builder/build.py {base_brief_path} {brief_path} {tool_api_path})")
 for r in rows:
     print(f"- {r['brief']}: status {r['status']}, workflow id {r['workflow_id']}, agent id {r['agent_id']}\n    workflow: {r['workflow']}\n    trace:    {r['trace']}")
 if problems:
