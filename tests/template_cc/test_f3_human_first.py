@@ -33,7 +33,7 @@ def test_human_transition_is_first_in_every_early_stage(features):
         assert first["target_node"] == "human_offer", nid
     assert compiler.lint(wf, pol, api)["errors"] == []
     names = {e["name"] for e in wf["nodes"]["opening"]["extraction_schema"]}
-    assert names == {"who1", "who_wants_human"}
+    assert {"who1", "who_wants_human"} <= names <= {"who1", "who_wants_human", "ai_asked"}
     assert "wants_human" in next(e for e in wf["nodes"]["identity"]["extraction_schema"] if e["name"] == "id_intent")["enum_values"]
 
 

@@ -180,3 +180,13 @@ def test_an_answer_text_alone_goes_to_id_check(built):
     conds = {(c["variable"], c["operator"], c.get("operand")) for c in t["condition"]["conditions"]}
     assert ("id_intent", "equals", "answer") in conds and ("id_answer_text", "not_equals", "") in conds
     assert any(x["target_node"] == "id_check" for x in wf["nodes"]["identity_explain"]["transitions"])
+
+
+def test_a_robot_question_in_the_first_reply_is_answered_before_the_first_question(built):
+    wf, pol, _ = built
+    assert "ai_asked" in {e["name"] for e in wf["nodes"]["opening"]["extraction_schema"]}
+    v = call_vars(pol, "2031-03-05T10:00")
+    first = run_code(wf, "setup", v)["id_say"]
+    out = run_code(wf, "setup", dict(v, ai_asked="yes"))
+    assert out["id_say"] == pol["lines"]["ai"]["text"] + " " + first
+    assert run_code(wf, "setup", dict(v, ai_asked="no"))["id_say"] == first

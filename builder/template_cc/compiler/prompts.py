@@ -311,6 +311,7 @@ EXTRACT = {
                    "manager; goodbye = says goodbye or thanks you to end the call, after you have said goodbye or said the call "
                    "is over; finished = everything is settled or cannot go on and the customer has nothing more to discuss "
                    "(never while an agreed promise is still waiting to be recorded); none = anything else.",
+    "ai_asked": "yes = the customer asks whether they are talking to a robot, a computer or an AI; no = anything else.",
     "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
                        "is NOT that); no = anything else.",
     "offer_intent": "proposes = the customer names an amount or a date for paying; accepts_offer = the customer agrees to your "
@@ -322,7 +323,8 @@ EXTRACT = {
     "rb_answer": "yes = a clear yes to what you just read back; no = no, they do not want that; change = they name a "
                  "different amount or date; other = anything else.",
     "id_answer_text": "The customer's answer to the security question just asked, copied exactly as said (words or digits). "
-                      "If they gave it over several messages, join the parts. Empty if no answer.",
+                      "ALWAYS fill it when the customer gives an answer, even a partial one. If they gave it over several "
+                      "messages, join the parts. Empty only if there is no answer.",
     "side": "What the customer's last message is about: hardship = illness, a death in the family or job loss; "
             "dispute = the debt or product is not theirs, or was closed or paid off in the past; paid_already = they "
             "already paid this past-due amount; restructuring = explicitly asks for a new payment plan, a restructuring or lower instalments (saying the amount "

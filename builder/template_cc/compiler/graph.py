@@ -17,6 +17,7 @@ from builder.template_cc.policy_check import CANONICAL_NOTES
 from builder.template_cc.zones import ZoneBook, esc
 
 MIN_CONF = 0.6
+FREE_TEXT_CONF = 0.3  # a spoken answer copied as said: a discarded value looks like "nothing said" and makes the agent ask again
 ROUTE_INTENTS = ["none", "asks_robot", "asks_scam", "wants_human", "goodbye", "finished"]
 DEFAULT_PRECEDENCE = ["wants_human", "asks_scam", "asks_robot", "finished", "goodbye"]
 CLOSING_PREFIX = {"promise": "promise_confirmation", "paid": "paid_reply", "nv_failed": "failed_id",
@@ -175,7 +176,7 @@ class Graph:
             item = {"name": name, "type": "string"}
             if values is not None:  # None = free text (a spoken answer)
                 item["enum_values"] = values
-            out.append({**item, "description": text, "min_confidence": MIN_CONF})
+            out.append({**item, "description": text, "min_confidence": MIN_CONF if values is not None else FREE_TEXT_CONF})
         return out
 
     def intent(self, zid: str, ptrs: list[str], text: str):
@@ -382,6 +383,8 @@ ID_INIT        vars['cb_state'] = 'none'
         if "f1_id_complete" in self.f:
             body = body.replace("ID_INIT", """        vars['id_q'] = CFG['identity']['questions'][0]
         vars['id_say'] = CFG['identity']['prompts'].get(vars['id_q'], vars['id_q'])
+        if str(vars.get('ai_asked')) == 'yes' and CFG['lines'].get('ai'):
+            vars['id_say'] = str(CFG['lines']['ai']) + ' ' + str(vars['id_say'])
         vars['id_partial'] = ''
         vars['id_answer_text'] = ''
         vars['id_send_field'] = ''
@@ -434,8 +437,11 @@ ID_INIT        vars['cb_state'] = 'none'
         second = int(self.limits.get("right_party", 2)) >= 2
         who = ["customer", "someone_else", "not_their_number", "customer_died", "unclear"]
         hf = self.human_first
+        # F1: the identity questions are spoken by the system, so a robot question in the first reply is answered with the brief's line
+        ai_ask = "f1_id_complete" in self.f and bool(P.line(self.p, "ai"))
         self.conv("opening", on_enter=self.tts("opening", opening), first_only=True,
-                  extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])),
+                  extraction=self.extraction("opening", "opening", [("who1", who)] + ([("who_wants_human", ["yes", "no"])] if hf else [])
+                                             + ([("ai_asked", ["yes", "no"])] if ai_ask else [])),
                   transitions=([eq("human_offer", "asks for a person", "who_wants_human", "yes")] if hf else [])
                   + [any_of("setup", "the person answered", [leaf("who1", "is_set")])],
                   max_turns=4, turn_target="setup")
@@ -699,7 +705,8 @@ ID_INIT        vars['cb_state'] = 'none'
             "then ask the pending question again." if f2 else ""))
         if explain:
             ext = [{"name": n, "type": "string", **({"enum_values": v} if v is not None else {}),
-                    "description": descs.get(n) or P.EXTRACT[n], "min_confidence": MIN_CONF} for n, v in fields]
+                    "description": descs.get(n) or P.EXTRACT[n],
+                    "min_confidence": MIN_CONF if v is not None else FREE_TEXT_CONF} for n, v in fields]
             self.conv("identity_explain", on_enter=self.tts("identity_explain", "{{id_say}}") if f1 else {"type": "llm"},
                       tools=tools, extraction=ext, transitions=list(trs), max_turns=12, turn_target="mark_nv_declined")
             for i, (n, _) in enumerate(fields):
@@ -1022,6 +1029,9 @@ ID_INIT        vars['cb_state'] = 'none'
         vars['offer_amount_text'] = ''
         vars['offer_date_text'] = ''
         vars['rb_answer'] = 'other'
+        vars['side'] = 'none'
+        vars['hs_choice'] = 'none'
+        vars['human_choice'] = 'none'
         vars['cp_route'] = 'back'
         say = ''
         if row:

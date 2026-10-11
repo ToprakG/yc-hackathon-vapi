@@ -216,3 +216,19 @@ def test_an_amount_said_first_is_kept_and_an_invalid_part_is_dropped(a):
     assert o["cp_route"] == "confirm" and float(o["rb_amount"]) == 300.0
     below = check(wf, v, "one hundred", "the sixth of March")  # a too-small amount is dropped, the date stays
     assert below["pend_amt"] == "" and below["pend_date"] == "the sixth of March"
+
+
+def test_promise_check_consumes_the_signals_that_sent_the_customer_here(a):
+    wf, _, _, v = a
+    o = check(wf, dict(v, side="human", hs_choice="declines", human_choice="continues"), "three hundred", "Friday the seventh of March", "accepts_offer")
+    assert o["cp_route"] == "confirm" and (o["side"], o["hs_choice"], o["human_choice"]) == ("none", "none", "none")
+
+
+def test_free_text_extractions_have_a_lower_confidence_bar_than_enums(a):
+    wf, _, _, _ = a
+    for nid, names in (("identity", ("id_answer_text",)), ("identity_explain", ("id_answer_text",)),
+                       ("negotiate", ("offer_amount_text", "offer_date_text"))):
+        fields = {e["name"]: e["min_confidence"] for e in wf["nodes"][nid]["extraction_schema"]}
+        for n in names:
+            assert fields[n] == 0.3, (nid, n)
+        assert all(c == 0.6 for k, c in fields.items() if k not in names and "text" not in k), nid
