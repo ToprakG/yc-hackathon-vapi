@@ -8,12 +8,11 @@ ALL = ["f1_id_complete", "f2_question_not_refusal", "f3_human_first", "f4_discou
        "f6_counters", "f8_fixed_lines", "f9_number_input", "f10_extract_vote", "f7_router", "f11_promise_typed",
        "f12_slot_summary", "f13_verifier", "f14_rules_ifthen", "f15_hardship_terms", "f16_intents",
        "f18_side_resume", "f19_refusal_rule", "f20_once_flags", "f21_spoken_answers", "f24_day_once",
-       "f25_dispute_wins", "f26_amount_assembly", "f18_opening_fallback", "f24_vague_signal"]
+       "f25_dispute_wins", "f26_amount_assembly", "f18_opening_fallback"]
 # f18_opening_fallback is a sub-switch of f18_side_resume: ON whenever f18 is on (parse() adds it) unless it is named with a minus
 # ("...,-f18_opening_fallback"): then an empty who1 after the first reply stays in `opening` as without f18.
-# f24_vague_signal is a sub-switch of f24_day_once: ON whenever f24 is on unless it is named with a minus ("...,-f24_vague_signal").
 # opt-in: never part of "all"; a flag with no verified policy parameter changes nothing for that brief
-OPT_IN = ["f22_forbidden_disclosure"]
+OPT_IN = ["f22_forbidden_disclosure", "f27_vague_signal"]  # f27_vague_signal also needs f24_day_once (GATE: not shipped)
 _SHORT: dict = {}
 for _n in ALL + OPT_IN:
     _SHORT.setdefault(_n.split("_", 1)[0], _n)  # a short id names the first flag that has it (f16 = f16_intents)
@@ -47,8 +46,6 @@ def parse(spec: str | None = None) -> frozenset:
             on.add(_one(tok))
     if "f18_side_resume" in on and "f18_opening_fallback" not in off:
         on.add("f18_opening_fallback")   # default ON (matches m1)
-    if "f24_day_once" in on and "f24_vague_signal" not in off:
-        on.add("f24_vague_signal")
     return frozenset(on)
 
 

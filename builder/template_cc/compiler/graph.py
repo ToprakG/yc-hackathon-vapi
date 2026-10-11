@@ -1539,8 +1539,8 @@ ID_INIT        vars['cb_state'] = 'none'
 
     @property
     def vague_signal(self) -> bool:
-        """F24 sub-switch: only when the brief has the vague-day rule (day_once: the day-ask limit verified against the brief text)."""
-        return "f24_vague_signal" in self.f and self.day_once
+        """F27 (opt-in, needs f24): only when the brief has the vague-day rule (day_once: the day-ask limit verified against the brief text)."""
+        return "f27_vague_signal" in self.f and self.day_once
 
     def _restructuring_notes(self) -> bool:
         return bool(self.multi and self.p.get("notes_on_restructuring") and self.cfg["notes"]

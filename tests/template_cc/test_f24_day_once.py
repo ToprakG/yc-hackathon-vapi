@@ -84,11 +84,11 @@ def _offer_desc(wf):
 
 
 def test_vague_signal_marks_a_not_today_with_a_time_hint_as_vague():
-    wf, pol, api = build(BASE + ",f24_day_once")  # sub-switch is on whenever f24 is on
+    wf, pol, api = build(BASE + ",f24_day_once")  # opt-in: not on by default
+    assert "is vague, not none" not in _offer_desc(wf)
+    wf, pol, api = build(BASE + ",f24_day_once,f27")
     assert "is vague, not none" in _offer_desc(wf)
     assert compiler.lint(wf, pol, api)["errors"] == []
-    off, _, _ = build(BASE + ",f24_day_once,-f24_vague_signal")
-    assert "is vague, not none" not in _offer_desc(off)
     nof24, _, _ = build(BASE)
     assert "is vague, not none" not in _offer_desc(nof24)
 
@@ -102,13 +102,13 @@ def test_vague_signal_needs_the_vague_day_rule_of_the_brief():
 
     for mut in (no_rule, unverified):
         ref, _, _ = build(BASE, mut)
-        wf, _, _ = build(BASE + ",f24_day_once", mut)
+        wf, _, _ = build(BASE + ",f24_day_once,f27", mut)
         assert "is vague, not none" not in _offer_desc(wf), mut.__name__
         assert json.dumps(wf, sort_keys=True) == json.dumps(ref, sort_keys=True), mut.__name__
 
 
 def test_attempt_plan_path_is_untouched_by_the_vague_signal():
-    wf, pol, _ = build(BASE + ",f24_day_once")
+    wf, pol, _ = build(BASE + ",f24_day_once,f27")
     v = after_setup_and_facts(wf, pol, NOW, 1)
     # a plain refusal (offer_intent none, no day asked yet) is not routed to the day step: the attempt plan keeps its own trigger
     tr = [t for t in wf["nodes"]["negotiate"]["transitions"] if t["description"].startswith("the exact day was asked")]
