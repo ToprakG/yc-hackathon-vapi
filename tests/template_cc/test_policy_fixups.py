@@ -46,3 +46,23 @@ def test_apply_writes_value_and_quote_and_leaves_silent_fields_alone():
     assert [c["field"] for c in ch] == ["ask_limits.id_decline", "attempt_plan[0].cap_at_deadline"]
     silent = copy.deepcopy(pol)
     assert apply(silent, "Greet the customer.") == [] and silent == pol
+
+
+def test_right_party_is_the_total_number_of_asks():
+    from builder.template_cc.policy_fixups import right_party
+
+    assert right_party("3. Only a yes counts as confirmation. Hello does not. Ask once more. If it is still unclear after the second ask, close.")[0] == 2
+    assert right_party("Check the person: if the reply is not a confirmation, ask twice more, then close the call.")[0] == 3
+    assert right_party("Ask whether we are speaking with the customer. Do not repeat the question.") is None
+    assert right_party("Greet the customer. State the debt.") is None
+    # a repeat of a different question (the security questions) is not the right-party ask
+    assert right_party("If the customer refuses to answer a security question, ask once more.") is None
+
+
+def test_apply_sets_right_party_with_its_quote():
+    pol = {"ask_limits": {"right_party": 1, "id_decline": 1}}
+    brief = "Only a yes counts as confirmation. Ask once more. If it is still unclear after the second ask, close."
+    ch = apply(pol, brief)
+    assert pol["ask_limits"]["right_party"] == 2 and pol["ask_limits"]["id_decline"] == 1
+    assert any(c["field"] == "ask_limits.right_party" and c["before"] == 1 and c["after"] == 2 for c in ch)
+    assert pol["_source"]["/ask_limits/right_party"] == "Ask once more."
