@@ -1,6 +1,6 @@
 #!/bin/bash
 # Morning summary of the overnight eval queue (no LLM). Writes results/ablation/NIGHT_SUMMARY.md and prints it.
-# Env: LADDER="f149br:f149b:1 p6r:p6:2 p6xr:p6x:2 p7r:p7:2 p4r:p4:2 p2r:p2:2 p3r:p3:2"  (tag prefix : set directory under out/template_cc/ or "-" : reps)  REPS=default reps (2)
+# Env: LADDER="f149br:f149b:1 p8r:p8:2 p8xr:p8x:2 p9r:p9:2 p6r:p6:2 p4r:p4:2 p2r:p2:2 p3r:p3:2"  (tag prefix : set directory under out/template_cc/ or "-" : reps)  REPS=default reps (2)
 # The first entry is the baseline. A: baseline -> p4r (the verdict). B: p4r -> p4xr (cost of a fresh extraction) and C: p4xr -> p5r (effect of
 # the intents) are information. p2r and p3r are judged (each against the last ACCEPTED step) only when p4r is REJECT.
 cd "$(dirname "$0")/.." || exit 2
@@ -11,7 +11,7 @@ from pathlib import Path
 REPO = Path.cwd()
 EV = REPO / "out/template_cc/eval/freya"
 REPS = int(os.environ.get("REPS", "2"))  # 0 = tags without a rep number (s10, f14)
-LADDER = [(x.split(":") + [str(REPS)])[:3] for x in os.environ.get("LADDER", "f149br:f149b:1 p6r:p6:2 p6xr:p6x:2 p7r:p7:2 p4r:p4:2 p2r:p2:2 p3r:p3:2").split()]
+LADDER = [(x.split(":") + [str(REPS)])[:3] for x in os.environ.get("LADDER", "f149br:f149b:1 p8r:p8:2 p8xr:p8x:2 p9r:p9:2 p6r:p6:2 p4r:p4:2 p2r:p2:2 p3r:p3:2").split()]
 NREPS = {pre: int(n) for pre, _, n in LADDER}
 def rl(pre): return [""] if REPS == 0 else [str(r) for r in range(1, NREPS[pre] + 1)]
 LADDER = [(pre, setdir) for pre, setdir, _ in LADDER]
@@ -80,16 +80,16 @@ old_p4 = get("p4r")
 base = base or names[0]
 decisions = {}
 if p4:
-    decisions["A"] = step("A. baseline -> p6 (all flags, cached policies)", base, p4)
+    decisions["A"] = step("A. baseline -> p8 (all flags, cached policies)", base, p4)
 if p4 and p4x:
-    decisions["B"] = step("B. p6 -> p6x (cost of a fresh extraction: same flags, x1 policies)", p4, p4x, "information")
+    decisions["B"] = step("B. p8 -> p8x (cost of a fresh extraction: same flags, x1 policies)", p4, p4x, "information")
 if p4x and p5:
-    decisions["C"] = step("C. p6x -> p7 (effect of the intents, f16_intents)", p4x, p5, "information")
+    decisions["C"] = step("C. p8x -> p9 (effect of the intents, f16_intents)", p4x, p5, "information")
 if old_p4:
-    decisions["A0"] = step("A0. baseline -> p4 (the same flags before the fixes; information)", base, old_p4, "information")
+    decisions["A0"] = step("A0. baseline -> p6 (the same flags before the last fixes; information)", base, old_p4, "information")
 kept = p4 if decisions.get("A") == "ACCEPT" else None
 if decisions.get("A") == "REJECT":
-    say(); say("p6 is REJECT: judging the earlier flag sets against the baseline."); say()
+    say(); say("p8 is REJECT: judging the earlier flag sets against the baseline."); say()
     kept = base
     for pre in (p2, p3):
         if pre:
@@ -98,18 +98,18 @@ if decisions.get("A") == "REJECT":
             if v == "ACCEPT":
                 kept = pre
 elif decisions.get("A") == "ACCEPT":
-    say(); say("p6 is ACCEPT: p2 and p3 are not needed.")
+    say(); say("p8 is ACCEPT: p2 and p3 are not needed.")
 
 say(); say("## 4. Kept flags"); say()
 if decisions.get("A") is None:
-    say("No verdict on p6 yet (incomplete)."); kept_set = None
+    say("No verdict on p8 yet (incomplete)."); kept_set = None
 else:
     kept_set = kept
     if kept == p4 and decisions.get("C") == "ACCEPT" and p5:
         kept_set = p5
-        say(f"p7 (p6 + intents) beats p6x too, so the intents stay on.")
+        say(f"p9 (p8 + intents) beats p8x too, so the intents stay on.")
     elif kept == p4 and decisions.get("B") == "REJECT":
-        say("Note: p6x (fresh extraction) is worse than p6 (cached policies): the extraction costs score; look at section B.")
+        say("Note: p8x (fresh extraction) is worse than p8 (cached policies): the extraction costs score; look at section B.")
 if kept_set:
     sd = setdir.get(kept_set, "-")
     rep = REPO / "out/template_cc" / sd / "brief-a/build_report.json"
