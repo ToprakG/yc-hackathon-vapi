@@ -15,6 +15,8 @@
 #         <out>/selftest_report.md. The builder never reads testbed files.
 cd "$(dirname "$0")/.." || exit 2
 MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
+set -a; [ -f .env ] && . ./.env; set +a; unset FREYA_API_KEY_W2   # one Freya key; FINAL_SAVE=freya (default): the first build and the last-green build are saved to Freya
+export FINAL_SAVE=${FINAL_SAVE:-freya}
 POS=(); FLAGS_ARG=""; FROM_SET=""; BUDGET_MIN=""; SHIP_MIN=26; JOBS=()
 while [ $# -gt 0 ]; do case "$1" in
   --job) JOBS+=("$2"); shift 2;; --budget-min) BUDGET_MIN=$2; shift 2;; --ship-min) SHIP_MIN=$2; shift 2;;
@@ -53,7 +55,7 @@ say "mode $FINAL_MODE, budget ${BUDGET_MIN:-window} min, ship at $(date -r "$CUT
 say "final_run: briefs ${BRIEFS_CSV}, window ends $(date -r "$END" +%H:%M), flags: $FEATURES${FROM_SET:+, from set $FROM_SET}"
 
 # 1. build (fresh extraction + compile), or an already built set
-GREEN=$OUT/r0
+GREEN=$OUT/r0; export FINAL_SLOT="final-$(basename "$OUT")"
 if [ -n "$FROM_SET" ]; then
   f=${BRIEFS[0]}; B=$(basename "$f" .md); [ "$B" = brief ] && B=$(basename "$(dirname "$f")")
   mkdir -p "$GREEN"; t=$(date +%s)
@@ -70,15 +72,17 @@ if [ -z "$FROM_SET" ] || [ -n "${PRECHECK:-}" ]; then
   stage precheck .venv310/bin/python scripts/policy_precheck.py "${BRIEFS[@]}" "$GREEN/policy.json" --build-dir "$GREEN" --out "$OUT/policy.fixed.json"
   if [ "$(tail -1 "$OUT/precheck.out" | python3 -c "import json,sys;print(json.loads(sys.stdin.read() or '{}').get('changed',0))" 2>/dev/null)" -gt 0 ] 2>/dev/null; then
     say "precheck changed fields: rebuilding from the fixed policy"; cp "$GREEN/policy.json" "$OUT/policy.extracted.json"
-    stage rebuild env POLICY="$OUT/policy.fixed.json" bash scripts/final_build.sh "${BRIEFS[@]}" "$API" "$OUT/r0b" && [ -f "$OUT/r0b/workflow.json" ] && GREEN=$OUT/r0b
+    stage rebuild env POLICY="$OUT/policy.fixed.json" bash scripts/final_build.sh "${BRIEFS[@]}" "$API" "$OUT/r0b" && [ -f "$OUT/r0b/workflow.json" ] && GREEN=$OUT/r0b; BASE=$GREEN
   fi
 fi
 
+BASE=$GREEN   # the build whose run.py trace carries the self-test events
 # 2. scenarios (from the brief + the extracted policy only)
 mkdir -p "$OUT/selftest"
 # one scenario per rule type present (no fixed cap); variants in other speaking styles only when more than 100 min are left
 EXTRA=0; [ "$(left)" -gt 100 ] && EXTRA=${EXTRA_SCENARIOS:-3}
-stage cases .venv310/bin/python scripts/selftest_cases.py "${BRIEFS[@]}" "$GREEN/policy.json" --out "$OUT/selftest/cases.json" --extra "$EXTRA"
+MAXARG=(); [ -n "$BUDGET_MIN" ] && MAXARG=(--max "${MAX_SCENARIOS:-10}")   # budget mode: the 10 most important rule types, so one repair round fits
+stage cases .venv310/bin/python scripts/selftest_cases.py "${BRIEFS[@]}" "$GREEN/policy.json" --out "$OUT/selftest/cases.json" --extra "$EXTRA" "${MAXARG[@]}"
 STATUS=tested
 if [ ! -s "$OUT/selftest/cases.json" ]; then say "no scenarios: delivering the build untested"; STATUS=untested
 else
@@ -102,9 +106,12 @@ if [ "$STATUS" = tested ] && [ "$FINAL_MODE" = patcher_on ]; then
   fi
 elif [ "$FINAL_MODE" != patcher_on ]; then say "repair off (FINAL_MODE=$FINAL_MODE)"; fi
 
+# 3b. self-test events into the build trace + the last-green workflow to Freya
+stage finalize .venv310/bin/python scripts/final_trace.py --out "$OUT" --base "$BASE" --green "$GREEN" --slot "$FINAL_SLOT"
+
 # 4. deliver the last-green build + the report
 cp "$GREEN/workflow.json" "$OUT/workflow.json"; cp "$GREEN/policy.json" "$OUT/policy.json"
-[ -f "$GREEN/build_report.json" ] && cp "$GREEN/build_report.json" "$OUT/build_report.json"
+[ -f "$OUT/build_report.json" ] || { [ -f "$GREEN/build_report.json" ] && cp "$GREEN/build_report.json" "$OUT/build_report.json"; }   # final_trace.py wrote the merged report
 python3 - "$OUT" "$GREEN" "$STATUS" "${STAGES[*]}" <<'PY'
 import json, os, sys
 out, green, status, stages = sys.argv[1:5]

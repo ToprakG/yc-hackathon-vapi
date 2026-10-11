@@ -17,6 +17,7 @@ import argparse
 import copy
 import datetime as dt
 import json
+import os
 import random
 import sys
 import time
@@ -30,7 +31,7 @@ from builder.template_cc import llm  # noqa: E402
 from builder.template_cc.policy_check import quote_in  # noqa: E402
 from builder.template_cc.testgen import synth_now_dates  # noqa: E402
 
-MODEL = "claude_cli:sonnet"
+MODEL = os.environ.get("TCC_SELFTEST_MODEL") or "claude_cli:sonnet"  # TCC_LLM_PROVIDER (llm.py) overrides the provider of this string
 FIRST = [("Daniel", "Reyes", "Mr"), ("Maria", "Costa", "Ms"), ("Owen", "Park", "Mr"), ("Lena", "Hoffmann", "Ms"),
          ("Samir", "Okafor", "Mr"), ("Ingrid", "Solheim", "Ms"), ("Tomas", "Varga", "Mr"), ("Aiko", "Mendes", "Ms"),
          ("Pavel", "Lindqvist", "Mr"), ("Nadia", "Rahman", "Ms"), ("Hugo", "Brandt", "Mr"), ("Clara", "Mercier", "Ms")]
@@ -57,8 +58,9 @@ SOURCES = {
     "wrong_number": ["/outcome_map/nr_wrong_number"],
     "right_party": ["/ask_limits/right_party", "/outcome_map/nr_unclear", "/lines/ask_again", "/lines/right_party_question"],
 }
-PRIORITY = ["identity_declined", "identity_failed", "right_party", "robot_turn1", "human_then_pay", "hardship", "vague_date", "pieces_identity",
-            "floor_amount", "dispute", "already_paid", "restructuring", "deceased", "multi_product", "robot_mid", "third_party", "wrong_number"]
+PRIORITY = ["identity_declined", "identity_failed", "right_party", "robot_turn1", "dispute", "floor_amount", "vague_date", "hardship",
+            "human_then_pay", "third_party", "restructuring", "pieces_identity", "already_paid", "deceased", "multi_product", "robot_mid",
+            "wrong_number"]  # identity refusal/failed, right party, robot, dispute, floor, deadline (vague date), hardship, transfer/human, callback first
 
 
 # --- small helpers ---------------------------------------------------------------------------------------------------
