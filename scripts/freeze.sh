@@ -1,14 +1,14 @@
 #!/bin/bash
 # Freeze: tag the submitted commit `final-submit` and push main + the tag to origin (NEVER to the firstday remote).
 #   scripts/freeze.sh            checks, then tags and pushes
-#   scripts/freeze.sh --wait     waits until 19:45 and until the dress run has a verdict (gives up at 19:55), then does the same
+#   scripts/freeze.sh --wait     waits until 19:45 and until the dress run has a verdict (gives up at 19:58), then does the same
 # Preconditions: FINAL_FLAGS.txt exists; out/dress/report.txt says "VERDICT: ALL OK"; no tracked file is modified (traces/ ignored); the secret scan of the push is clean.
 cd "$(dirname "$0")/.." || exit 1
 now() { date +%H%M | sed 's/^0*//'; }
 LOG=out/freeze.log; mkdir -p out; log() { echo "$(date +%T) $*" | tee -a $LOG; }
 if [ "${1:-}" = --wait ]; then
   while [ "$(now)" -lt 1945 ]; do sleep 15; done
-  while ! grep -q "VERDICT" out/dress/report.txt 2>/dev/null; do [ "$(now)" -ge 1955 ] && { log "FREEZE NOT DONE: no dress-run verdict by 19:55"; exit 3; }; sleep 15; done
+  while ! grep -q "VERDICT" out/dress/report.txt 2>/dev/null; do [ "$(now)" -ge 1958 ] && { log "FREEZE NOT DONE: no dress-run verdict by 19:58"; exit 3; }; sleep 15; done
 fi
 [ -f FINAL_FLAGS.txt ] || { log "FREEZE NOT DONE: no FINAL_FLAGS.txt"; exit 2; }
 grep -q "VERDICT: ALL OK" out/dress/report.txt 2>/dev/null || { log "FREEZE NOT DONE: dress run is not ALL OK ($(grep VERDICT out/dress/report.txt 2>/dev/null))"; exit 2; }
