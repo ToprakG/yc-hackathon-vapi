@@ -18,12 +18,25 @@ s["workflow"] = os.path.abspath(f"workflows/{slot}.workflow.json"); s["trace"] =
 json.dump(s, open("submission.json", "w"), indent=1, ensure_ascii=False)
 PY
 git add -f "workflows/$SLOT.workflow.json" "traces/$(basename "$TR")"
+[ -z "${PREP_ONLY:-}" ] && git commit -q -m "$W build (locked to $COMMIT): workflow export + trace" || true   # finish_submission wants the files committed
 IFS=';' read -ra MM <<< "${MEMBERS:?MEMBERS}"; ARGS=(); for m in "${MM[@]}"; do ARGS+=(--member "$m"); done
+if [ -n "${PREP_ONLY:-}" ]; then   # nothing is committed yet, so finish_submission (which wants tracked files) cannot run: write the same fields directly
+python3 - "$COMMIT" "$TEAM" "$MEMBERS" "$MOCK" "$SLOT" "$(basename "$TR")" <<'PY'
+import json, subprocess, sys, re
+commit, team, members, mock, slot, tr = sys.argv[1:7]
+repo = re.sub(r"//[^/@]*@", "//", subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip())
+json.dump({"team": team, "members": [{"name": m.split(":")[0], "email": m.split(":")[1]} for m in members.split(";")], "repo": repo, "commit": commit,
+           "run_command": "python3 builder/build.py {case_folder} {mock_url}", "workflow": f"workflows/{slot}.workflow.json", "trace": f"traces/{tr}/trace.txt", "mock_url": mock},
+          open("submission.json", "w"), indent=1, ensure_ascii=False)
+PY
+else
 .venv310/bin/python scripts/finish_submission.py --team "${TEAM:?TEAM}" --commit "$COMMIT" "${ARGS[@]}" --out submission.json > /dev/null
+fi
 # the check runs on the build's own out dir, with the finished root submission.json
 CHK=$(.venv310/bin/python scripts/check_agentic_build.py "$WT/out/final2" "$MOCK" || true); echo "$CHK" | tail -14 | cut -c1-200
 echo "$CHK" | grep -q "VERDICT: ALL OK" || { echo "CHECK NOT ALL OK: nothing committed (files are staged only)"; exit 3; }
 scripts/check_no_case_leak.sh | tail -1
+[ -n "${PREP_ONLY:-}" ] && { echo "PREP_ONLY: check ALL OK, files staged, NOT committed"; git add submission.json; exit 0; }
 git add submission.json && git commit -q -m "submission: $W build (locked to $COMMIT): workflow + trace + submission.json"
 .venv310/bin/python scripts/secret_scan.py origin/main..main | tail -1
 git push origin main 2>&1 | tail -1; git rev-parse --short HEAD
