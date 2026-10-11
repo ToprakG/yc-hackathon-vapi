@@ -1,0 +1,19 @@
+{
+ "team": "imaginenotbeingfirst",
+ "members": [
+  {
+   "name": "Ali Nebi Dal",
+   "email": "alinebidal10@gmail.com"
+  },
+  {
+   "name": "Toprak Gündoğdu",
+   "email": "guntop.29@robcol.k12.tr"
+  }
+ ],
+ "repo": "https://github.com/ToprakG/yc-hackathon-vapi.git",
+ "commit": "6aef6bf",
+ "run_command": "python3 builder/build.py {case_folder} {mock_url}",
+ "workflow": "workflows/case-freyabank-final-c3.workflow.json",
+ "trace": "traces/agentic-case-freyabank-final-c3-20261011-221802/trace.txt",
+ "mock_url": "https://bank-mock.tccbank2026-yc.workers.dev/freyabank"
+}
