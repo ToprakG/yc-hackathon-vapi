@@ -139,8 +139,11 @@ def fetch_openapi(mock_url: str):
 def ingest(folder: Path, mock_url: str, out: Path) -> dict:
     folder, out = Path(folder), Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    files = sorted((p for p in folder.rglob("*") if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)),
-                   key=lambda p: (0 if p.name.lower() == FIRST[0] else 1 if p.name.lower() == FIRST[1] else 2, str(p.relative_to(folder)).lower()))
+    def order(p):   # BRIEF.md, README.md, then undated files, then dated files oldest -> newest (a later document may override an earlier one)
+        rel = str(p.relative_to(folder)).lower()
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", rel)
+        return (0 if p.name.lower() == FIRST[0] else 1 if p.name.lower() == FIRST[1] else 2, 1 if m else 0, m.group(1) if m else "", rel)
+    files = sorted((p for p in folder.rglob("*") if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)), key=order)
     notes, parts, api, api_src = [], [], None, None
     for p in files:
         rel = str(p.relative_to(folder))
@@ -173,7 +176,10 @@ def ingest(folder: Path, mock_url: str, out: Path) -> dict:
         api["servers"] = [{"url": mock_url.rstrip("/")}]
         notes.append(f"openapi has no absolute servers[].url: set to {mock_url.rstrip('/')}")
     brief = out / "case_brief.md"
-    brief.write_text("\n".join(parts), encoding="utf-8")
+    note = ("NOTE: the sections below are separate documents of one case folder (=== FILE: name ===). BRIEF.md and README.md come first; the other files follow, "
+            "dated files oldest to newest. The documents were written at different times and may disagree: a later-dated document overrides an earlier one "
+            "(announcements, mails and meeting notes after the analysis). Record each override you apply.\n")
+    brief.write_text(note + "\n" + "\n".join(parts), encoding="utf-8")
     api_path = out / "tools.openapi.json"
     api_path.write_text(json.dumps(api, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "ingest_notes.txt").write_text("\n".join(notes) + f"\ntool API from: {api_src}\n", encoding="utf-8")

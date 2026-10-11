@@ -22,3 +22,16 @@ def test_ingest_order_headers_and_api_fallback(tmp_path, monkeypatch):
     assert heads[:2] == ["=== FILE: BRIEF.md ===", "=== FILE: README.md ==="] and len(heads) == 5
     assert "duyuru metni" in text and "| x | y |" in text and "ana kural şğü" in text and "spec.json" not in text
     assert json.loads(Path(r["api"]).read_text())["servers"][0]["url"] == "https://real.example/v1"
+
+
+def test_dated_files_come_oldest_to_newest_after_the_first_two(tmp_path, monkeypatch):
+    from builder import ingest as I
+    c = tmp_path / "case"; (c / "sources").mkdir(parents=True)
+    (c / "BRIEF.md").write_text("b"); (c / "README.md").write_text("r"); (c / "example.md").write_text("undated")
+    (c / "sources" / "2026-10-09-late.md").write_text("late"); (c / "sources" / "2026-09-02-early.md").write_text("early")
+    (c / "spec.json").write_text(json.dumps({"openapi": "3.0.0", "paths": {"/a": {}}}))
+    monkeypatch.setattr(I, "fetch_openapi", lambda u: None)
+    text = Path(I.ingest(c, "", tmp_path / "o")["brief"]).read_text()
+    heads = [l for l in text.splitlines() if l.startswith("=== FILE:")]
+    assert [h.split(": ")[1].split(" ===")[0] for h in heads] == ["BRIEF.md", "README.md", "example.md", "sources/2026-09-02-early.md", "sources/2026-10-09-late.md"]
+    assert text.startswith("NOTE:") and "later-dated document overrides" in text
