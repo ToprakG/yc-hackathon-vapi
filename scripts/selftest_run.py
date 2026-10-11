@@ -27,7 +27,7 @@ for p in (str(REPO), str(VENDOR / "tools" / "driver"), str(VENDOR / "tools"), st
     sys.path.insert(0, p)
 
 import freya  # noqa: E402  (vendor freya.py: simulations + personas)
-from selftest_common import install as _retry_freya, outage_signature  # noqa: E402
+from selftest_common import install as _retry_freya, outage_signature, infra_error  # noqa: E402
 
 _retry_freya(freya)  # every Freya call: 3 tries, 10 s apart, on a 5xx
 from run_cases import persona_for  # noqa: E402
@@ -123,7 +123,7 @@ def main():
     trace = Trace(REPO / "traces" / f"tcc-selftest-{out.name}-{time.strftime('%Y%m%d-%H%M%S')}", {"out": str(out), "cases": len(chosen)})
     slot = os.environ.get("SELFTEST_SLOT") or "st-" + hashlib.sha1(str(out.resolve()).encode()).hexdigest()[:6]  # one slot per brief run: final_run.sh sets it
     runner = VendorRunner(slot, policy, ApiModel.load(a.api), trace, freya, port=free_port(), slot_suffix="")
-    rows, missing, sim_id, status = [], [], None, None
+    rows, missing, infra, sim_id, status = [], [], [], None, None
     try:
         runner._ensure(chosen)  # mock bank + cloudflared tunnel
         T["bank_tunnel_s"] = round(time.time() - t0)
@@ -159,6 +159,10 @@ def main():
                     transcript = freya.get_call(v["callId"]).get("messages") or []
                 except Exception as e:  # noqa: BLE001
                     transcript = [{"error": repr(e)[:200]}]
+            if infra_error(transcript):   # a tool call died on the tunnel / platform (530, 5xx): MISSING, not a failure, never repaired from
+                missing.append(c["id"]); infra.append(c["id"])
+                (sd / "transcripts" / f"{c['id']}.infra.json").write_text(json.dumps({"messages": transcript, "ledger": ledger}, indent=1, ensure_ascii=False))
+                continue
             (sd / "transcripts" / f"{c['id']}.json").write_text(json.dumps({"messages": transcript, "ledger": ledger}, indent=1, ensure_ascii=False))
             rows.append({"case": c["id"], "rule": c.get("rule"), "pass": scored["pass"] and freya_ok, "ledger_pass": scored["pass"],
                          "freya_judge": freya_ok, "failed": failed, "call_id": v.get("callId"),
@@ -167,7 +171,7 @@ def main():
     finally:
         runner.close()
         T["total_s"] = round(time.time() - t0)
-        rep = {"outage": outage_signature(rows, missing), "tag": a.tag, "cases": len(chosen), "passed": sum(r["pass"] for r in rows), "missing": missing, "simulation": sim_id,
+        rep = {"outage": outage_signature(rows, missing) or 2 * len(infra) >= len(chosen) > 1, "infra_errors": infra, "tag": a.tag, "cases": len(chosen), "passed": sum(r["pass"] for r in rows), "missing": missing, "simulation": sim_id,
                "status": status, "seconds": T, "rows": rows}
         (sd / a.results).write_text(json.dumps(rep, indent=1, ensure_ascii=False))
         trace.close("ok", passed=rep["passed"], cases=rep["cases"])

@@ -22,6 +22,45 @@ if OFFLINE_BRIEFS:
 flags_file = Path(args[1]) if len(args) > 1 else (Path("FINAL_FLAGS.txt") if Path("FINAL_FLAGS.txt").exists() else Path("M1_FLAGS.txt"))
 want = F.parse(flags_file.read_text().replace("\n", "").strip())
 problems = []
+API_FILE = Path(sys.argv[sys.argv.index("--api") + 1]) if "--api" in sys.argv else Path("tools/openapi.json")
+BAD_URL = re.compile(r"trycloudflare|localhost|127\.0\.0\.1|0\.0\.0\.0|\.invalid|ngrok|loca\.lt", re.I)
+
+
+def tool_urls(wf):
+    """Every url of a workflow tool (the default of its `url` parameter, or a plain string url)."""
+    found = []
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "url" and isinstance(v, dict):
+                    if isinstance(v.get("default"), str):
+                        found.append(v["default"])
+                elif k == "url" and isinstance(v, str):
+                    found.append(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+
+    walk(wf)
+    return found
+
+
+def check_tool_urls(label, path):
+    """Shipped workflow: each tool URL starts with the OpenAPI servers[].url and is not our tunnel / shared origin / localhost."""
+    try:
+        servers = [s["url"].rstrip("/") for s in json.load(open(API_FILE)).get("servers", []) if s.get("url")]
+        wf = json.load(open(path))
+    except (OSError, ValueError) as e:
+        line(False, f"{label}: tool URLs: cannot read {path} or {API_FILE} ({e})")
+        return
+    wf = wf.get("workflow", wf)
+    origins = [o for f in Path("out").glob("**/shared_origin*.txt") for o in [f.read_text().strip()] if o.startswith("http")]
+    urls = tool_urls(wf)
+    bad = [u for u in urls if BAD_URL.search(u) or any(o.rstrip("/") in u for o in origins) or not any(u.startswith(sv + "/") for sv in servers)]
+    line(bool(urls) and not bad, f"{label}: {len(urls)} tool URL(s) all under the OpenAPI server {servers}" + ("" if urls and not bad else f"; BAD {sorted(set(bad))[:3] or 'no tool URL found'}"))
 
 
 def line(ok, msg):
@@ -54,6 +93,7 @@ for b in ("brief-a", "brief-b"):
     line("opening_resume" not in nodes if "f18_opening_fallback" not in want else "opening_resume" in nodes, f"{b}: opening_resume node {'absent' if 'opening_resume' not in nodes else 'present'}")
     if "f28_tool_failure" in want:
         line({"promise_try", "promise_error"} <= nodes, f"{b}: promise_try / promise_error nodes present")
+    check_tool_urls(f"{b} workflow.json", d / "workflow.json")
     lint = (rep.get("lint") or {}).get("errors")
     line(lint == 0, f"{b}: lint errors {lint}")
     line(rep.get("status") == "ok", f"{b}: build status {rep.get('status')}")
@@ -68,6 +108,8 @@ for b in ("brief-a", "brief-b"):
     if not OFFLINE and b not in OFFLINE_BRIEFS:
         sv = Path(info.get("saved") or "x")
         line(sv.exists() and sv.parent.name == "workflows", f"{b}: Freya export at the committed path ({info.get('saved')})")
+        if sv.exists():
+            check_tool_urls(f"{b} Freya-saved export", sv)
     logs = " ".join(p.read_text(errors="ignore") for p in list(out.glob(f"{b}/**/*.log")) + list(out.glob(f"{b}/**/trace.txt")) + list(out.glob(f"{b}/*.out"))[:3])
     line("DEGENERATE" not in logs, f"{b}: no DEGENERATE line")
 res = None

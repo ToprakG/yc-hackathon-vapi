@@ -1,4 +1,5 @@
 """Shared by selftest_run / selftest_repair / final_trace: the Freya 5xx retry and the outage signature."""
+import json
 import re
 import time
 
@@ -36,6 +37,18 @@ def outage_signature(rows, missing=()):
     if n < 2:
         return False
     return (not rows) or all(not r.get("tools") for r in rows)
+
+
+_INFRA = re.compile(r"function_call_error|Error code: 5\d\d|HTTP/?\s*5\d\d|cloudflare|trycloudflare|ECONNREFUSED|Connection refused|Bad gateway|Gateway Time-?out", re.I)
+
+
+def infra_error(messages) -> bool:
+    """A transcript in which a tool call died on the platform / tunnel (530, 5xx, cloudflare): that scenario is MISSING, never a build fault.
+    The partial form of the outage signature (the tunnel flaps: some scenarios call tools, some die on their first call)."""
+    try:
+        return bool(_INFRA.search(json.dumps(messages, ensure_ascii=False)))
+    except (TypeError, ValueError):
+        return False
 
 
 def is_outage(report):
