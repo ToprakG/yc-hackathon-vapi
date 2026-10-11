@@ -375,7 +375,6 @@ def make_judge(models, trace, call_llm, deadline=None, vendor_path: Path = VENDO
     else:
         trace.warn(f"judge: vendor decision model NOT available at {vendor_path}; using LocalDecisionJudge ({models.judge})")
     from builder.template_cc.llm import load_env, split_model
-    import os
     load_env()
     provider, _ = split_model(models.judge)
     var = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY", "claude_cli": None}.get(provider, "OPENAI_API_KEY")
