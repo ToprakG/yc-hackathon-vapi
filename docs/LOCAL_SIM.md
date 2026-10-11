@@ -37,3 +37,14 @@ Freya's p6r1 and p6r2 agree on all 20 cases, so the ceiling is 100%.
 2. Gemini-3-flash-preview customer (temperature 0.7) + Gemini-3-flash-preview judge (temperature 0): **80%** (16/20). Local FAIL / Freya PASS: none.
    Local PASS / Freya FAIL: A-025, F3-003, F3-021, F3-032. In each the bank ledger shows Freya's agent recorded no promise / the wrong outcome
    (or failed identity) where the local agent did: the cause is the agent model / engine difference (local Sonnet is stronger), not the customer and not the judge.
+
+
+## Shared budget and the sealed counts mode (added for the 85 push)
+- One budget for every session that runs `scripts/local_sim.py`: `out/template_cc/localsim/_budget/` holds `count.json` (conversations used so far,
+  cap `LOCALSIM_CAP`, default 300 in total; 69 were already used), four cross-process concurrency slots (`LOCALSIM_SLOTS`, default 4) and the `STOP` file.
+  A conversation waits for a free slot, then claims one count; when the cap is reached nothing new starts.
+- The first claude usage / rate-limit warning in any run writes `_budget/STOP`: every local sim run stops starting conversations and says so.
+  Tell the user; remove the file only on their word.
+- `--sealed`: GATE cases 11-20 of the given briefs, counts only. No transcript, ledger or failed criterion is written or printed; the only output is
+  the per-brief pass/fail counts in `out/template_cc/localsim/sealed_counts.json`. It is the only way local_sim touches GATE cases (the 18:45 m2-vs-m1 check).
+- Local judge and customer: `google/gemini-3-flash-preview` (Freya's own). The local agent (Sonnet) is probably stronger than Freya's `experimental-5`.

@@ -11,6 +11,7 @@ family-spread order of a brief (what `tcc_eval_freya.py --limit 10` picks); the 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -38,7 +39,81 @@ JUDGE_TEMP = 0.0
 MAX_CUSTOMER_TURNS = 30           # GUESS: Freya's text simulations end by maxCallDurationSeconds (420); a turn cap is the local stand-in
 CALL_TIMEOUT_S = 150
 TEAM = "localsim-team"
-STOP = threading.Event()          # set on the first claude usage/rate-limit warning: nothing new starts
+BUDGET = OUT / "_budget"          # shared by every session that runs this script: one counter, N concurrency slots, one STOP file
+TOTAL_CAP = int(os.environ.get("LOCALSIM_CAP", "300"))     # conversations in total, all sessions together
+SLOTS = int(os.environ.get("LOCALSIM_SLOTS", "4"))         # conversations running at the same time, all sessions together
+
+
+class _Stop:
+    """Set on the first claude usage/rate-limit warning of ANY run: the STOP file stops every local sim run, nothing new starts."""
+
+    def __init__(self):
+        self._ev = threading.Event()
+
+    def is_set(self):
+        return self._ev.is_set() or (BUDGET / "STOP").exists()
+
+    def set(self, reason="claude usage / rate-limit warning"):
+        self._ev.set()
+        BUDGET.mkdir(parents=True, exist_ok=True)
+        (BUDGET / "STOP").write_text(f"{time.strftime('%F %T')} {reason}\n")
+
+
+STOP = _Stop()
+
+# Quota protection (the claude_cli quota is the only path to the 20:00 final build):
+#   normal conversations are refused from LOCALSIM_CUTOFF (18:30); the --sealed check may still run until LOCALSIM_HARD_STOP (19:15);
+#   no claude call of this script happens after 19:15 at all.
+CUTOFF = int(os.environ.get("LOCALSIM_CUTOFF", "1830"))
+HARD_STOP = int(os.environ.get("LOCALSIM_HARD_STOP", "1915"))
+
+
+def hhmm() -> int:
+    return int(time.strftime("%H%M"))
+
+
+class Cutoff(Exception):
+    pass
+
+
+def budget_claim(sealed: bool = False) -> int | None:
+    """Count one more conversation against the shared cap; returns the new total, or None when the cap or the time cutoff is reached."""
+    if hhmm() >= (HARD_STOP if sealed else CUTOFF):
+        return None
+    BUDGET.mkdir(parents=True, exist_ok=True)
+    with open(BUDGET / "count.json", "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        txt = f.read().strip()
+        n = int(json.loads(txt)["used"]) if txt else 0
+        if n >= TOTAL_CAP:
+            return None
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps({"used": n + 1, "cap": TOTAL_CAP}))
+        return n + 1
+
+
+class Slot:
+    """One of SLOTS cross-process concurrency slots (an flock on slot<i>.lock); waits, polling, while all are taken."""
+
+    def __enter__(self):
+        BUDGET.mkdir(parents=True, exist_ok=True)
+        while not STOP.is_set():
+            for i in range(SLOTS):
+                fd = open(BUDGET / f"slot{i}.lock", "a+")
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.fd = fd
+                    return self
+                except OSError:
+                    fd.close()
+            time.sleep(2)
+        raise LimitHit("stopped after a limit warning")
+
+    def __exit__(self, *exc):
+        fcntl.flock(self.fd, fcntl.LOCK_UN)
+        self.fd.close()
 _LIMIT = re.compile(r"usage limit|hit your limit|limit reached|rate.?limit|overloaded|too many requests|429", re.I)
 _COUNT = {"claude_calls": 0, "or_prompt": 0, "or_completion": 0}
 _LOCK = threading.Lock()
@@ -71,8 +146,8 @@ def sources(brief):
     return json.loads((d / "cases.json").read_text()), json.loads((d / "config.json").read_text())
 
 
-def dev_cases(cases, limit=10):
-    """The same family-spread order as tcc_eval_freya.pick, first `limit` (skip 0) = the DEV cases. GATE cases are never selected."""
+def dev_cases(cases, limit=10, skip=0):
+    """The same family-spread order as tcc_eval_freya.pick, first `limit` (skip 0) = the DEV cases. GATE cases (skip 10) are only selected by --sealed."""
     by = {}
     for c in sorted(cases, key=lambda c: c["id"]):
         by.setdefault(c["family"], []).append(c)
@@ -82,7 +157,7 @@ def dev_cases(cases, limit=10):
             if i < len(by[fam]):
                 order.append(by[fam][i])
         i += 1
-    return order[:limit]
+    return order[skip:skip + limit]
 
 
 # --- model calls ------------------------------------------------------------------------------------------------------------------
@@ -90,6 +165,8 @@ def claude_json(system: str, user: str, schema: dict | None, purpose: str) -> di
     """One `claude -p` call (Sonnet). No retry on a limit warning: it stops the whole run. One retry on a timeout."""
     if STOP.is_set():
         raise LimitHit("stopped after a limit warning")
+    if hhmm() >= HARD_STOP:
+        raise Cutoff(f"no claude call of local_sim after {HARD_STOP}")
     if schema is not None:
         system = (f"{system}\n\nReply with ONE JSON object only, no prose. It must match this JSON Schema (return an instance with real "
                   f"values, not the schema):\n{json.dumps(schema)}")
@@ -317,6 +394,8 @@ def main(argv=None) -> int:
     ap.add_argument("--parallel", type=int, default=3)
     ap.add_argument("--max", type=int, default=60, help="hard cap of conversations for this invocation")
     ap.add_argument("--pilot", action="store_true", help="run ONE conversation (the first DEV case) and print the projection")
+    ap.add_argument("--sealed", action="store_true", help="GATE cases 11-20, COUNTS ONLY: no transcript, no failed criterion is written or printed; "
+                    "writes pass/fail counts per brief to out/template_cc/localsim/sealed_counts.json (the 18:45 m2-vs-m1 check)")
     a = ap.parse_args(argv)
     llm.load_env()
     print("OpenRouter credit before:", json.dumps(credit()))
@@ -324,8 +403,11 @@ def main(argv=None) -> int:
     jobs = []
     for brief in a.briefs.split(","):
         cases, config = sources(brief)
-        dev = dev_cases(cases)
+        dev = dev_cases(cases, 10, 10 if a.sealed else 0)
         want = set(a.cases.split(",")) if a.cases else None
+        if want and a.sealed:
+            print("refused: --sealed runs the whole GATE slice, not chosen cases", file=sys.stderr)
+            return 2
         if want and not want <= {c["id"] for c in dev}:
             print(f"refused: {sorted(want - {c['id'] for c in dev})} are not DEV cases of {brief}", file=sys.stderr)
             return 2
@@ -345,11 +427,24 @@ def main(argv=None) -> int:
         if STOP.is_set():
             return None
         try:
-            r = run_conversation(wf, case, config, bank, a.rep)
+            with Slot():
+                n_used = budget_claim(a.sealed)
+                if n_used is None:
+                    why = f"time cutoff ({HARD_STOP if a.sealed else CUTOFF})" if hhmm() >= (HARD_STOP if a.sealed else CUTOFF) else f"cap reached: {TOTAL_CAP} conversations used in total (all sessions)"
+                    print(f"not started: {why}", flush=True)
+                    return None
+                r = run_conversation(wf, case, config, bank, a.rep)
+        except Cutoff as e:
+            print("not finished:", e, flush=True)
+            return None
         except LimitHit as e:
-            print("STOP: claude limit warning:", e, flush=True)
+            STOP.set(str(e)[:120])
+            print("STOP: claude limit warning (all local sim runs stop):", e, flush=True)
             return None
         r["brief"], r["set"] = brief, a.set
+        if a.sealed:      # GATE slice: only the verdict leaves this function
+            print(f"{brief:16s} (sealed) counted", flush=True)
+            return {"brief": brief, "pass": bool(r["pass"]), "sealed": True}
         d = out_dir / brief
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{case['id']}.{a.rep}.json").write_text(json.dumps(r, indent=1, ensure_ascii=False, default=str))
@@ -360,6 +455,18 @@ def main(argv=None) -> int:
     with ThreadPoolExecutor(max_workers=max(1, a.parallel)) as pool:
         results = [r for r in pool.map(one, jobs) if r]
     wall = time.time() - t0
+    if a.sealed:
+        counts_f = OUT / "sealed_counts.json"
+        data = json.loads(counts_f.read_text()) if counts_f.exists() else {}
+        by = data.setdefault(a.set, {})
+        for r in results:
+            b = by.setdefault(r["brief"], {"passed": 0, "cases": 0})
+            b["passed"] += int(r["pass"])
+            b["cases"] += 1
+        counts_f.write_text(json.dumps(data, indent=1))
+        print(f"sealed counts for set {a.set}: " + ", ".join(f"{b} {v['passed']}/{v['cases']}" for b, v in sorted(by.items())) +
+              f" (total {sum(v['passed'] for v in by.values())}/{sum(v['cases'] for v in by.values())})")
+        return 1 if STOP.is_set() else 0
     cost = _COUNT["or_prompt"] * pin + _COUNT["or_completion"] * pout
     n = max(len(results), 1)
     print(f"\n{len(results)}/{len(jobs)} conversations, {wall:.0f}s wall; claude calls {_COUNT['claude_calls']} ({_COUNT['claude_calls'] / n:.0f}/conversation); "

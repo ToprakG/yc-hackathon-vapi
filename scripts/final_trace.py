@@ -56,7 +56,9 @@ def main():
     for rp in sorted(base.glob("ext*/build_report.json")):
         try:
             et = Path(json.loads(rp.read_text()).get("trace") or "")
-            for x in (et / "events.jsonl").read_text().splitlines():
+            for x in (et / "events.jsonl").read_text().split("\n"):  # not splitlines(): U+2028 etc. inside a JSON string would cut a line
+                if not x.strip():
+                    continue
                 e = json.loads(x)
                 if e.get("type") == "model_call":
                     ev("model_call", source=f"final vote {rp.parent.name}", **{k: v for k, v in e.items() if k not in ("type", "t")})

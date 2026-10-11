@@ -39,7 +39,7 @@ set -- "${POS[@]}"
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); API=$(cd "$(dirname "$API")" && pwd)/$(basename "$API")
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}")
-FEATURES=${FLAGS_ARG:-${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || cat "$MAIN/FINAL_FLAGS.txt" 2>/dev/null || cat "$MAIN/M1_FLAGS.txt" 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
+FEATURES=${FLAGS_ARG:-${FEATURES:-$(bash scripts/final_flags.sh . "$MAIN" || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
 export FEATURES SELFTEST_API=$API SELFTEST_SLOT="st-$(echo "$OUT" | shasum | cut -c1-6)"  # one Freya workflow slot per brief run, updated in place (preference; a new one is fine if that fails)
 T_START=$(date +%s); MAX_ROUNDS=${MAX_ROUNDS:-3}; FINAL_MODE=${FINAL_MODE:-patcher_on}
 if [ -n "$BUDGET_MIN" ]; then END=$((T_START + BUDGET_MIN * 60)); CUT=$((T_START + SHIP_MIN * 60)); ROUND_S=${ROUND_S:-720}
@@ -55,6 +55,13 @@ stage() { local n=$1; shift; local t=$(date +%s)
   local s=$(( $(date +%s) - t )); STAGES+=("$n=$s"); say "stage $n: ${s}s, exit $rc"; return $rc; }
 say "mode $FINAL_MODE, budget ${BUDGET_MIN:-window} min, ship at $(date -r "$CUT" +%H:%M:%S)"
 say "final_run: briefs ${BRIEFS_CSV}, window ends $(date -r "$END" +%H:%M), flags: $FEATURES${FROM_SET:+, from set $FROM_SET}"
+
+# 0. one tiny LLM call with the provider the build will use: fail fast (< 30 s) instead of failing inside the extraction
+if [ -z "$FROM_SET" ] && [ -z "${SKIP_PREFLIGHT:-}" ]; then
+  PF=$(timeout 40 .venv310/bin/python scripts/llm_preflight.py 2>&1); PRC=$?
+  say "$(echo "$PF" | tail -1)"
+  [ $PRC -eq 0 ] || { say "STOP: no usable LLM provider. Fix it (see RUNBOOK_FINAL.md, section LLM provider) and re-run this brief."; exit 1; }
+fi
 
 # 1. build (fresh extraction + compile), or an already built set
 GREEN=$OUT/r0; export FINAL_SLOT="final-$(basename "$OUT")"

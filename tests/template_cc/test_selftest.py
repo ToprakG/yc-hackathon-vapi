@@ -247,3 +247,54 @@ def test_static_precheck_never_touches_policy_fixups_fields_and_needs_two_agreei
     monkeypatch.setattr(R, "verify_field", fake_verify)
     new, log = R.precheck_fix(p, "brief")
     assert len(seen) == 2 and "new" not in log[0] and R.get_ptr(new, ptr) == R.get_ptr(p, ptr)
+
+
+def test_llm_preflight_ok_and_fails_clearly(monkeypatch):
+    import llm_preflight as P
+    from builder.template_cc import llm
+    calls = []
+    monkeypatch.delenv("TCC_LLM_PROVIDER", raising=False)
+
+    def cli(system, user, name, max_tokens, timeout, trace):
+        calls.append((name, timeout))
+        return "OK", {}
+    monkeypatch.setattr(llm, "_claude_cli", cli)
+    ok, msg = P.preflight()
+    assert ok and "provider claude_cli" in msg and len(calls) == 1 and calls[0][1] <= 25   # default: claude_cli:sonnet, one call, short timeout
+
+    def down(*a, **k):
+        raise llm.LLMError("claude usage limit reached", status=429)
+    monkeypatch.setattr(llm, "_claude_cli", down)
+    ok, msg = P.preflight()
+    assert not ok and "FAILED" in msg and "usage limit" in msg and "no other provider" in msg and "do not loop" in msg
+
+    monkeypatch.setenv("TCC_LLM_PROVIDER", "anthropic")   # variant B: needs a key
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    ok, msg = P.preflight()
+    assert not ok and "anthropic" in msg and "ANTHROPIC_API_KEY" in msg
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    seen = []
+    monkeypatch.setattr(llm, "TRANSPORT", lambda url, h, body, t: seen.append((url, body["model"])) or {"content": [{"type": "text", "text": "OK"}], "usage": {}})
+    ok, msg = P.preflight()
+    assert ok and seen == [("https://api.anthropic.com/v1/messages", "claude-sonnet-5-5")]
+
+    monkeypatch.setenv("TCC_LLM_PROVIDER", "bogus")
+    ok, msg = P.preflight()
+    assert not ok and "bogus" in msg
+
+
+def test_final_flags_file_precedence(tmp_path):
+    import subprocess
+    sh = str(REPO / "scripts" / "final_flags.sh")
+    root, main = tmp_path / "r", tmp_path / "m"
+    root.mkdir(); main.mkdir()
+    run = lambda: subprocess.run(["bash", sh, str(root), str(main)], capture_output=True, text=True)
+    assert run().returncode == 1                                   # nothing there: no output, exit 1
+    (main / "M1_FLAGS.txt").write_text("f1, f2\n")
+    assert run().stdout.strip() == "f1,f2"                         # default: M1_FLAGS.txt, spaces and newline stripped
+    (root / "M1_FLAGS.txt").write_text("f1,f2,f3\n")
+    assert run().stdout.strip() == "f1,f2,f3"
+    (main / "FINAL_FLAGS.txt").write_text("m2a,m2b\n")
+    assert run().stdout.strip() == "m2a,m2b"                       # FINAL_FLAGS.txt (m2) beats every M1 file
+    (root / "FINAL_FLAGS.txt").write_text("\n")                    # an empty override is ignored
+    assert run().stdout.strip() == "m2a,m2b"

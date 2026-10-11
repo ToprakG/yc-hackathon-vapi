@@ -17,7 +17,7 @@ while [ $# -gt 0 ]; do case "$1" in --disable) DISABLE="$2"; shift 2;; --disable
 set -- "${REST[@]}"
 [ $# -ge 3 ] || { echo "usage: $0 [--disable flag,flag] <brief files...> <tool-api.json> <out-dir>"; exit 2; }
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
-FEATURES=${FEATURES:-$(cat FINAL_FLAGS.txt 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
+FEATURES=${FEATURES:-$(bash scripts/final_flags.sh . 2>/dev/null || python3 -c "import json;print(','.join(json.load(open('out/template_cc/p4/brief-a/build_report.json'))['features']))")}
 {
   FEATURES=$(python3 - "$FEATURES" "$DISABLE" <<'PY'
 import sys
@@ -39,7 +39,7 @@ if [ "$VOTES" -gt 1 ]; then
   echo "final vote: $VOTES independent extractions"
   PIDS=(); for i in $(seq 1 "$VOTES"); do
     env -u FREYA_API_KEY .venv310/bin/python -m builder.template_cc.run "${BRIEFS[@]}" "$API" --save none --audit off --features "$FEATURES" \
-      --slot "final-$(basename "$OUT")-e$i" --out "$OUT/ext$i" > "$OUT/ext$i.log" 2>&1 & PIDS+=($!)
+      --slot "${FINAL_SLOT:-final-$(basename "$OUT")}-e$i" --out "$OUT/ext$i" > "$OUT/ext$i.log" 2>&1 & PIDS+=($!)
   done; for p in "${PIDS[@]}"; do wait "$p"; done
   POLS=(); for i in $(seq 1 "$VOTES"); do [ -f "$OUT/ext$i/policy.json" ] && POLS+=("$OUT/ext$i/policy.json"); done
   BARGS=(); for b in "${BRIEFS[@]}"; do BARGS+=(--brief "$b"); done

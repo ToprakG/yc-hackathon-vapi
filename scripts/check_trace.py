@@ -12,7 +12,7 @@ a = [x for x in sys.argv[1:] if not x.startswith("--")]
 t = Path(a[0])
 if (t / "build_report.json").exists():
     t = Path(json.loads((t / "build_report.json").read_text()).get("trace") or "")
-ev = [json.loads(x) for x in (t / "events.jsonl").read_text().splitlines() if x.strip()]
+ev = [json.loads(x) for x in (t / "events.jsonl").read_text().split("\n") if x.strip()]
 txt = (t / "trace.txt").read_text()
 by = {}
 for e in ev:
