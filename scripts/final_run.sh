@@ -24,7 +24,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --job) JOBS+=("$2"); shift 2;; --offline) OFFLINE=1; shift;; --budget-min) BUDGET_MIN=$2; shift 2;; --ship-min) SHIP_MIN=$2; shift 2;;
   --set-flags) FLAGS_ARG=$2; shift 2;; --set-flags=*) FLAGS_ARG=${1#*=}; shift;;
   --from-set) FROM_SET=$2; shift 2;; --briefs-parallel) shift 2;; *) POS+=("$1"); shift;; esac; done
-if [ ${#JOBS[@]} -gt 0 ]; then   # sequential briefs, each its own call with its own budget
+if [ ${#JOBS[@]} -gt 0 ]; then   # sequential briefs
+  FINAL_POOL=""; for j in "${JOBS[@]}"; do IFS='|' read -r files _ _ <<< "$j"; FINAL_POOL="$FINAL_POOL $files"; done; export FINAL_POOL   # every brief of this call can be referred to, each its own call with its own budget
   rc=0
   for j in "${JOBS[@]}"; do
     IFS='|' read -r files api out <<< "$j"; t=$(date +%s)
@@ -38,6 +39,11 @@ set -- "${POS[@]}"
 [ $# -ge 3 ] || { sed -n 2,12p "$0"; exit 2; }
 ARGS=("$@"); OUT=${ARGS[$#-1]}; API=${ARGS[$#-2]}; BRIEFS=("${ARGS[@]:0:$#-2}")
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); API=$(cd "$(dirname "$API")" && pwd)/$(basename "$API")
+# brief references ("Brief B is Brief A with ..."): the referenced brief is built first (from the briefs of this call, else briefs/*.md); not found: WARN, built alone
+POOL=(${FINAL_POOL:-} "${BRIEFS[@]}")
+if RES=$(python3 scripts/brief_refs.py --pool "${POOL[@]}" --repo briefs --log "$OUT/brief_resolution.json" -- "${BRIEFS[@]}" 2>"$OUT/brief_refs.err") && [ -n "$RES" ]; then
+  BRIEFS=(); while IFS= read -r f; do [ -n "$f" ] && BRIEFS+=("$f"); done <<< "$RES"
+fi
 BRIEFS_CSV=$(IFS=,; echo "${BRIEFS[*]}")
 FEATURES=${FLAGS_ARG:-${FEATURES:-$(bash scripts/final_flags.sh . "$MAIN" || python3 -c "import json;print(','.join(json.load(open('$MAIN/out/template_cc/p4/brief-a/build_report.json'))['features']))")}}
 export FEATURES SELFTEST_API=$API SELFTEST_SLOT="st-$(echo "$OUT" | shasum | cut -c1-6)"  # one Freya workflow slot per brief run, updated in place (preference; a new one is fine if that fails)
@@ -54,6 +60,7 @@ stage() { local n=$1; shift; local t=$(date +%s)
   "$@" >> "$OUT/$n.out" 2>&1; local rc=$?
   local s=$(( $(date +%s) - t )); STAGES+=("$n=$s"); say "stage $n: ${s}s, exit $rc"; return $rc; }
 say "mode $FINAL_MODE, budget ${BUDGET_MIN:-window} min, ship at $(date -r "$CUT" +%H:%M:%S)"
+[ -s "$OUT/brief_refs.err" ] && while IFS= read -r l; do say "brief refs: $l"; done < "$OUT/brief_refs.err"
 say "final_run: briefs ${BRIEFS_CSV}, window ends $(date -r "$END" +%H:%M), flags: $FEATURES${FROM_SET:+, from set $FROM_SET}"
 
 # 0. one tiny LLM call with the provider the build will use: fail fast (< 30 s) instead of failing inside the extraction
