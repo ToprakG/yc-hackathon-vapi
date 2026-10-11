@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 EVAL = REPO / "out/template_cc/eval"
 BRIEFS = ["brief-a", "brief-b", "f1-nordhavn", "f2-ostral", "f3-kestrel", "f4-brightwell", "f5-halden-email", "f6-corvid-memo", "f7-lumen-codes"]
+DONE_CACHE = {}
 STATE = {"freya": {"ok": None, "error": None, "at": 0, "sims": []}}
 LOCK = threading.Lock()
 
@@ -51,6 +52,22 @@ def poll_freya():
                 row = {"id": s["id"][:8], "name": s["name"], "status": s["status"], "age": round((now - created).total_seconds() / 60, 1),
                        "created": created.astimezone().strftime("%H:%M:%S"), "total": m.get("totalRuns"), "passed": m.get("passedRuns"),
                        "failed": m.get("failedRuns"), "runs": None, "prog": None}
+                if s["status"] != "running" and s["id"] in DONE_CACHE:
+                    row["prog"] = DONE_CACHE[s["id"]]
+                elif s["status"] != "running" and len(DONE_CACHE) < 40 and s["id"] not in DONE_CACHE and len(res["sims"]) < 5:
+                    try:  # a finished simulation: the real per-run outcomes (Freya's summary metrics leave out inconclusive / error runs)
+                        its = freya.api("GET", f"/api/v2/simulations/{s['id']}/iterations")
+                        its = its.get("iterations") or its.get("items") or its
+                        runs = freya.get_iteration(s["id"], its[0]["id"])["runs"]
+                        states = [str(x.get("outcome") or x.get("status") or "queued") for x in runs]
+                        c = collections.Counter(states)
+                        order = ["pass", "fail", "inconclusive", "error", "analyzing", "running", "queued"]
+                        row["prog"] = DONE_CACHE[s["id"]] = {
+                            "total": len(states), "done": sum(c.get(k, 0) for k in ("pass", "fail", "inconclusive", "error")), "passed": c.get("pass", 0),
+                            "failed": c.get("fail", 0), "other": c.get("inconclusive", 0) + c.get("error", 0),
+                            "boxes": sorted(states, key=lambda x: order.index(x) if x in order else 9)}
+                    except Exception:  # noqa: BLE001
+                        pass
                 if s["status"] == "running":
                     try:
                         its = freya.api("GET", f"/api/v2/simulations/{s['id']}/iterations")
@@ -59,14 +76,14 @@ def poll_freya():
                         states = [str(x.get("outcome") or x.get("status") or "queued") for x in runs]
                         c = collections.Counter(states)
                         row["runs"] = dict(c)
-                        finished = [x for x in states if x in ("pass", "fail", "inconclusive")]
+                        finished = [x for x in states if x in ("pass", "fail", "inconclusive", "error")]
                         row["prog"] = {"total": len(states), "done": len(finished), "passed": c.get("pass", 0), "failed": c.get("fail", 0),
                                        "other": c.get("inconclusive", 0), "boxes": sorted(states, key=lambda x: ["pass", "fail", "inconclusive", "analyzing", "running", "queued"].index(x) if x in ["pass", "fail", "inconclusive", "analyzing", "running", "queued"] else 9)}
                         row["stuck"] = (row["age"] > 20) or (row["age"] > 3 and set(c) == {"queued"})
                     except Exception as e:  # noqa: BLE001
                         row["runs"] = {"error": str(e)[:60]}
                 if row["prog"] is None and row["total"]:
-                    row["prog"] = {"total": row["total"], "done": row["total"], "passed": row["passed"] or 0, "failed": row["failed"] or 0, "other": 0,
+                    row["prog"] = {"total": row["total"], "done": (row["passed"] or 0) + (row["failed"] or 0), "passed": row["passed"] or 0, "failed": row["failed"] or 0, "other": 0,
                                    "boxes": ["pass"] * (row["passed"] or 0) + ["fail"] * (row["failed"] or 0)}
                 res["sims"].append(row)
             res["ok"] = True
@@ -132,13 +149,13 @@ table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--li
 .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:6px 0}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.mut{color:var(--mut)}pre{margin:0;white-space:pre-wrap;font-size:12px}
 .bx{display:inline-block;width:14px;height:14px;margin:1px;border-radius:3px;background:var(--line)}
-.bx.pass{background:var(--ok)}.bx.fail{background:var(--bad)}.bx.inconclusive{background:#d98f00}.bx.analyzing{background:#2f81f7}.bx.running{background:var(--warn);opacity:.6}
+.bx.pass{background:var(--ok)}.bx.fail{background:var(--bad)}.bx.inconclusive{background:#d98f00}.bx.error{background:#8250df}.bx.analyzing{background:#2f81f7}.bx.running{background:var(--warn);opacity:.6}
 .bar{display:inline-block;width:90px;height:8px;border-radius:4px;background:var(--line);vertical-align:middle;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
 .banner{padding:8px 12px;border-radius:6px;margin:8px 0;border:1px solid var(--bad);color:var(--bad)}
 </style></head><body><h1>Simulations <span class=mut id=t></span></h1><div id=app>loading...</div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const prog=p=>!p?'':`<b>${p.done}/${p.total}</b> done &middot; <b class=ok>${p.passed}</b> passed &middot; <b class=bad>${p.failed}</b> failed${p.other?' &middot; '+p.other+' inconclusive':''} <span class=bar><i style="width:${p.total?100*p.done/p.total:0}%"></i></span><br>`+p.boxes.map(b=>`<span class="bx ${b}" title="${b}"></span>`).join('');
+const prog=p=>!p?'':`<b>${p.done}/${p.total}</b> done &middot; <b class=ok>${p.passed}</b> passed &middot; <b class=bad>${p.failed}</b> failed${p.other?' &middot; '+p.other+' inconclusive/error':''} <span class=bar><i style="width:${p.total?100*p.done/p.total:0}%"></i></span><br>`+p.boxes.map(b=>`<span class="bx ${b}" title="${b}"></span>`).join('');
 const cls=s=>({done:'ok',completed:'ok',running:'warn',abandoned:'bad',waiting:'mut'}[s]||'');
 async function tick(){try{const d=await (await fetch('/api/state')).json();const f=d.freya,g=d.gate;let h='';
  if(f.ok===null)h+=`<div class=banner>Freya API: no answer yet - a call can hang for up to 2 minutes during an outage</div>`;else h+=f.ok?`<div class=card>Freya API <b class=ok>answers</b> <span class=mut>(checked ${f.stale_s}s ago)</span></div>`:`<div class=banner>Freya API <b>failing</b>: ${esc(f.error)} <span class=mut>(${f.stale_s}s ago)</span></div>`;
