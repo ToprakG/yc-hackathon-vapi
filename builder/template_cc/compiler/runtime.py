@@ -99,12 +99,28 @@ def spoken_full(d):
     return spoken(d) + ' (' + d.isoformat() + ')'
 
 
+CLEAN_STEM = False
+
+
+def _fold(s):
+    return ' ' + re.sub(r'[\W_]+', ' ', str(s).replace('\u0130', 'i').replace('I', '\u0131' if CLEAN_STEM else 'I').lower()) + ' '
+
+
 def clean_line(line, banned, fallback):
-    """F22: a line spoken before identity is verified never holds a banned word; else the fixed fallback line."""
-    low = ' ' + re.sub(r'[^a-z0-9]+', ' ', str(line).lower()) + ' '
+    """F22: a line spoken before identity is verified never holds a banned word; else the fixed fallback line.
+    Letters of every language count as letters. With CLEAN_STEM (Turkish) a banned word is a stem: suffixed forms match too."""
+    low = _fold(line)
     for w in banned or []:
-        k = re.sub(r'[^a-z0-9]+', ' ', str(w).lower()).strip()
-        if k and ' ' + k + ' ' in low:
+        k = _fold(w).strip()
+        if not k:
+            continue
+        if CLEAN_STEM:
+            keys = [k] + ([k[:-1] + 'c'] if k.endswith('\u00e7') else []) + ([k[:-1] + '\u011f'] if k.endswith('k') else []) \
+                + ([k[:-1] + 'd'] if k.endswith('t') else [])
+            hit = any(' ' + x in low for x in keys)
+        else:
+            hit = ' ' + k + ' ' in low
+        if hit:
             return fallback
     return line
 

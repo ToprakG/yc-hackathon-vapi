@@ -14,7 +14,7 @@ import textwrap
 from functools import lru_cache
 from pathlib import Path
 
-from .i18n import MSAY_SRC, inject_parsers, localize
+from .i18n import MSAY_SRC, TRADDR_SRC, inject_parsers, localize
 
 RUNTIME = Path(__file__).resolve().parent / "runtime.py"
 MSG_BEGIN, MSG_END = "# MSG-BEGIN", "# MSG-END"
@@ -107,6 +107,8 @@ def build(body: str, cfg: dict, uses=(), fallback: str = "pass", msgs: dict | No
     body, h = localize(body, lang), localize(h, lang)
     if lang == "tr":
         h = inject_parsers(h)
+    if "tr_addr(" in body and lang == "tr":
+        h = (h + "\n\n\n" if h else "") + TRADDR_SRC
     if "msay(" in body and lang == "tr":
         h = (h + "\n\n\n" if h else "") + MSAY_SRC
     cfg = cfg_subset(cfg, body, h)

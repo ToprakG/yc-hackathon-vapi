@@ -29,6 +29,9 @@ def spoken(text: str, policy: dict) -> str:
     value the extractor wrote into a line) cannot be filled: the line is cut before it, dangling words are dropped."""
     cv = set(policy.get("call_variables") or [])
     text = str(text or "")
+    if str(policy.get("language") or "").lower()[:2] == "tr":  # title after the surname: set in setup as addr_name
+        text = re.sub(r"\{\{?\s*title\s*\}?\}\s*\{\{?\s*last_name\s*\}?\}", "{addr_name}", text)
+        cv.add("addr_name")
     bad = next((m for m in PLACEHOLDER.finditer(text) if m.group(1) not in cv), None)
     if bad is not None:
         text = TRAILING.sub("", text[: bad.start()]).strip()

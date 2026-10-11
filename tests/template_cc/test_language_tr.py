@@ -69,7 +69,7 @@ def test_tr_amounts_comma_dot_and_currency():
         src = S.build("vars['x'] = msay(1234.5) + '|' + msay(162) + '|' + msay(1234567.891)", {"lang": "tr", "currency": cur})
         v = {}
         exec(src, {"vars": v})
-        assert v["x"] == f"1.234,50{tail}|162,00{tail}|1.234.567,89{tail}", v["x"]
+        assert v["x"] == f"1.234,50{tail}|162{tail}|1.234.567,89{tail}", v["x"]
 
 
 def test_english_keeps_plain_amounts():
@@ -162,3 +162,44 @@ def test_tr_half():
     assert v["r1"][0] == 0.5, v["r1"]
     assert v["r2"][0] == 2000.5, v["r2"]
     assert v["r3"][0] == 1.5, v["r3"]
+
+
+def test_clean_line_turkish_stems_and_unicode():
+    banned = ["tahsilat", "borç", "ödeme", "ürün"]
+    body = "vars['a'] = clean_line(%r, %r, 'FB')"
+    run = lambda line, lang="tr": _run(body % (line, banned), ("clean_line",), lang)["a"]
+    for line in ("Ödemeyi bugün yapabilir misiniz?", "Borcunuz var", "ÜRÜNÜ", "tahsilatı", "Borçlarınız", "ödemelerinizi"):
+        assert run(line) == "FB", line
+    for line in ("Ne zaman ulaşılabilir?", "Hangi gün uygun olur?", "Bu bilgi bende yok", "Çok teşekkür ederim"):
+        assert run(line) == line, line
+    # English keeps whole-word matching
+    assert _run("vars['a'] = clean_line('the payment is due', ['pay'], 'FB')", ("clean_line",), "en")["a"] == "the payment is due"
+    assert _run("vars['a'] = clean_line('please pay now', ['pay'], 'FB')", ("clean_line",), "en")["a"] == "FB"
+
+
+def test_tr_form_of_address():
+    from builder.template_cc.compiler import snippets as S
+
+    def addr(title, first="Daniel", last="Reyes"):
+        v = {"title": title, "first_name": first, "last_name": last}
+        exec(S.build("vars['x'] = tr_addr(vars)", {"lang": "tr"}), {"vars": v})
+        return v["x"]
+    assert addr("Mr") == "Reyes Bey" and addr("Bay") == "Reyes Bey"
+    for t in ("Mrs", "Ms", "Miss", "Bayan", "ms."):
+        assert addr(t) == "Reyes Hanım", t
+    assert addr("Dr") == "Daniel Reyes" and addr("") == "Daniel Reyes"
+    wf, pol = build("tr")
+    text = codes(wf)
+    assert "{{addr_name}}" in text and "{{title}}" not in text
+    wf, pol = build("en")
+    assert "addr_name" not in codes(wf)
+
+
+def test_tr_phrasing():
+    wf, _ = build("tr")
+    text = codes(wf)
+    for good in ("ödeyeceksiniz. ", "gündür gecikmiş", "tutarında ödemeniz var", "Kalan tutar gecikmiş olarak kalır", "tutarın tamamını (",
+                 "kayıtlarımızla eşleşmedi", "iş günü olan "):
+        assert good in text, good
+    for bad in ("Kalanı gecikmiş", "Bu yanıt eşleşmedi", "gün gecikme."):
+        assert bad not in text, bad
