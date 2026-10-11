@@ -69,7 +69,10 @@ Decide the variables each code node and hook writes, and their fallbacks.
 ### 4. Build (at most 8 minutes)
 
 1. Write `out/workflow.json`, building from `templates/fragments/` and the cookbook patterns:
-   - `test_variables`: every call variable the brief lists, with invented sample values and a `now`.
+   - `test_variables`: EVERY call variable that any document defines (the variables the platform hands the agent at the start of the call, and `now` when
+     the documents define it), under exactly the names the documents use, with invented sample values; record them in `policy.call_variables`.
+     Call variables are given, never asked: the system prompt and every task say "never ask the caller for a value that is given as a call variable"
+     (use it as is), and tools take their value from `{{variable}}`. Date decisions use the call variable that carries the date and time, never the system clock.
    - setup code node first, then opening, then ONLY the stages the brief and the documents require, then the side routes and endings.
      Typical stages are identity check, account read, facts, negotiation or promise; include none of them by habit. An identity step (and any
      "verify before disclosing" rule) exists only if the documents ask for it; if they say the caller was already verified upstream (for example

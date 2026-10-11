@@ -18,6 +18,8 @@ Tools: use ONLY the operations of input/tools.openapi.json (names, URLs, fields,
 
 Stages: build only the stages the documents require. Do not add an identity check, a promise or negotiation stage, or a "verify before disclosing" rule unless the documents ask for it; if they say the caller is already verified upstream, go from the opening to the work the call is for.
 
+Call variables: declare in the workflow (test_variables, policy.call_variables) every variable the documents say the agent receives at the start of the call, under the documents' own names, and never have the agent ask the caller for a value that is given as a call variable. Date decisions use the call's own date-time variable when the documents define one.
+
 Time budget: {minutes:g} minutes of wall clock. Call mcp__fb__time_left at every phase boundary and follow its advice.
 
 Write these files:
