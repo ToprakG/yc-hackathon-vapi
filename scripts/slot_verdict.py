@@ -16,8 +16,12 @@ def get(k, default=None):
     return m.group(2) if m else default
 
 
-SET, PFX, BRIEFS, FAMILY = get("SET"), get("PFX"), get("BRIEFS").split(), get("FAMILY")
-E = "out/template_cc/eval/freya"
+import os
+
+SET, PFX, FAMILY = get("SET"), get("PFX"), get("FAMILY")
+E = os.environ.get("SLOT_E", "out/template_cc/eval/freya")
+ALL = ["brief-a", "brief-b", "f1-nordhavn", "f2-ostral", "f3-kestrel", "f4-brightwell", "f5-halden-email", "f6-corvid-memo", "f7-lumen-codes"]
+BRIEFS = [next((a for a in ALL if a == t or a.startswith(t + "-")), t) for t in get("BRIEFS").split()]   # short ids (f3) -> full names
 
 
 def rows(b, tag):

@@ -11,10 +11,10 @@ next_slot() { ls -tr $E/reserved_slot_*.env $E/reserved_slot.env 2>/dev/null | w
 lane_busy() { [ -d $E/lane1.lock ] && kill -0 "$(cat $E/lane1.lock/pid 2>/dev/null)" 2>/dev/null; }
 run_slot() { next=$1
   name=$(basename "$next" .env | sed 's/^reserved_slot_*//'); [ -z "$name" ] && name=default
-  . "$next"; touch "$next.done"; slots=$((slots + 1))
+  touch "$next.done"; slots=$((slots + 1))
   [ "$name" = default ] && cp "$next" "$E/reserved_slot_default.env"
-  echo "$(date +%H:%M) slot $slots/3 '$name' (preempts the background items): set $SET, briefs $BRIEFS, tag prefix $PFX" >> $E/gate_reserved.log
-  GATE_END=1925 GATE_BRIEFS="$BRIEFS" scripts/gate_set.sh "$SET" "$PFX"
+  echo "$(date +%H:%M) slot $slots/3 '$name' (preempts the background items): $(tr '\n' ' ' < "$next")" >> $E/gate_reserved.log
+  scripts/run_slot.sh "$next" >> $E/gate_reserved.log 2>&1
   .venv310/bin/python scripts/slot_verdict.py "$name" >> $E/gate_reserved.log 2>&1; }
 # background items: "set prefix rep brief"
 TASKS=("abl_f20_once_flags abl_f20_once_flags_g 1 f4-brightwell" "abl_f20_once_flags abl_f20_once_flags_g 1 f6-corvid-memo" "m2b m2bg 1 f3-kestrel" "m2b m2bg 2 brief-b")
