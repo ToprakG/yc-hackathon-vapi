@@ -17,6 +17,7 @@ must reproduce: nothing outside the repo, `README_RUN.md` setup, the Claude logi
 | the tool spec (OpenAPI json) | `hidden/<name>.openapi.json` and a copy `testbed/fake_briefs/<name>/tools.openapi.json` | `final_run.sh`; `final_eval.sh` (mock bank) |
 | the brief again | `testbed/fake_briefs/<name>/brief.md` (a copy; only documentation) | nobody reads it, keep it for the record |
 | cases / bank config (only if you run `final_eval.sh`, which the final does not) | `testbed/fake_briefs/<name>/cases.json` and `config.json` | `final_eval.sh` |
+**A hidden brief that builds on another one ("Brief B is Brief A with ..."), or a second hidden brief: at 20:00 save BOTH hidden briefs into `briefs/` first (file placement only, no code change), then run `build.py` once per brief.** The resolver finds the referenced brief in `briefs/` by its `# Brief X` title letter or the file name `brief-x.md`. Name the hidden files so they sort BEFORE our dev briefs, e.g. `briefs/00-hidden1.md`, `briefs/00-hidden2.md` (the first match in sorted order wins, and our dev `brief-a.md` / `brief-b.md` carry the titles Brief A / Brief B). Look for `brief refs: ... resolved ... found_in repo` in `<out>/final_run.log` (and `<out>/brief_resolution.json`) and check that `path` is the hidden file.
 `mkdir -p hidden testbed/fake_briefs/<name>` first. The builder (`final_run.sh`) reads only the brief(s) and the tool spec, never cases or config.
 
 ### The commands, in order

@@ -94,3 +94,13 @@ def test_sanity_cli_exit_codes(tmp_path):
     run = lambda f: subprocess.run([sys.executable, str(REPO / "scripts" / "policy_sanity.py"), str(f), "--out", str(tmp_path / "o.json")], capture_output=True, text=True)
     assert run(good).returncode == 0 and run(bad).returncode == 1
     assert json.loads((tmp_path / "o.json").read_text())["degenerate"] is True
+
+
+def test_hidden_brief_placed_in_briefs_wins_over_a_dev_brief_with_the_same_title(tmp_path):
+    """RUNBOOK_FINAL: the 20:00 files go to briefs/00-<name>.md, which sorts before the dev brief-a.md that has the same title letter."""
+    repo = tmp_path / "briefs"; repo.mkdir()
+    dev = w(repo, "brief-x.md", BASE)
+    hidden = w(repo, "00-hidden1.md", BASE.replace("one product", "hidden bank"))
+    child = w(tmp_path, "h2.md", CHILD)
+    order, log = B.resolve([child], pool=[child], repo=str(repo))
+    assert order == [str(hidden), str(child)] and log[0]["found_in"] == "repo" and str(dev) not in order
