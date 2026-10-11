@@ -284,6 +284,13 @@ def said_once(vars, line_id):
     return True
 
 
+def with_aside(vars, text):
+    """F18: the answer to a side question (vars['aside_line']) is said once, in front of the step's own line."""
+    a = str(vars.get('aside_line') or '').strip()
+    vars['aside_line'] = ''
+    return (a + ' ' + str(text or '')).strip()
+
+
 def open_pids(vars):
     pst = jget(vars, 'pstate', dict())
     return [p for p in jget(vars, 'pids', []) if pst.get(p, 'open') == 'open']
