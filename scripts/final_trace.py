@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--base", required=True)
     ap.add_argument("--green", required=True)
     ap.add_argument("--slot", default="")
+    ap.add_argument("--stages", default="", help="name=seconds ...: logged as a final_stages event")
     a = ap.parse_args()
     out, base, green = Path(a.out).resolve(), Path(a.base).resolve(), Path(a.green).resolve()
     rep = json.loads((base / "build_report.json").read_text())
@@ -50,6 +51,29 @@ def main():
            passed=row["pass"], judge_verdict=j, ledger_diff=l)
         lines.append(f"selftest {label} {row['case']} [{row.get('rule')}] {c.get('title', '')}: {'PASS' if row['pass'] else 'FAIL'} | judge: {j[:120]} | ledger: {l[:120]}")
 
+    # the 3 extractions of the final vote ran as separate builds with their own traces: their model calls belong to this build's trace
+    tot = {"model_calls": 0, "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
+    for rp in sorted(base.glob("ext*/build_report.json")):
+        try:
+            et = Path(json.loads(rp.read_text()).get("trace") or "")
+            for x in (et / "events.jsonl").read_text().splitlines():
+                e = json.loads(x)
+                if e.get("type") == "model_call":
+                    ev("model_call", source=f"final vote {rp.parent.name}", **{k: v for k, v in e.items() if k not in ("type", "t")})
+                    tot["model_calls"] += 1
+                    tot["tokens_in"] += e.get("tokens_in") or 0
+                    tot["tokens_out"] += e.get("tokens_out") or 0
+                    tot["cost_usd"] += e.get("cost_usd") or 0.0
+            lines.append(f"model calls of {rp.parent.name} (final vote extraction, trace {et.name}) merged into this trace")
+        except Exception as e:  # noqa: BLE001
+            lines.append(f"could not merge the trace of {rp.parent.name}: {e!r}"[:200])
+    if tot["model_calls"]:
+        ev("totals_extraction", **tot)
+        lines.append("totals of the final-vote extractions: " + " ".join(f"{k}={v}" for k, v in tot.items()))
+    if a.stages:
+        st = dict(x.split("=", 1) for x in a.stages.split() if "=" in x)
+        ev("final_stages", seconds=st)
+        lines.append("final_run stages (s): " + " ".join(f"{k}={v}" for k, v in st.items()))
     first = base / "selftest" / "results.json"
     if first.exists():
         r = json.loads(first.read_text())
