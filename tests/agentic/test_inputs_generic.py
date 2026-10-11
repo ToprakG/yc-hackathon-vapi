@@ -85,7 +85,7 @@ def test_scope_limits_must_reach_the_agent():
     assert r.errors == [] and len(r.warnings) == 1
     r = L.Report()
     L._check_scope_limits(wf, r, [{"request": "x", "limit": "Cash advances are not handled here"}])
-    assert len(r.errors) == 1 and "reaches the agent" in r.errors[0]["msg"]
+    assert r.errors == [] and len(r.warnings) == 1 and "reaches the agent" in r.warnings[0]["msg"]
     r = L.Report()
     L._check_scope_limits(wf, r, None)
     assert r.errors == [] and r.warnings == []

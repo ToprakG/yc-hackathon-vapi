@@ -757,7 +757,7 @@ def _norm_text(t) -> str:
 
 def _check_scope_limits(wf, r: Report, scope_limits):
     """policy.scope_limits = [{request, limit, quote}]: what the documents say is out of scope or only partly supported. The `limit` sentences must reach the agent:
-    in the system prompt, a node prompt, a fixed line or a code sentence. None of them anywhere is an error; a single missing one is a warning."""
+    in the system prompt, a node prompt, a fixed line or a code sentence. Never an error (a paraphrase must not make the agent loop or fail a time-boxed build): a missing limit is a warning."""
     items = [x for x in (scope_limits or []) if isinstance(x, dict) and str(x.get("limit") or "").strip()]
     if not items:
         return
@@ -766,7 +766,7 @@ def _check_scope_limits(wf, r: Report, scope_limits):
     for x in missing:
         r.warn("$.system_prompt", f"scope limit not found verbatim in the workflow: {str(x['limit'])[:90]!r} (request: {str(x.get('request') or '')[:60]!r})")
     if len(missing) == len(items):
-        r.err("$.system_prompt", f"none of the {len(items)} policy.scope_limits reaches the agent: put each limit sentence into the system prompt (or the node that handles the request)")
+        r.warn("$.system_prompt", f"none of the {len(items)} policy.scope_limits reaches the agent verbatim: put each limit sentence into the system prompt (or the node that handles the request); a paraphrase is fine, so this is only a warning")
 
 
 def lint(wf, api_summary: dict, call_vars=None, unused_tools=(), language=None, scope_limits=None) -> dict:
