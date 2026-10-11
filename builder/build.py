@@ -30,6 +30,12 @@ if str(REPO) not in sys.path:
 from builder.common.io import InputError, slot_name, split_inputs  # noqa: E402
 
 
+def default_builder_model() -> str:
+    """The agentic builder runs on Claude Code (claude_cli): $BUILDER_MODEL counts only when it names a Claude model; an openai:/openrouter-style value in the environment is ignored."""
+    m = os.environ.get("BUILDER_MODEL", "").strip()
+    return m if m.lower().startswith("claude") else "claude-sonnet-5-5"
+
+
 def run_agentic(args, briefs, api) -> dict:
     from builder.agentic.run import BuildOptions, run  # noqa: PLC0415
 
@@ -91,7 +97,7 @@ def parse(argv=None):
     p.add_argument("--review", default="on", choices=["on", "off"], help="fresh-context review + one fix round")
     p.add_argument("--review-minutes", type=float, default=5.0)
     p.add_argument("--fix-minutes", type=float, default=6.0)
-    p.add_argument("--model", default=os.environ.get("BUILDER_MODEL", "claude-opus-5-5"))
+    p.add_argument("--model", default=None)
     p.add_argument("--max-usd", type=float, default=None, help="optional cost cap for the agent run")
     p.add_argument("--members", default="", help="team members for submission.json, comma separated (default: MEMBERS.txt)")
     p.add_argument("--out", help="output directory; default out/<variant>/<slot>/")
@@ -151,6 +157,7 @@ def main(argv=None) -> int:
         except InputError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
+    args.model = args.model if args.model and args.model.lower().startswith("claude") else default_builder_model()
     args.max_minutes = args.max_minutes if args.max_minutes is not None else (30.0 if args.variant == "tcc" else 15.0)
     args.slot = args.slot or slot_name(briefs, args.variant)
     args.out = args.out or str(REPO / "out" / args.variant / args.slot)
