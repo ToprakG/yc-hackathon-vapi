@@ -149,12 +149,26 @@ def test_id_decline_is_the_number_of_re_asks_after_the_first_refusal():
         assert ("identity_explain" in wf["nodes"]) == (n >= 1)
 
 
-def test_after_the_explanation_a_non_answer_counts_as_a_refusal():
-    wf, _ = build(BASE + ",f18,f19")
-    assert wf["nodes"]["identity_explain"]["transitions"][-1]["target_node"] == "id_refusal_count"
-    assert wf["nodes"]["identity"]["transitions"][-1]["target_node"] == "id_resume"
-    wf, _ = build(BASE + ",f18")
+def test_after_the_explanation_the_second_non_answer_in_a_row_is_a_refusal():
+    wf, pol = build(BASE + ",f18,f19")
     assert wf["nodes"]["identity_explain"]["transitions"][-1]["target_node"] == "id_resume"
+    v = start(wf, pol, resume_step="identity_explain", id_q="date_of_birth")
+    v = run_code(wf, "id_resume", v)
+    assert v["id_route"] == "resume" and v["id_fill"] == "1"  # the first one is only re-asked
+    assert run_code(wf, "id_resume", v)["id_route"] == "refuse"
+    assert run_code(wf, "id_resume", dict(v, resume_step="identity", id_fill="0"))["id_route"] == "resume"  # not after the explanation
+    wf, pol = build(BASE + ",f18")
+    assert run_code(wf, "id_resume", start(wf, pol, resume_step="identity_explain", id_fill="5"))["id_route"] == "resume"
+
+
+def test_a_scam_doubt_without_an_answer_is_a_question_back_only_with_f19():
+    wf, pol = build(BASE + ",f18,f19")
+    v = run_code(wf, "id_aside", start(wf, pol, turn_intent="asks_scam", id_intent="other", id_q="date_of_birth"))
+    assert v["id_route"] == "refuse" and v["aside_line"] == pol["lines"]["scam"]["text"]
+    out = run_code(wf, "id_refusal_count", v)
+    assert out["id_route"] == "explain" and out["id_say"].startswith(pol["lines"]["scam"]["text"] + " " + pol["lines"]["id_reason"]["text"])
+    wf, pol = build(BASE + ",f18")
+    assert run_code(wf, "id_aside", start(wf, pol, turn_intent="asks_scam", id_intent="other"))["id_route"] == "resume"
 
 
 def test_refusals_are_consecutive_and_the_explanation_is_said_once_per_call():

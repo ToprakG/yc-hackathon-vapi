@@ -286,9 +286,8 @@ class Graph:
             if "id_resume" in self.nodes:
                 for nid in ("identity", "identity_explain"):
                     if nid in self.nodes:
-                        # F19: told why and still no answer = "still declines"; elsewhere a turn with nothing to act on resumes the step
-                        again = "id_refusal_count" if nid == "identity_explain" and "f19_refusal_rule" in self.f else "id_resume"
-                        self.nodes[nid]["transitions"].append(always(again))
+                        # a turn with nothing to act on resumes the step (F19: the second in a row after the explanation is a refusal)
+                        self.nodes[nid]["transitions"].append(always("id_resume"))
         if "f20_once_flags" in self.f and "human_gate" in self.nodes:  # every way into the help offer goes through the gate
             for coll in (self.nodes, self.globals):
                 for nid, node in coll.items():
@@ -726,6 +725,8 @@ ID_INIT        vars['cb_state'] = 'none'
            .replace("SAY_EXPLAIN\n", say_explain or "pass\n")
         body = body.replace("SAY_ASK", say_ask.strip() or "pass").replace("SAY_EXPLAIN", say_explain.strip() or "pass")
         uses = ("num",) + (uses_extra if f19 else ())
+        if f19:
+            body = body.rstrip() + "\n        vars['id_fill'] = '0'\n"
         if f18:  # F18: a side answer that is waiting is said first; the step to resume is remembered
             body = body.rstrip() + ("\n        vars['resume_step'] = 'identity_explain' if vars['id_route'] == 'explain' else 'identity'\n"
                                     "        if vars['id_route'] in ('ask', 'explain'):\n"
@@ -846,7 +847,7 @@ ID_INIT        vars['cb_state'] = 'none'
         f19 = "f19_refusal_rule" in self.f
         f18 = "f18_side_resume" in self.f and "f7_router" in self.f
         refusing = "intent0 in ('refuses', 'asks_question', 'declines', 'asks_purpose')" if f19 else "False"
-        body = body.replace("RESET_STREAK", "vars['id_declines'] = '0'\n            " if f19 else "")
+        body = body.replace("RESET_STREAK", "vars['id_declines'] = '0'\n            vars['id_fill'] = '0'\n            " if f19 else "")
         body = body.replace("INTENT0", "intent0 = str(vars.get('id_intent') or '')\n        " if f19 else "")
         body = body.replace("REFUSE_ALONE", ("if not complete and " + refusing + ":\n            alone = ''\n        ") if f19 else "")
         body = body.replace("REFUSE_ROUTE", ("elif " + refusing + ":\n            vars['id_route'] = 'refuse'\n        ") if f19 else "")
@@ -975,25 +976,33 @@ ID_INIT        vars['cb_state'] = 'none'
         intent = str(vars.get('id_intent') or '')
         if intent == 'answer' or str(vars.get('id_answer_text') or '').strip():
             vars['id_route'] = 'answer'
-        elif intent in REFUSALS:
+        elif intent in REFUSALS or (QUESTION_BACK and t == 'asks_scam'):
             vars['id_route'] = 'refuse'
         else:
             vars['id_route'] = 'resume'
-        """.replace("REFUSALS", repr(tuple(refusal)))
+        """.replace("REFUSALS", repr(tuple(refusal))).replace("QUESTION_BACK", "True" if "f19_refusal_rule" in self.f else "False")
         self.code("id_aside", body, [eq("id_check", "the turn holds an answer", "id_route", "answer"),
                                      eq("id_refusal_count", "the turn holds a refusal", "id_route", "refuse"), always("id_resume")],
                   fallback="vars['id_route'] = 'resume'")
+        f19 = "f19_refusal_rule" in self.f
         self.code("id_resume", """
         field = str(vars.get('id_q') or '') or CFG['identity']['questions'][0]
         prompt = str(CFG['identity']['prompts'].get(field, field))
         vars['id_intent'] = 'other'
         vars['id_answer_text'] = ''
+        vars['id_route'] = 'resume'
+        FILL
         if str(vars.get('aside_line') or '').strip():
             vars['id_say'] = with_aside(vars, prompt)
         else:
             vars['id_say'] = 'Sorry, I did not catch that. ' + prompt
-        """, [eq("identity_explain", "the step was the explanation", "resume_step", "identity_explain"), always("identity")],
-                  uses=("with_aside",), fallback="pass")
+        """.replace("FILL", """if str(vars.get('resume_step')) == 'identity_explain':
+            vars['id_fill'] = str(int(num(vars.get('id_fill'))) + 1)
+            if int(num(vars.get('id_fill'))) >= 2:
+                vars['id_route'] = 'refuse'""" if f19 else "pass"),
+                  [eq("id_refusal_count", "told why and still no answer", "id_route", "refuse"),
+                   eq("identity_explain", "the step was the explanation", "resume_step", "identity_explain"), always("identity")],
+                  uses=("with_aside", "num"), fallback="pass")
 
     # negotiation ------------------------------------------------------------------------------------------------------
     def _promise_tool(self):
