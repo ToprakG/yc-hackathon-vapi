@@ -992,8 +992,8 @@ ID_INIT        vars['cb_state'] = 'none'
             out.append(eq("human_offer", "asks for a person", "side", "human"))
         out.append(eq("stop_count", "does not want to talk", "side", "stop_talking"))
         if "f11_promise_typed" in self.f and with_offer:
-            out.append(eq("promise_check", "the customer names or accepts an amount or a date", "offer_intent",
-                          "proposes", "accepts_offer"))
+            out.append(eq("promise_check", "the customer names, accepts or leaves vague an amount or a date", "offer_intent",
+                          "proposes", "accepts_offer", "vague"))
         for i in range(1, self.nmax + 1):
             k = len(out)
             desc = (f"Product {i} of the facts: its persuasion attempts are used up and the customer still refuses, "
@@ -1268,7 +1268,7 @@ ID_INIT        vars['cb_state'] = 'none'
         if self.multi:
             fields.append(("side_product", [str(i) for i in range(1, self.nmax + 1)] + ["all"]
                            + (["none"] if "f11_promise_typed" in self.f else [])))
-        offer_fields = [("offer_intent", ["proposes", "accepts_offer", "none"]), ("offer_amount_text", None),
+        offer_fields = [("offer_intent", ["proposes", "accepts_offer", "vague", "none"]), ("offer_amount_text", None),
                         ("offer_date_text", None)]
         if f11:
             fields = fields + offer_fields

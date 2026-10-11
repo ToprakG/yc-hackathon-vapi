@@ -232,3 +232,18 @@ def test_free_text_extractions_have_a_lower_confidence_bar_than_enums(a):
         for n in names:
             assert fields[n] == 0.3, (nid, n)
         assert all(c == 0.6 for k, c in fields.items() if k not in names and "text" not in k), nid
+
+
+def test_a_vague_day_is_an_extracted_signal_and_the_code_owns_the_reply(a):
+    wf, pol, _, v = a
+    for nid in ("negotiate", "negotiate_resume"):
+        ext = next(e for e in wf["nodes"][nid]["extraction_schema"] if e["name"] == "offer_intent")
+        assert "vague" in ext["enum_values"] and "no exact day" in ext["description"]
+        t = next(t for t in wf["nodes"][nid]["transitions"] if t["target_node"] == "promise_check")
+        assert {c["operand"] for c in t["condition"]["conditions"]} == {"proposes", "accepts_offer", "vague"}
+    assert "the system asks for the exact day" in wf["nodes"]["negotiate"]["task_message"]
+    o = check(wf, v, "", "", "vague")  # "I'll pay in a while": ask once, then offer the latest date
+    assert o["cp_route"] == "back" and "exact" in o["say_line"]
+    for _ in range(int(pol["ask_limits"].get("vague_date", 1))):
+        o = check(wf, o, "", "", "vague")
+    assert "latest date I can record" in o["say_line"]

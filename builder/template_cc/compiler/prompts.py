@@ -164,6 +164,8 @@ def negotiate_task(policy: dict, multi: bool, typed: bool = False, routed: bool 
         "- A promise date must be today or later, a business day, and not after the product's latest date (see the "
         "date table). A weekend day or holiday that is not after the latest date: offer the next business day. A date "
         "after the latest date: say the latest date you can record and offer it.",
+        ("- A vague time (next week, end of the month, payday): the system asks for the exact day and, if there is still "
+         "none, offers a date; say the line you are given.") if typed else
         f"- A vague time (next week, end of the month, payday): ask for the exact day "
         f"{_times(int((policy.get('ask_limits') or {}).get('vague_date', 1)))}; if there is still none, propose the "
         "latest date.",
@@ -315,7 +317,8 @@ EXTRACT = {
     "who_wants_human": "yes = the person asks for a human, a person or an agent (asking whether you are a robot or an AI "
                        "is NOT that); no = anything else.",
     "offer_intent": "proposes = the customer names an amount or a date for paying; accepts_offer = the customer agrees to your "
-                    "last offer; none = anything else (a refusal, a question, a vague time).",
+                    "last offer; vague = the customer says they will pay but names no exact day (soon, later, next week, payday); "
+                    "none = anything else (a refusal, a question).",
     "offer_amount_text": "The payment amount the customer names in their last message, or the amount of your last offer when "
                          "they just agree to it, copied as said (words or digits). Empty if there is none.",
     "offer_date_text": "The payment date the customer names in their last message, or the date of your last offer when they "
