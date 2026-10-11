@@ -6,13 +6,15 @@ set -e
 cd "$(dirname "$0")/.."
 SET=${1:?set name}; F=${2:?features}
 PY=${PY:-.venv310/bin/python}
+# STANDING RULE: sets m1* (m1, m1x) are built ONLY from out/template_cc/policies_fixed/ (policy_fixups applied), never from cached policies.
+fx() { case $SET in m1*) f=out/template_cc/policies_fixed/$1/policy.json; [ -f "$f" ] || { echo "m1 needs $f (scripts/make_policies_fixed.py)" >&2; exit 1; }; echo "$f";; *) echo "$2";; esac; }
 mkdir -p out/template_cc/$SET
 b() { n=$1; pol=$2; api=$3; shift 3
   if ! $PY -m builder.template_cc.run "$@" "$api" --save none --audit off --policy "$pol" --features "$F" --out out/template_cc/$SET/$n > out/template_cc/$SET/$n.log 2>&1; then
     echo "$n BUILD FAILED (see out/template_cc/$SET/$n.log)"; fi; }
-b brief-a out/template_cc/policy-a.json tools/openapi.json briefs/brief-a.md
-b brief-b out/template_cc/policy-b.json tools/openapi.json briefs/brief-a.md briefs/brief-b.md
-for d in testbed/fake_briefs/*; do id=$(basename $d); b $id out/template_cc/fake/$id/policy.json $d/tools.openapi.json $d/brief.md; done
+b brief-a "$(fx brief-a out/template_cc/policy-a.json)" tools/openapi.json briefs/brief-a.md
+b brief-b "$(fx brief-b out/template_cc/policy-b.json)" tools/openapi.json briefs/brief-a.md briefs/brief-b.md
+for d in testbed/fake_briefs/*; do id=$(basename $d); b $id "$(fx $id out/template_cc/fake/$id/policy.json)" $d/tools.openapi.json $d/brief.md; done
 $PY - "$SET" <<'E'
 import glob, json, sys
 sys.path.insert(0, '.')

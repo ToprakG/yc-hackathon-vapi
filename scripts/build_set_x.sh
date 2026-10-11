@@ -7,7 +7,9 @@ set -e
 cd "$(dirname "$0")/.."
 SET=${1:?set name}; F=${2:?features}
 PY=${PY:-.venv310/bin/python}; XTAG=${XTAG:-x1}
-pick() { [ -f out/template_cc/$XTAG/$1/policy.json ] && echo out/template_cc/$XTAG/$1/policy.json || echo "$2"; }
+# STANDING RULE: sets m1* (m1, m1x) are built ONLY from out/template_cc/policies_fixed/ (policy_fixups applied), never from cached policies.
+fx() { case $SET in m1*) f=out/template_cc/policies_fixed/$1/policy.json; [ -f "$f" ] || { echo "m1 needs $f (scripts/make_policies_fixed.py)" >&2; exit 1; }; echo "$f";; *) echo "$2";; esac; }
+pick() { case $SET in m1*) fx "$1" "$2"; return;; esac; [ -f out/template_cc/$XTAG/$1/policy.json ] && echo out/template_cc/$XTAG/$1/policy.json || echo "$2"; }
 mkdir -p out/template_cc/$SET
 b() { n=$1; pol=$2; api=$3; shift 3
   if ! $PY -m builder.template_cc.run "$@" "$api" --save none --audit off --policy "$pol" --features "$F" --out out/template_cc/$SET/$n > out/template_cc/$SET/$n.log 2>&1; then
